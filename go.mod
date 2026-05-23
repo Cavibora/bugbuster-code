@@ -1,6 +1,6 @@
 module bugbuster-code
 
-go 1.25.8
+go 1.25.10
 
 require (
 	charm.land/bubbles/v2 v2.1.0
