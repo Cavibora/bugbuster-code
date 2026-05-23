@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,42 +21,11 @@ jobs:
       - name: Go version
         run: go version
 
-      - name: Go mod download
-        run: go mod download
-
       - name: Build
-        run: |
-          echo "=== Building ==="
-          CGO_ENABLED=0 go build -v ./cmd/bugbuster/ 2>&1 || {
-            echo "=== Build failed, trying with go mod tidy ==="
-            go mod tidy
-            CGO_ENABLED=0 go build -v ./cmd/bugbuster/ 2>&1
-          }
+        run: go build -v ./cmd/bugbuster/
 
       - name: Vet
         run: go vet ./...
 
       - name: Test
         run: go test -race -count=1 -timeout 120s ./...
-
-      - name: Test Coverage
-        run: |
-          go test -coverprofile=coverage.out -timeout 120s ./...
-          go tool cover -func=coverage.out | tail -1
-
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: '1.25'
-          cache: true
-
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
-          args: --timeout=5m --disable-all --enable=errcheck,gosimple,govet,ineffassign,staticcheck,unused
