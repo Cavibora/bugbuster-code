@@ -1,0 +1,556 @@
+package config
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+
+	"bugbuster-code/pkg/i18n"
+	"bugbuster-code/pkg/provider"
+	"gopkg.in/yaml.v3"
+)
+
+// BugBusterConfig — configuration BugBuster Code
+type BugBusterConfig struct {
+	DefaultProvider string                             `yaml:"default_provider"`
+	Agent           AgentConfig                        `yaml:"agent"`
+	Providers       map[string]provider.ProviderConfig `yaml:"providers"`
+	Tools           ToolsConfig                        `yaml:"tools"`
+	Security        SecurityConfig                     `yaml:"security"`
+	MCP             MCPConfigSection                   `yaml:"mcp"`
+	Plugins         PluginsConfigSection               `yaml:"plugins"`
+	Theme           ThemeConfig                        `yaml:"theme"`
+	Keys            KeyBindings                        `yaml:"keys"`
+	MCPServe        MCPServeConfig                     `yaml:"mcp_serve"`
+	LSP             LSPConfig                          `yaml:"lsp"`
+	ContextArchive  ContextArchiveConfig               `yaml:"context_archive"`
+	UI              string                             `yaml:"ui"` // "auto", "tui", "cli" (default: "auto")
+}
+
+// ContextArchiveConfig is context archiving settings
+type ContextArchiveConfig struct {
+	Enabled      bool `yaml:"enabled"`       // enable archiving (default: true)
+	MaxBlocks    int  `yaml:"max_blocks"`    // max blocks in archive (default: 50)
+	AutoOptimize bool `yaml:"auto_optimize"` // background optimization during compaction (default: true)
+}
+
+// ThemeConfig — theme configuration (colors, markdown rendering)
+type ThemeConfig struct {
+	Mode     string      `yaml:"mode"`      // "dark" | "light"
+	WordWrap int         `yaml:"word_wrap"` // word wrap in markdown (0 = no wrap)
+	Colors   ThemeColors `yaml:"colors"`    // colors
+}
+
+// ThemeColors — theme colors
+type ThemeColors struct {
+	Primary     string `yaml:"primary"`          // spinner, tool call headers
+	Success     string `yaml:"success"`          // ✓, create, diff additions
+	Error       string `yaml:"error"`            // ✗, errors, diff deletions
+	Warning     string `yaml:"warning"`          // warnings, diff modifications
+	Info        string `yaml:"info"`             // input tokens
+	Dim         string `yaml:"dim"`              // dimmed text
+	Thinking    string `yaml:"thinking"`         // thinking block
+	ToolParams  string `yaml:"tool_params"`      // tool call parameters
+	ToolSummary string `yaml:"tool_summary"`     // tool call result summary
+	StatusTime  string `yaml:"status_time"`      // ⏱ time in status
+	StatusSep   string `yaml:"status_separator"` // │ separator in status
+	CtxGood     string `yaml:"context_bar_good"` // context < 50%
+	CtxWarn     string `yaml:"context_bar_warn"` // context 50-80%
+	CtxBad      string `yaml:"context_bar_bad"`  // context > 80%
+	UserMsg     string `yaml:"user_message"`     // ❯ user input (TUI)
+	Assistant   string `yaml:"assistant"`        // assistant spinner/status (TUI)
+	Separator   string `yaml:"separator"`        // ─── separator
+}
+
+// MCPConfigSection — MCP servers configuration
+type MCPConfigSection struct {
+	Servers map[string]MCPServerConfig `yaml:"servers"`
+}
+
+// MCPServerConfig — individual MCP server configuration
+type MCPServerConfig struct {
+	Type    string            `yaml:"type"`    // "stdio", "sse", "streamable-http"
+	Command string            `yaml:"command"` // command for stdio
+	Args    []string          `yaml:"args"`    // arguments
+	URL     string            `yaml:"url"`     // URL for SSE/HTTP
+	Env     map[string]string `yaml:"env"`     // environment variables
+	Headers map[string]string `yaml:"headers"` // HTTP headers (Authorization etc.)
+	Enabled bool              `yaml:"enabled"` // whether enabled
+}
+
+// MCPServeConfig — BugBuster MCP server configuration (when BugBuster acts as server)
+type MCPServeConfig struct {
+	Transport string `yaml:"transport"` // "stdio", "sse", "streamable-http"
+	Host      string `yaml:"host"`      // host for SSE/HTTP
+	Port      int    `yaml:"port"`      // port for SSE/HTTP
+	Prefix    string `yaml:"prefix"`    // tools prefix (default "bugbuster_")
+	Enabled   bool   `yaml:"enabled"`   // enable server on startup
+}
+
+// LSPConfig — LSP servers configuration (Language Server Protocol)
+type LSPConfig struct {
+	Servers map[string]LSPServerConfig `yaml:"servers"` // language → server configuration
+	Timeout int                        `yaml:"timeout"` // request timeout in seconds (default 10)
+}
+
+// LSPServerConfig — individual LSP server configuration
+type LSPServerConfig struct {
+	Command string   `yaml:"command"` // launch command (e.g. "gopls")
+	Args    []string `yaml:"args"`    // command arguments (e.g. ["serve"])
+}
+
+// PluginsConfigSection — plugins configuration
+type PluginsConfigSection struct {
+	Builtins  []string                   `yaml:"builtins"` // built-in plugins (filesystem, bash, web)
+	GoPlugins []GoPluginConfig           `yaml:"go"`       // external Go plugins (.so)
+	MCP       map[string]MCPServerConfig `yaml:"mcp"`      // MCP servers (universal)
+	Enabled   []string                   `yaml:"enabled"`  // backward compatibility: list of enabled built-in plugins
+	Config    map[string]map[string]any  `yaml:"config"`   // backward compatibility: plugins configuration
+}
+
+// GoPluginConfig is external Go plugin configuration (.so)
+type GoPluginConfig struct {
+	Name   string         `yaml:"name"`   // unique name plugin
+	Path   string         `yaml:"path"`   // path to .so file
+	Config map[string]any `yaml:"config"` // plugin configuration
+}
+
+// AgentConfig is agent settings
+type AgentConfig struct {
+	MaxTokens       int                 `yaml:"max_tokens"`  // max tokens in context (0 = default 8000)
+	KeepRecent      int                 `yaml:"keep_recent"` // how many recent messages to keep during compaction
+	Verbose         bool                `yaml:"verbose"`
+	PermissionMode  string              `yaml:"permission_mode"`  // auto-approve, ask, deny
+	Language        string              `yaml:"language"`         // interface language (en, ru, es, fr, de, ja, zh, pt)
+	RequestTimeout  int                 `yaml:"request_timeout"`  // max time for a single LLM request in seconds (0 = default 1200 = 20 min)
+	ThinkingTimeout int                 `yaml:"thinking_timeout"` // max time without tokens from model in seconds (0 = default 600 = 10 min)
+	IdleTimeout     int                 `yaml:"idle_timeout"`     // streaming timeout without events in seconds (0 = default 120 = 2 min)
+	LoopDetection   LoopDetectionConfig `yaml:"loop_detection"`   // loop detection settings
+}
+
+// LoopDetectionConfig — loop detection settings
+type LoopDetectionConfig struct {
+	RepeatThreshold         int     `yaml:"repeat_threshold"`          // how many identical consecutive calls = loop (default: 6)
+	ToolRepeatThreshold     int     `yaml:"tool_repeat_threshold"`     // how many calls of same tool with same parameters = loop (default: 8)
+	WindowSize              int     `yaml:"window_size"`               // sliding window size (default: 30)
+	TextSimilarityThreshold float64 `yaml:"text_similarity_threshold"` // text similarity threshold 0.0-1.0 (default: 0.65)
+	TextSimilarityWindow    int     `yaml:"text_similarity_window"`    // how many text responses to check (default: 4)
+}
+
+// ToolsConfig — settings tools
+type ToolsConfig struct {
+	AllowedDirs    []string `yaml:"allowed_dirs"`
+	MaxFileSize    int64    `yaml:"max_file_size"`
+	BashTimeout    int      `yaml:"bash_timeout"`
+	MaxGrepResults int      `yaml:"max_grep_results"`
+	MaxGlobResults int      `yaml:"max_glob_results"`
+}
+
+// SecurityConfig — settings security
+type SecurityConfig struct {
+	AllowNetwork    bool     `yaml:"allow_network"`
+	BlockedCommands []string `yaml:"blocked_commands"`
+	SandboxDir      string   `yaml:"sandbox_dir"`
+}
+
+// DefaultConfig returns configuration default
+func DefaultConfig() *BugBusterConfig {
+	return &BugBusterConfig{
+		DefaultProvider: "ollama",
+		Agent: AgentConfig{
+			MaxTokens:       8000,
+			KeepRecent:      20,
+			Verbose:         false,
+			PermissionMode:  "auto-approve",
+			Language:        "en",
+			RequestTimeout:  1200, // 20 minutes
+			ThinkingTimeout: 600,  // 10 minutes
+			IdleTimeout:     300,  // 5 minutes
+			LoopDetection: LoopDetectionConfig{
+				RepeatThreshold:         6,
+				ToolRepeatThreshold:     8,
+				WindowSize:              30,
+				TextSimilarityThreshold: 0.65,
+				TextSimilarityWindow:    4,
+			},
+		},
+		Providers: map[string]provider.ProviderConfig{
+			"ollama": {
+				Type:    "ollama",
+				BaseURL: "http://localhost:11434",
+				Model:   "llama3",
+			},
+		},
+		Tools: ToolsConfig{
+			MaxFileSize:    1024 * 1024,
+			BashTimeout:    30,
+			MaxGrepResults: 50,
+			MaxGlobResults: 100,
+		},
+		Security: SecurityConfig{
+			AllowNetwork:    false,
+			BlockedCommands: []string{"rm -rf /", "mkfs", "dd if=", "format c:"},
+		},
+		Theme: ThemeConfig{
+			Mode:     "dark",
+			WordWrap: 80,
+		},
+		Keys: DefaultKeyBindings(),
+		ContextArchive: ContextArchiveConfig{
+			Enabled:      true,
+			MaxBlocks:    50,
+			AutoOptimize: true,
+		},
+		UI: "auto",
+		LSP: LSPConfig{
+			Timeout: 10,
+			Servers: map[string]LSPServerConfig{
+				"go":         {Command: "gopls", Args: []string{"serve"}},
+				"typescript": {Command: "typescript-language-server", Args: []string{"--stdio"}},
+				"python":     {Command: "pylsp"},
+			},
+		},
+	}
+}
+
+// LoadConfig loads configuration from YAML file
+func LoadConfig(path string) (*BugBusterConfig, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, i18n.E("errors_config.read", err)
+	}
+
+	config := DefaultConfig()
+	if err := yaml.Unmarshal(data, config); err != nil {
+		return nil, i18n.E("errors_config.parse", err)
+	}
+
+	// Resolve environment variables in api_key
+	for name := range config.Providers {
+		prov := config.Providers[name]
+		prov.APIKey = resolveEnvVars(prov.APIKey)
+		config.Providers[name] = prov
+	}
+
+	return config, nil
+}
+
+// SaveConfig saves configuration to YAML file
+func (c *BugBusterConfig) SaveConfig(path string) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return i18n.E("errors_config.create_dir", err)
+	}
+
+	data, err := yaml.Marshal(c)
+	if err != nil {
+		return i18n.E("errors_config.serialize", err)
+	}
+
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		return i18n.E("errors_config.write", err)
+	}
+
+	return nil
+}
+
+// ConfigFileNames is the list of config file names to search for, in priority order.
+// Hidden file (.bugbuster.yaml) takes priority over visible file (bugbuster.yaml).
+var ConfigFileNames = []string{".bugbuster.yaml", "bugbuster.yaml"}
+
+// FindConfigFile searches for config file
+// Priority: --config flag > .bugbuster.yaml > bugbuster.yaml (walk up) > ~/.bugbuster/config.yaml
+func FindConfigFile() (string, error) {
+	// Search for config files in current directory and above
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+
+	for i := 0; i < 10; i++ {
+		for _, name := range ConfigFileNames {
+			configPath := filepath.Join(dir, name)
+			if _, err := os.Stat(configPath); err == nil {
+				return configPath, nil
+			}
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+
+	// Check home directory
+	home, err := os.UserHomeDir()
+	if err == nil {
+		configPath := filepath.Join(home, ".bugbuster", "config.yaml")
+		if _, err := os.Stat(configPath); err == nil {
+			return configPath, nil
+		}
+	}
+
+	return "", i18n.E("errors_config.not_found")
+}
+
+// MergeConfigs merges multiple configurations (later = higher priority)
+func MergeConfigs(configs ...*BugBusterConfig) *BugBusterConfig {
+	result := DefaultConfig()
+
+	for _, cfg := range configs {
+		if cfg == nil {
+			continue
+		}
+
+		// DefaultProvider
+		if cfg.DefaultProvider != "" {
+			result.DefaultProvider = cfg.DefaultProvider
+		}
+
+		// Agent
+		if cfg.Agent.Verbose {
+			result.Agent.Verbose = cfg.Agent.Verbose
+		}
+		if cfg.Agent.PermissionMode != "" {
+			result.Agent.PermissionMode = cfg.Agent.PermissionMode
+		}
+		if cfg.Agent.MaxTokens > 0 {
+			result.Agent.MaxTokens = cfg.Agent.MaxTokens
+		}
+		if cfg.Agent.KeepRecent > 0 {
+			result.Agent.KeepRecent = cfg.Agent.KeepRecent
+		}
+		if cfg.Agent.Language != "" {
+			result.Agent.Language = cfg.Agent.Language
+		}
+
+		if cfg.Agent.RequestTimeout > 0 {
+			result.Agent.RequestTimeout = cfg.Agent.RequestTimeout
+		}
+		if cfg.Agent.ThinkingTimeout > 0 {
+			result.Agent.ThinkingTimeout = cfg.Agent.ThinkingTimeout
+		}
+		if cfg.Agent.IdleTimeout > 0 {
+			result.Agent.IdleTimeout = cfg.Agent.IdleTimeout
+		}
+		// LoopDetection
+		if cfg.Agent.LoopDetection.RepeatThreshold > 0 {
+			result.Agent.LoopDetection.RepeatThreshold = cfg.Agent.LoopDetection.RepeatThreshold
+		}
+		if cfg.Agent.LoopDetection.ToolRepeatThreshold > 0 {
+			result.Agent.LoopDetection.ToolRepeatThreshold = cfg.Agent.LoopDetection.ToolRepeatThreshold
+		}
+		if cfg.Agent.LoopDetection.WindowSize > 0 {
+			result.Agent.LoopDetection.WindowSize = cfg.Agent.LoopDetection.WindowSize
+		}
+		if cfg.Agent.LoopDetection.TextSimilarityThreshold > 0 {
+			result.Agent.LoopDetection.TextSimilarityThreshold = cfg.Agent.LoopDetection.TextSimilarityThreshold
+		}
+		if cfg.Agent.LoopDetection.TextSimilarityWindow > 0 {
+			result.Agent.LoopDetection.TextSimilarityWindow = cfg.Agent.LoopDetection.TextSimilarityWindow
+		}
+		// Providers (merge)
+		if result.Providers == nil {
+			result.Providers = make(map[string]provider.ProviderConfig)
+		}
+		for name := range cfg.Providers {
+			result.Providers[name] = cfg.Providers[name]
+		}
+
+		// Tools
+		if len(cfg.Tools.AllowedDirs) > 0 {
+			result.Tools.AllowedDirs = cfg.Tools.AllowedDirs
+		}
+		if cfg.Tools.MaxFileSize > 0 {
+			result.Tools.MaxFileSize = cfg.Tools.MaxFileSize
+		}
+		if cfg.Tools.BashTimeout > 0 {
+			result.Tools.BashTimeout = cfg.Tools.BashTimeout
+		}
+		if cfg.Tools.MaxGrepResults > 0 {
+			result.Tools.MaxGrepResults = cfg.Tools.MaxGrepResults
+		}
+		if cfg.Tools.MaxGlobResults > 0 {
+			result.Tools.MaxGlobResults = cfg.Tools.MaxGlobResults
+		}
+
+		// Security
+		if len(cfg.Security.BlockedCommands) > 0 {
+			result.Security.BlockedCommands = cfg.Security.BlockedCommands
+		}
+		// AllowNetwork: true always wins (if any config allows — allow)
+		if cfg.Security.AllowNetwork {
+			result.Security.AllowNetwork = true
+		}
+
+		// Plugins (merge)
+		if len(cfg.Plugins.Builtins) > 0 {
+			result.Plugins.Builtins = cfg.Plugins.Builtins
+		}
+		if len(cfg.Plugins.GoPlugins) > 0 {
+			result.Plugins.GoPlugins = cfg.Plugins.GoPlugins
+		}
+		if len(cfg.Plugins.MCP) > 0 {
+			if result.Plugins.MCP == nil {
+				result.Plugins.MCP = make(map[string]MCPServerConfig)
+			}
+			for name, srv := range cfg.Plugins.MCP {
+				result.Plugins.MCP[name] = srv
+			}
+		}
+		// Backward compatibility: enabled + config
+		if len(cfg.Plugins.Enabled) > 0 {
+			result.Plugins.Enabled = cfg.Plugins.Enabled
+		}
+		if len(cfg.Plugins.Config) > 0 {
+			if result.Plugins.Config == nil {
+				result.Plugins.Config = make(map[string]map[string]any)
+			}
+			for k, v := range cfg.Plugins.Config {
+				result.Plugins.Config[k] = v
+			}
+		}
+
+		// Theme
+		if cfg.Theme.Mode != "" {
+			result.Theme.Mode = cfg.Theme.Mode
+		}
+		if cfg.Theme.WordWrap > 0 {
+			result.Theme.WordWrap = cfg.Theme.WordWrap
+		}
+		// Theme colors — merge non-empty fields
+		mergeThemeColor := func(def, override string) string {
+			if override != "" {
+				return override
+			}
+			return def
+		}
+		result.Theme.Colors.Primary = mergeThemeColor(result.Theme.Colors.Primary, cfg.Theme.Colors.Primary)
+		result.Theme.Colors.Success = mergeThemeColor(result.Theme.Colors.Success, cfg.Theme.Colors.Success)
+		result.Theme.Colors.Error = mergeThemeColor(result.Theme.Colors.Error, cfg.Theme.Colors.Error)
+		result.Theme.Colors.Warning = mergeThemeColor(result.Theme.Colors.Warning, cfg.Theme.Colors.Warning)
+		result.Theme.Colors.Info = mergeThemeColor(result.Theme.Colors.Info, cfg.Theme.Colors.Info)
+		result.Theme.Colors.Dim = mergeThemeColor(result.Theme.Colors.Dim, cfg.Theme.Colors.Dim)
+		result.Theme.Colors.Thinking = mergeThemeColor(result.Theme.Colors.Thinking, cfg.Theme.Colors.Thinking)
+		result.Theme.Colors.ToolParams = mergeThemeColor(result.Theme.Colors.ToolParams, cfg.Theme.Colors.ToolParams)
+		result.Theme.Colors.ToolSummary = mergeThemeColor(result.Theme.Colors.ToolSummary, cfg.Theme.Colors.ToolSummary)
+		result.Theme.Colors.StatusTime = mergeThemeColor(result.Theme.Colors.StatusTime, cfg.Theme.Colors.StatusTime)
+		result.Theme.Colors.StatusSep = mergeThemeColor(result.Theme.Colors.StatusSep, cfg.Theme.Colors.StatusSep)
+		result.Theme.Colors.CtxGood = mergeThemeColor(result.Theme.Colors.CtxGood, cfg.Theme.Colors.CtxGood)
+		result.Theme.Colors.CtxWarn = mergeThemeColor(result.Theme.Colors.CtxWarn, cfg.Theme.Colors.CtxWarn)
+		result.Theme.Colors.CtxBad = mergeThemeColor(result.Theme.Colors.CtxBad, cfg.Theme.Colors.CtxBad)
+		result.Theme.Colors.UserMsg = mergeThemeColor(result.Theme.Colors.UserMsg, cfg.Theme.Colors.UserMsg)
+		result.Theme.Colors.Assistant = mergeThemeColor(result.Theme.Colors.Assistant, cfg.Theme.Colors.Assistant)
+		result.Theme.Colors.Separator = mergeThemeColor(result.Theme.Colors.Separator, cfg.Theme.Colors.Separator)
+
+		// UI mode
+		if cfg.UI != "" {
+			result.UI = cfg.UI
+		}
+
+		// Keys (merge: non-empty fields override defaults)
+		if len(cfg.Keys.Send) > 0 {
+			result.Keys.Send = cfg.Keys.Send
+		}
+		if len(cfg.Keys.Newline) > 0 {
+			result.Keys.Newline = cfg.Keys.Newline
+		}
+		if len(cfg.Keys.Cancel) > 0 {
+			result.Keys.Cancel = cfg.Keys.Cancel
+		}
+		if len(cfg.Keys.Interrupt) > 0 {
+			result.Keys.Interrupt = cfg.Keys.Interrupt
+		}
+		if len(cfg.Keys.HistoryUp) > 0 {
+			result.Keys.HistoryUp = cfg.Keys.HistoryUp
+		}
+		if len(cfg.Keys.HistoryDown) > 0 {
+			result.Keys.HistoryDown = cfg.Keys.HistoryDown
+		}
+		if len(cfg.Keys.ScrollUp) > 0 {
+			result.Keys.ScrollUp = cfg.Keys.ScrollUp
+		}
+		if len(cfg.Keys.ScrollDown) > 0 {
+			result.Keys.ScrollDown = cfg.Keys.ScrollDown
+		}
+	}
+
+	// LSP (after merging all configs)
+	for _, cfg := range configs {
+		if cfg == nil {
+			continue
+		}
+		if cfg.LSP.Timeout > 0 {
+			result.LSP.Timeout = cfg.LSP.Timeout
+		}
+		if len(cfg.LSP.Servers) > 0 {
+			if result.LSP.Servers == nil {
+				result.LSP.Servers = make(map[string]LSPServerConfig)
+			}
+			for lang, srv := range cfg.LSP.Servers {
+				result.LSP.Servers[lang] = srv
+			}
+		}
+	}
+
+	return result
+}
+
+// EffectiveSecurity returns security settings for specific provider.
+// Provider security has priority over global.
+// If a provider field is not set (nil/zero), the global value is used.
+func (c *BugBusterConfig) EffectiveSecurity(provCfg *provider.ProviderConfig) SecurityConfig {
+	result := c.Security
+
+	// AllowNetwork: provider has priority if set explicitly
+	// Zero-value bool = false, so we need to distinguish "not set" from "set to false"
+	// Use a separate flag: if provider has at least one security setting — use provider's
+	if provCfg.Security.BlockedCommands != nil {
+		result.BlockedCommands = provCfg.Security.BlockedCommands
+	}
+	// For bool, cannot distinguish "not set" from "set to false" via YAML,
+	// so AllowNetwork in provider wins only if true
+	if provCfg.Security.AllowNetwork {
+		result.AllowNetwork = true
+	}
+
+	return result
+}
+
+// EffectiveContextWindow returns context window size for provider.
+// Priority: provCfg.ContextWindow > cfg.Agent.MaxTokens > default 8000
+func (c *BugBusterConfig) EffectiveContextWindow(provCfg *provider.ProviderConfig) int {
+	if provCfg.ContextWindow > 0 {
+		return provCfg.ContextWindow
+	}
+	if c.Agent.MaxTokens > 0 {
+		return c.Agent.MaxTokens
+	}
+	return 8000
+}
+
+// resolveEnvVars replaces ${ENV_VAR} with environment variable value
+func resolveEnvVars(s string) string {
+	if !strings.Contains(s, "${") {
+		return s
+	}
+
+	for {
+		start := strings.Index(s, "${")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(s[start:], "}")
+		if end == -1 {
+			break
+		}
+		end += start
+
+		envName := s[start+2 : end]
+		envValue := os.Getenv(envName)
+		s = s[:start] + envValue + s[end+1:]
+	}
+
+	return s
+}

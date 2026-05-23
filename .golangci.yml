@@ -1,0 +1,43 @@
+run:
+  timeout: 5m
+  go: "1.22"
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - gosimple
+    - ineffassign
+    - typecheck
+    - gocritic
+    - gofmt
+    - goimports
+    - misspell
+    - revive
+
+linters-settings:
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+  revive:
+    rules:
+      - name: exported
+      - name: unused-parameter
+      - name: unreachable-code
+      - name: context-as-argument
+      - name: error-return
+
+issues:
+  exclude-rules:
+    # Test files are allowed to have unused parameters
+    - path: _test\.go
+      linters:
+        - unused-parameter
+    # Generated files
+    - path: ".*_gen\\.go"
+      linters:
+        - all
