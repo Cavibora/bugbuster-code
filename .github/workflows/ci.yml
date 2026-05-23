@@ -28,7 +28,9 @@ jobs:
         run: go env
 
       - name: Build
-        run: CGO_ENABLED=0 go build -v ./cmd/bugbuster/
+        run: |
+          CGO_ENABLED=0 go build -v ./cmd/bugbuster/
+          echo "Build succeeded"
 
       - name: Vet
         run: go vet ./...
