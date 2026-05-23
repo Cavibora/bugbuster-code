@@ -9,15 +9,13 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    env:
-      GOTOOLCHAIN: auto
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: '1.25'
           cache: true
 
       - name: Build
@@ -36,15 +34,13 @@ jobs:
 
   lint:
     runs-on: ubuntu-latest
-    env:
-      GOTOOLCHAIN: auto
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: '1.25'
           cache: true
 
       - name: golangci-lint
