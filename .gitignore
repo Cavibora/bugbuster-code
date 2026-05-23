@@ -36,3 +36,7 @@ debug
 *.prof
 *.out
 crashes/
+
+# Internal files (not for public)
+ROADMAP.md
+AGENT.md
