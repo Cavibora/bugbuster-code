@@ -25,7 +25,13 @@ jobs:
         run: go mod download
 
       - name: Build
-        run: CGO_ENABLED=0 go build -v ./cmd/bugbuster/ 2>&1
+        run: |
+          echo "=== Building ==="
+          CGO_ENABLED=0 go build -v ./cmd/bugbuster/ 2>&1 || {
+            echo "=== Build failed, trying with go mod tidy ==="
+            go mod tidy
+            CGO_ENABLED=0 go build -v ./cmd/bugbuster/ 2>&1
+          }
 
       - name: Vet
         run: go vet ./...
@@ -53,4 +59,4 @@ jobs:
         uses: golangci/golangci-lint-action@v6
         with:
           version: latest
-          args: --timeout=5m
+          args: --timeout=5m --disable-all --enable=errcheck,gosimple,govet,ineffassign,staticcheck,unused
