@@ -25,7 +25,7 @@ jobs:
         run: go mod download
 
       - name: Build
-        run: go build -v ./cmd/bugbuster/ 2>&1
+        run: CGO_ENABLED=0 go build -v ./cmd/bugbuster/ 2>&1
 
       - name: Vet
         run: go vet ./...
