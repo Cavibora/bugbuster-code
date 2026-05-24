@@ -33,26 +33,53 @@ var codePrefixes = []string{
 	"std::", "fmt::", "io::", "string::", "vec<", "option<", "result<",
 }
 
-// readLineFromStdin reads a line from stdin, handling both \n and \r line endings.
-// This is necessary because readline leaves stdin in raw mode where Enter sends \r (0x0D),
-// not \n (0x0A). bufio.Reader.ReadString('\n') would hang forever in raw mode.
+// readLineFromStdin reads a line from stdin for ask_user responses.
+//
+// The problem: readline leaves background goroutines (CancelableStdin.ioloop,
+// Operation.ioloop) that read from os.Stdin. When ask_user fires, these goroutines
+// compete with us for stdin data, causing hangs and lost input.
+//
+// Solution: Use /dev/tty directly instead of os.Stdin. /dev/tty is a separate
+// file descriptor connected to the user's terminal, bypassing readline's
+// interception of os.Stdin (fd 0).
 func readLineFromStdin() string {
+	// Open /dev/tty — this gives us a fresh fd to the terminal,
+	// completely independent of readline's grip on fd 0 (os.Stdin).
+	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+	if err != nil {
+		// Fallback: can't open /dev/tty, try stdin directly
+		var buf [1]byte
+		var line []byte
+		for {
+			n, err := os.Stdin.Read(buf[:])
+			if err != nil || n == 0 {
+				break
+			}
+			if buf[0] == '\n' || buf[0] == '\r' {
+				break
+			}
+			line = append(line, buf[0])
+		}
+		return string(line)
+	}
+	defer tty.Close()
+
+	// Write prompt
+	tty.Write([]byte("> "))
+
+	// Read line from /dev/tty
 	var buf [1]byte
 	var line []byte
 	for {
-		n, err := os.Stdin.Read(buf[:])
+		n, err := tty.Read(buf[:])
 		if err != nil || n == 0 {
 			break
 		}
-		switch buf[0] {
-		case '\n', '\r':
-			if len(line) > 0 {
-				return string(line)
-			}
-			return ""
-		default:
-			line = append(line, buf[0])
+		if buf[0] == '\n' || buf[0] == '\r' {
+			tty.Write([]byte("\n"))
+			break
 		}
+		line = append(line, buf[0])
 	}
 	return string(line)
 }
