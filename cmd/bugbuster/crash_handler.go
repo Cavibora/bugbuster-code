@@ -179,8 +179,15 @@ func writeCrashLog(r interface{}) {
 
 	// Save session before exit (crash recovery)
 	if globalSession != nil && globalSessionMgr != nil {
-		if globalLoop != nil {
-			globalSession.Messages = globalLoop.Context.GetMessages()
+		if globalLoop != nil && globalLoop.Context != nil {
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						// Context access panicked — save without messages
+					}
+				}()
+				globalSession.Messages = globalLoop.Context.GetMessages()
+			}()
 		}
 		if err := globalSessionMgr.SaveSessionMessages(globalSession); err == nil {
 			fmt.Fprintf(os.Stdout, "\n  ✅ %s\n", i18n.T("cli_success.session_saved", globalSession.ID))

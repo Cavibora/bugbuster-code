@@ -401,7 +401,10 @@ func (m TUI) handleKeyPress(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.keys.Matches(msg, config.ActionCancel) {
 		// If waiting for ask_user response — send empty response and cancel
 		if m.askUserQuestion != "" && m.askUserChannel != nil {
-			m.askUserChannel.Answer <- ""
+			select {
+			case m.askUserChannel.Answer <- "":
+			default:
+			}
 			m.askUserQuestion = ""
 		}
 		// If in autopilot mode — disable autopilot
@@ -425,7 +428,10 @@ func (m TUI) handleKeyPress(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.keys.Matches(msg, config.ActionInterrupt) {
 		// If waiting for ask_user response — send empty response
 		if m.askUserQuestion != "" && m.askUserChannel != nil {
-			m.askUserChannel.Answer <- ""
+			select {
+			case m.askUserChannel.Answer <- "":
+			default:
+			}
 			m.askUserQuestion = ""
 		}
 		if m.streaming {
@@ -521,7 +527,12 @@ func (m TUI) handleSend() (retModel tea.Model, retCmd tea.Cmd) {
 
 	// If model is waiting for ask_user response — send response via channel
 	if m.askUserQuestion != "" && m.askUserChannel != nil {
-		m.askUserChannel.Answer <- input
+		// Non-blocking send with timeout — don't hang if tool is no longer waiting
+		select {
+		case m.askUserChannel.Answer <- input:
+		case <-time.After(5 * time.Second):
+			// Tool no longer waiting — discard answer
+		}
 		m.askUserQuestion = ""
 		m.textarea.Reset()
 		m.updateTextareaHeight()

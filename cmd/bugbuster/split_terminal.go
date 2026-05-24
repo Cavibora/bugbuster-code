@@ -330,9 +330,15 @@ func (st *SplitTerminal) readMultilineInput(rl *readline.Instance) string {
 		var err error
 
 		if st.pendingLine != nil {
-			res := <-st.pendingLine
-			st.pendingLine = nil
-			line, err = res.line, res.err
+			select {
+			case res := <-st.pendingLine:
+				st.pendingLine = nil
+				line, err = res.line, res.err
+			case <-time.After(30 * time.Second):
+				// Timeout — readline goroutine is stuck, discard it
+				st.pendingLine = nil
+				line, err = "", fmt.Errorf("readline timeout")
+			}
 		} else {
 			line, err = rl.Readline()
 		}

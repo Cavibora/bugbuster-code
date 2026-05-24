@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -43,11 +44,19 @@ var codePrefixes = []string{
 // file descriptor connected to the user's terminal, bypassing readline's
 // interception of os.Stdin (fd 0).
 func readLineFromStdin() string {
+	// Restore terminal to cooked mode so user can see their input.
+	// This is critical: readline leaves terminal in raw mode where:
+	// - Enter sends \r (0x0D) instead of \n (0x0A)
+	// - Characters are not echoed (user can't see what they type)
+	// - Backspace doesn't work properly
+	restoreTerminalToNormal()
+
 	// Open /dev/tty — this gives us a fresh fd to the terminal,
 	// completely independent of readline's grip on fd 0 (os.Stdin).
+	// This avoids competition with readline goroutines for stdin data.
 	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err != nil {
-		// Fallback: can't open /dev/tty, try stdin directly
+		// Fallback: read from stdin directly (cooked mode already restored)
 		var buf [1]byte
 		var line []byte
 		for {
@@ -56,6 +65,7 @@ func readLineFromStdin() string {
 				break
 			}
 			if buf[0] == '\n' || buf[0] == '\r' {
+				fmt.Println()
 				break
 			}
 			line = append(line, buf[0])
@@ -64,24 +74,57 @@ func readLineFromStdin() string {
 	}
 	defer tty.Close()
 
-	// Write prompt
+	// Ensure /dev/tty is in cooked mode (it should be, but just in case)
+	// This is a separate fd from os.Stdin, so readline's raw mode
+	// on fd 0 doesn't affect it.
+	sttyCmd := exec.Command("stty", "sane")
+	sttyCmd.Stdin = tty
+	sttyCmd.Stdout = tty
+	sttyCmd.Run()
+
+	// Write prompt directly to tty
 	tty.Write([]byte("> "))
 
-	// Read line from /dev/tty
-	var buf [1]byte
-	var line []byte
-	for {
-		n, err := tty.Read(buf[:])
-		if err != nil || n == 0 {
-			break
+	// Read line from /dev/tty with timeout protection.
+	// If user doesn't respond within 5 minutes, return empty string
+	// to prevent permanent hang.
+	done := make(chan string, 1)
+	go func() {
+		var buf [1]byte
+		var line []byte
+		for {
+			n, err := tty.Read(buf[:])
+			if err != nil || n == 0 {
+				break
+			}
+			if buf[0] == '\n' || buf[0] == '\r' {
+				tty.Write([]byte("\n"))
+				break
+			}
+			// Handle backspace in cooked mode
+			if buf[0] == 127 || buf[0] == 8 {
+				if len(line) > 0 {
+					line = line[:len(line)-1]
+				}
+				continue
+			}
+			// Handle Ctrl+C
+			if buf[0] == 3 {
+				line = nil
+				break
+			}
+			line = append(line, buf[0])
 		}
-		if buf[0] == '\n' || buf[0] == '\r' {
-			tty.Write([]byte("\n"))
-			break
-		}
-		line = append(line, buf[0])
+		done <- string(line)
+	}()
+
+	select {
+	case answer := <-done:
+		return answer
+	case <-time.After(5 * time.Minute):
+		tty.Write([]byte("\n(timeout)\n"))
+		return ""
 	}
-	return string(line)
 }
 
 func isCodeLikeLine(line string) bool {
