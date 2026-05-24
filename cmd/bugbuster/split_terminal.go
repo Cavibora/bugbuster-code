@@ -149,6 +149,11 @@ func (st *SplitTerminal) Run() bool {
 	st.session = currentSession
 	st.sessionMgr = sessionMgr
 	st.loop.Context.SessionID = currentSession.ID
+
+	// Set global session references for crash recovery
+	globalSession = currentSession
+	globalSessionMgr = sessionMgr
+	globalLoop = st.loop
 	if searchTool, ok := st.loop.Tools["search_context"].(*agent.SearchContextTool); ok {
 		searchTool.SessionID = currentSession.ID
 	}
@@ -294,7 +299,7 @@ func (st *SplitTerminal) runStreamingQuery(input string, currentCancel *context.
 	st.cancel = cancel
 	st.mu.Unlock()
 
-	runQueryWithLoop(st.loop, input, st.cfg, st.providerName, ctx, askCh)
+	runQueryWithLoop(st.loop, input, st.cfg, st.providerName, ctx, askCh, st.session, st.sessionMgr)
 
 	if askUserTool, ok := st.loop.Tools["ask_user"].(*tools.AskUserTool); ok {
 		askUserTool.SetAskChannel(nil)

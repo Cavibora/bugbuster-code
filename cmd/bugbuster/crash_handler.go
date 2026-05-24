@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"bugbuster-code/pkg/agent"
 	"bugbuster-code/pkg/i18n"
 )
 
@@ -25,6 +26,13 @@ var crashDir = func() string {
 
 // exitFunc allows overriding os.Exit for tests
 var exitFunc = os.Exit
+
+// Global session references for crash recovery
+var (
+	globalSession    *agent.Session
+	globalSessionMgr *agent.SessionManager
+	globalLoop       *agent.AgentLoop
+)
 
 // crashCleanup is called on normal exit to restore stderr and close crash log
 var crashCleanup func() = func() {}
@@ -167,6 +175,16 @@ func writeCrashLog(r interface{}) {
 		fmt.Fprintf(os.Stdout, "CRASH: %v\n%s\n", r, stack)
 		fmt.Fprintf(os.Stdout, "Failed to write crash log: %v\n", err)
 		exitFunc(1)
+	}
+
+	// Save session before exit (crash recovery)
+	if globalSession != nil && globalSessionMgr != nil {
+		if globalLoop != nil {
+			globalSession.Messages = globalLoop.Context.GetMessages()
+		}
+		if err := globalSessionMgr.SaveSessionMessages(globalSession); err == nil {
+			fmt.Fprintf(os.Stdout, "\n  ✅ %s\n", i18n.T("cli_success.session_saved", globalSession.ID))
+		}
 	}
 
 	// Print user-friendly message to stdout (stderr is redirected)

@@ -885,6 +885,8 @@ func (m TUI) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 		m.output.WriteString(m.mdRenderer.Flush())
 		m.output.WriteString("\n")
 		m.syncViewport()
+		// Incremental session save after each response
+		saveSessionTUI(m)
 	case provider.EventError:
 		m.showProgress = false
 		m.output.WriteString(errorStyle.Render(i18n.T("cli_error.stream", msg.event.Error)) + "\n")
@@ -1067,6 +1069,11 @@ func runTUI(cfg *config.BugBusterConfig, loop *agent.AgentLoop, ct *ChangeTracke
 	m.session = currentSession
 	m.sessionMgr = sessionMgr
 	loop.Context.SessionID = currentSession.ID
+
+	// Set global session references for crash recovery
+	globalSession = currentSession
+	globalSessionMgr = sessionMgr
+	globalLoop = loop
 	// Update SessionID in SearchContextTool
 	if searchTool, ok := loop.Tools["search_context"].(*agent.SearchContextTool); ok {
 		searchTool.SessionID = currentSession.ID

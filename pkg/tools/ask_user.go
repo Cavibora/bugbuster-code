@@ -2,6 +2,7 @@ package tools
 
 import (
 	"sync"
+	"time"
 
 	"bugbuster-code/pkg/i18n"
 )
@@ -25,6 +26,9 @@ type AskUserTool struct {
 	// AskFunc is a callback for CLI mode (readline).
 	// Set by SplitTerminal during initialization.
 	askFunc AskFunc
+
+	// Cancel channel — signals ask_user to stop waiting
+	cancelCh chan struct{}
 }
 
 // AskChannel is a question/answer exchange mechanism between ask_user and TUI.
@@ -34,9 +38,10 @@ type AskChannel struct {
 }
 
 // NewAskUserTool creates a tool that prompts the user for input during agent execution.
-// NewAskUserTool creates a tool that prompts the user for input during agent execution.
 func NewAskUserTool() *AskUserTool {
-	return &AskUserTool{}
+	return &AskUserTool{
+		cancelCh: make(chan struct{}),
+	}
 }
 
 // SetAskChannel sets the channel for TUI mode.
@@ -51,6 +56,14 @@ func (t *AskUserTool) SetAskFunc(fn AskFunc) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.askFunc = fn
+}
+
+// Cancel stops any pending ask_user call.
+func (t *AskUserTool) Cancel() {
+	select {
+	case t.cancelCh <- struct{}{}:
+	default:
+	}
 }
 
 func (t *AskUserTool) Name() string { return "ask_user" }
@@ -77,12 +90,27 @@ func (t *AskUserTool) Execute(params map[string]string) ToolResult {
 	t.mu.Unlock()
 
 	if ch != nil {
-		ch.Question <- question
-		answer := <-ch.Answer
-		if answer == "" {
+		// Non-blocking send of question with timeout
+		select {
+		case ch.Question <- question:
+		case <-t.cancelCh:
+			return Success("tools.ask_user.no_answer")
+		case <-time.After(30 * time.Second):
 			return Success("tools.ask_user.no_answer")
 		}
-		return Success("%s", answer)
+
+		// Wait for answer with timeout and cancel support
+		select {
+		case answer := <-ch.Answer:
+			if answer == "" {
+				return Success("tools.ask_user.no_answer")
+			}
+			return Success("%s", answer)
+		case <-t.cancelCh:
+			return Success("tools.ask_user.no_answer")
+		case <-time.After(10 * time.Minute):
+			return Success("tools.ask_user.no_answer")
+		}
 	}
 
 	// CLI mode: call callback (readline)

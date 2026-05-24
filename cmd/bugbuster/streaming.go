@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -32,6 +31,30 @@ var codePrefixes = []string{
 	"if ", "else ", "for ", "while ", "match ", "case ", "switch ",
 	"//", "/*", "*/", "#[", "@", "self.", "super.", "crate::",
 	"std::", "fmt::", "io::", "string::", "vec<", "option<", "result<",
+}
+
+// readLineFromStdin reads a line from stdin, handling both \n and \r line endings.
+// This is necessary because readline leaves stdin in raw mode where Enter sends \r (0x0D),
+// not \n (0x0A). bufio.Reader.ReadString('\n') would hang forever in raw mode.
+func readLineFromStdin() string {
+	var buf [1]byte
+	var line []byte
+	for {
+		n, err := os.Stdin.Read(buf[:])
+		if err != nil || n == 0 {
+			break
+		}
+		switch buf[0] {
+		case '\n', '\r':
+			if len(line) > 0 {
+				return string(line)
+			}
+			return ""
+		default:
+			line = append(line, buf[0])
+		}
+	}
+	return string(line)
 }
 
 func isCodeLikeLine(line string) bool {
@@ -98,7 +121,7 @@ func summarizeThinking(thinkingText string) string {
 }
 
 // runQueryWithLoop — request with existing loop (with streaming)
-func runQueryWithLoop(loop *agent.AgentLoop, query string, cfg *config.BugBusterConfig, providerName string, ctx context.Context, askCh *tools.AskChannel) {
+func runQueryWithLoop(loop *agent.AgentLoop, query string, cfg *config.BugBusterConfig, providerName string, ctx context.Context, askCh *tools.AskChannel, session *agent.Session, sessionMgr *agent.SessionManager) {
 	ch, err := loop.StreamWithCancel(ctx, query)
 	if err != nil {
 		result, err := loop.Run(query)
@@ -156,10 +179,13 @@ streamLoop:
 			spinner = stopActiveSpinner(spinner)
 			fmt.Print(mdRenderer.Flush())
 			fmt.Printf("\n❓ %s\n> ", question)
-			reader := bufio.NewReader(os.Stdin)
-			answer, _ := reader.ReadString('\n')
+			answer := readLineFromStdin()
 			answer = strings.TrimSpace(answer)
-			askAnswer <- answer
+			// Non-blocking send: if tool is no longer waiting, don't hang
+			select {
+			case askAnswer <- answer:
+			default:
+			}
 			spinner = NewSpinner(i18n.T("cli.spinner_thinking"))
 			spinner.Start()
 
@@ -355,6 +381,13 @@ streamLoop:
 				)
 				if statusLine != "" {
 					fmt.Println(statusLine)
+				}
+				// Incremental session save after each response
+				if session != nil && sessionMgr != nil {
+					session.Messages = loop.Context.GetMessages()
+					if err := sessionMgr.SaveSessionMessages(session); err != nil {
+						color.Red("%s", i18n.T("cli_error.session_save", err))
+					}
 				}
 
 			case provider.EventError:

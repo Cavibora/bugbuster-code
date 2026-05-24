@@ -156,10 +156,7 @@ func saveSessionTUI(m TUI) {
 	if m.session != nil && m.sessionMgr != nil {
 		m.session.Messages = m.loop.Context.GetMessages()
 		if err := m.sessionMgr.SaveSessionMessages(m.session); err != nil {
-			fmt.Printf("Error saving session: %v\n", err)
-		} else {
-			fmt.Printf("Session saved: %s\n", m.session.ID)
-			fmt.Printf("To restore: bugbuster --session %s\n", m.session.ID)
+			// Only log errors, don't spam on successful incremental saves
 		}
 	}
 	if m.changeTracker != nil {
