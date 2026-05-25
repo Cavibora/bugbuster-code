@@ -1,110 +1,151 @@
-default_provider: zai
+# BugBuster Code Configuration
+# Copy this file to .bugbuster.yaml and customize for your project.
+# Full documentation: https://github.com/Cavibora/bugbuster-code
+
+# Default provider (must match a key in providers)
+default_provider: openai
 
 providers:
-  zai:
-    type: anthropic
-    base_url: https://api.z.ai/api/anthropic
-    api_key: ${ZAI_API_KEY}
-    model: glm-5.1
-    max_tokens: 16384         # max output tokens (API-запрос), 0 = дефолт 16384
-    context_window: 200000    # размер контекстного окна модели (для компакции)
-    budget_tokens: 4096       # budget_tokens для thinking (Anthropic)
-    temperature: 0.7           # температура сэмплирования (0.0-2.0)
-    top_p: 0.95               # top-p сэмплирование (0.0-1.0)
-    top_k: 0                  # top-k сэмплирование (0 = не передаётся)
+  # OpenAI (GPT-4, GPT-4o, etc.)
+  openai:
+    type: openai
+    api_key: ${OPENAI_API_KEY}
+    model: gpt-4o
+    max_tokens: 16384         # max output tokens per request (0 = default 16384)
+    context_window: 128000    # model context window size (for compaction)
+    temperature: 0.7          # sampling temperature (0.0-2.0)
+    top_p: 0.95               # top-p sampling (0.0-1.0)
     security:
       allow_network: true
       blocked_commands:
         - rm -rf /
 
-  local:
+  # Anthropic (Claude 3.5, Claude 4, etc.)
+  anthropic:
     type: anthropic
-    base_url: http://localhost:8180/api
-    api_key: ${LOCAL_API_KEY}
-    model: glm-5.1:clode
+    api_key: ${ANTHROPIC_API_KEY}
+    model: claude-sonnet-4-20250514
     max_tokens: 16384
-    context_window: 180000
-    budget_tokens: 4096
+    context_window: 200000
+    budget_tokens: 4096       # budget_tokens for thinking (Anthropic only)
+    temperature: 0.7
     security:
       allow_network: true
 
+  # OpenAI-compatible endpoint (any provider with OpenAI API)
+  openai_compat:
+    type: openai_compat
+    base_url: https://api.example.com/v1
+    api_key: ${COMPAT_API_KEY}
+    model: custom-model
+    max_tokens: 16384
+    context_window: 128000
+    security:
+      allow_network: true
+
+  # Ollama (local models)
   ollama:
     type: ollama
-    base_url: http://192.168.0.106:11434
-    model: deepseek-v4-pro:cloud
+    base_url: http://localhost:11434
+    model: llama3
     max_tokens: 16384
     context_window: 32000
     security:
       allow_network: false
 
+  # Cavibora (GRFN mesh network)
+  cavibora:
+    type: cavibora
+    base_url: https://api.cavibora.com
+    api_key: ${CAVIBORA_API_KEY}
+    model: grfn-v1
+    max_tokens: 16384
+    context_window: 200000
+    security:
+      allow_network: true
+
 agent:
-  max_tokens: 180000          # fallback для context_window если не указан в провайдере
-  keep_recent: 6
-  verbose: false
-  permission_mode: auto-approve
-  language: ru
-  request_timeout: 1200      # макс. время одного LLM-запроса в секундах (default: 1200 = 20 мин)
-  thinking_timeout: 600      # макс. время без токенов от модели в секундах (default: 600 = 10 мин)
-  idle_timeout: 300          # таймаут стриминга без событий в секундах (default: 300 = 5 мин)
-  loop_detection:            # настройки детекции зацикливания
-    repeat_threshold: 6       # сколько одинаковых вызовов подряд = зацикливание (default: 6)
-    tool_repeat_threshold: 8  # сколько вызовов одного инструмента с теми же параметрами = зацикливание (default: 8)
-    window_size: 30            # размер скользящего окна (default: 30)
-    text_similarity_threshold: 0.65  # порог сходства текстов 0.0-1.0 (default: 0.65)
-    text_similarity_window: 4         # сколько текстовых ответов проверять на сходство (default: 4)
+  max_tokens: 180000          # fallback context_window if not set in provider
+  keep_recent: 6              # number of recent messages to keep after compaction
+  verbose: false              # enable debug logging
+  permission_mode: auto-approve  # auto-approve | ask | deny
+  language: en                # en, ru, es, fr, de, ja, zh, pt
+  request_timeout: 1200       # max time per LLM request in seconds (default: 1200 = 20 min)
+  thinking_timeout: 600       # max time without tokens from model in seconds (default: 600 = 10 min)
+  idle_timeout: 300            # streaming idle timeout in seconds (default: 300 = 5 min)
+  loop_detection:              # loop detection settings
+    repeat_threshold: 6         # identical calls in a row = loop (default: 6)
+    tool_repeat_threshold: 8    # same tool with same params = loop (default: 8)
+    window_size: 30             # sliding window size (default: 30)
+    text_similarity_threshold: 0.65  # text similarity threshold 0.0-1.0 (default: 0.65)
+    text_similarity_window: 4         # text responses to check for similarity (default: 4)
 
 tools:
-  allowed_dirs: []
-  max_file_size: 1048576
-  bash_timeout: 30
-  max_grep_results: 50
-  max_glob_results: 100
+  allowed_dirs: []             # empty = current project directory only
+  max_file_size: 1048576       # max file size in bytes (1 MB)
+  bash_timeout: 30             # default bash command timeout in seconds
+  max_grep_results: 50         # max grep results
+  max_glob_results: 100        # max glob results
+
+  # Browse tool (headless browser + search)
+  browse:
+    engine: chromedp           # chromedp | rod | playwright | http
+    search_engine: duckduckgo  # duckduckgo | google | yandex | bing
+    timeout: 30                # page load timeout in seconds
+    max_results: 10            # max search results
+    user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    headless: true             # run browser in headless mode
+    chrome_path: ""            # path to Chrome/Chromium binary (auto-detect if empty)
+
+  # Memory tool (persistent agent memory)
+  # Memory files are stored in .bugbuster/memory/<session-id>.md
+  # No configuration needed — memory is session-scoped
 
 security:
-  allow_network: false
-  blocked_commands:
+  allow_network: false         # global network access (tools can override)
+  blocked_commands:            # commands that are always blocked
     - rm -rf /
     - mkfs
     - dd if=
     - format c:
-  sandbox_dir: ""
+  sandbox_dir: ""              # restrict file operations to this directory
 
-# Тема оформления (dark по умолчанию)
+# Theme configuration (dark by default)
 # theme:
 #   mode: dark              # dark | light
-#   word_wrap: 80           # перенос слов в markdown (0 = без переноса)
+#   word_wrap: 80           # markdown word wrap (0 = no wrap)
 #   colors:
-#     primary: cyan          # спиннер, заголовки tool calls
-#     success: green         # ✓, create, добавления в diff
-#     error: red             # ✗, ошибки, удаления в diff
-#     warning: yellow        # предупреждения, modify в diff
-#     info: blue             # токены входящие
-#     dim: "244"             # приглушённый текст (ANSI 256-color)
-#     thinking: "244"        # thinking-блок
-#     tool_params: cyan      # параметры tool call
-#     tool_summary: "244"    # сводка результата tool call
-#     status_time: "244"     # ⏱ время в статусе
-#     status_separator: "244"  # │ разделитель в статусе
-#     context_bar_good: green   # контекст < 50%
-#     context_bar_warn: yellow  # контекст 50-80%
-#     context_bar_bad: red      # контекст > 80%
-#     user_message: "#04B575"  # ❯ пользовательский ввод (TUI)
-#     assistant: "#7D56F4"     # спиннер/статус ассистента (TUI)
-#     separator: "#3C3C3C"     # ─── разделитель
-#   # Формат цветов: ANSI имя (red/green/cyan...), 256-color номер ("244"), hex ("#04B575")
+#     primary: cyan          # spinner, tool call headers
+#     success: green         # ✓, create, diff additions
+#     error: red             # ✗, errors, diff deletions
+#     warning: yellow        # warnings, diff modifications
+#     info: blue             # incoming tokens
+#     dim: "244"             # dimmed text (ANSI 256-color)
+#     thinking: "244"        # thinking block
+#     tool_params: cyan      # tool call parameters
+#     tool_summary: "244"    # tool call result summary
+#     status_time: "244"     # ⏱ time in status
+#     status_separator: "244"  # │ separator in status
+#     context_bar_good: green   # context < 50%
+#     context_bar_warn: yellow  # context 50-80%
+#     context_bar_bad: red      # context > 80%
+#     user_message: "#04B575"  # ❯ user input (TUI)
+#     assistant: "#7D56F4"     # assistant spinner/status (TUI)
+#     separator: "#3C3C3C"     # ─── separator
+#   # Color formats: ANSI name (red/green/cyan...), 256-color number ("244"), hex ("#04B575")
 
-# Клавиатурные привязки (неуказанные — по умолчанию)
+# Key bindings (unspecified keys use defaults)
 # keys:
-#   send: ["enter"]              # Отправить запрос
-#   newline: ["shift+enter", "alt+enter", "ctrl+j"]  # Перенос строки (Shift+Enter в терминалах с Kitty Protocol, Ctrl+J — везде)
-#   cancel: ["ctrl+c"]           # Отмена стриминга / выход
-#   interrupt: ["esc"]            # Прервать стриминг / выход
-#   history_up: ["up"]            # Навигация по истории вверх
-#   history_down: ["down"]        # Навигация по истории вниз
-#   scroll_up: ["pgup", "ctrl+u"]   # Скролл вверх
-#   scroll_down: ["pgdown", "ctrl+d"] # Скролл вниз
+#   send: ["enter"]              # Send message
+#   newline: ["shift+enter", "alt+enter", "ctrl+j"]  # New line (Shift+Enter in Kitty terminals, Ctrl+J everywhere)
+#   cancel: ["ctrl+c"]           # Cancel streaming / exit
+#   interrupt: ["esc"]            # Interrupt streaming / exit
+#   history_up: ["up"]            # History navigation up
+#   history_down: ["down"]        # History navigation down
+#   scroll_up: ["pgup", "ctrl+u"]   # Scroll up
+#   scroll_down: ["pgdown", "ctrl+d"] # Scroll down
 
-# MCP-серверы (Model Context Protocol)
+# MCP servers (Model Context Protocol)
 mcp:
   servers:
     filesystem:
@@ -116,7 +157,7 @@ mcp:
         - "/tmp"
       enabled: true
 
-    # Пример SSE-сервера
+    # SSE server example
     # remote-api:
     #   type: sse
     #   url: https://api.example.com/mcp/sse
@@ -124,7 +165,7 @@ mcp:
     #     Authorization: "Bearer ${MCP_API_TOKEN}"
     #   enabled: false
 
-    # Пример streamable-http сервера
+    # Streamable HTTP server example
     # remote-http:
     #   type: streamable-http
     #   url: https://api.example.com/mcp
@@ -132,9 +173,9 @@ mcp:
     #     Authorization: "Bearer ${MCP_API_TOKEN}"
     #   enabled: false
 
-# Плагины (три типа: builtins, Go .so, MCP)
+# Plugins (three types: builtins, Go .so, MCP)
 plugins:
-  # Встроенные плагины (filesystem, bash, web)
+  # Built-in plugins (filesystem, bash, web)
   builtins:
     - filesystem
     - bash
@@ -159,14 +200,14 @@ plugins:
       timeout: 15
       max_body_size: 524288
 
-  # Внешние Go-плагины (.so файлы)
+  # External Go plugins (.so files)
   # go:
   #   - name: my-plugin
   #     path: /path/to/myplugin.so
   #     config:
   #       key: value
 
-  # MCP-плагины (всеядные, любой язык)
+  # MCP plugins (any language)
   # mcp:
   #   github:
   #     type: stdio
