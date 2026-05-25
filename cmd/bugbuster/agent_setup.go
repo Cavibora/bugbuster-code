@@ -165,6 +165,9 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 	webFetchTool := tools.NewWebFetchTool()
 	webFetchTool.AllowNetwork = effectiveSecurity.AllowNetwork
 
+	browseTool := tools.NewBrowseTool()
+	browseTool.AllowNetwork = effectiveSecurity.AllowNetwork
+
 	learnTool := tools.NewLearnTool()
 	if provCfg.Type == "cavibora" {
 		learnTool.TeachURL = provCfg.GetBaseURL()
@@ -213,7 +216,12 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 	loop.RegisterTool(askTool)
 	loop.RegisterTool(askUserTool)
 	loop.RegisterTool(webFetchTool)
+	loop.RegisterTool(browseTool)
 	loop.RegisterTool(learnTool)
+
+	// Memory tool — persistent memory for important project facts
+	memoryFilePath := filepath.Join(getProjectDir(cfg), ".bugbuster", "memory.md")
+	loop.RegisterTool(tools.NewMemoryTool(memoryFilePath))
 
 	// Todo-tools (checklist for planning)
 	todoWrite := tools.NewTodoWriteTool()
@@ -286,6 +294,13 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 
 	// System prompt
 	systemPrompt := agent.BuildSystemPrompt(dir, loop.Tools)
+
+	// Inject memory into system prompt
+	memoryContent := tools.LoadMemoryForPrompt(filepath.Join(dir, ".bugbuster", "memory.md"))
+	if memoryContent != "" {
+		systemPrompt += "\n\n" + memoryContent
+	}
+
 	loop.SetSystemPrompt(systemPrompt)
 
 	// MCP-tools (from cfg.MCP.Servers and cfg.Plugins.MCP)
