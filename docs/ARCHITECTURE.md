@@ -24,7 +24,7 @@ BugBuster Code is a model-agnostic CLI agent for software development, written i
 │         │              │              │                          │
 │         ▼              ▼              ▼                          │
 │    Provider        Tool Registry   Compactor                    │
-│    Interface       (14 tools)      (LLM/simple)                │
+│    Interface       (16 tools)      (LLM/simple)                │
 │         │              │                                         │
 │    ┌────┼────┐    ┌────┼────┐                                   │
 │    │    │    │    │    │    │                                    │
@@ -88,6 +88,10 @@ bugbuster-code/
 │   │   ├── ask_user.go     # Ask user for input
 │   │   ├── learn.go        # Train model on input/output
 │   │   ├── web_fetch.go    # HTTP URL fetching
+│   │   ├── browse.go       # Headless browser + search (configurable engine)
+│   │   ├── browse_chrome.go# chromedp headless Chrome implementation
+│   │   ├── browse_nochrome.go# HTTP fallback (no Chrome dependency)
+│   │   ├── memory.go       # Session-scoped persistent memory
 │   │   ├── todo.go         # Task checklist management
 │   │   ├── lsp.go          # Language Server Protocol client
 │   │   ├── lsp_client.go   # LSP JSON-RPC client implementation
@@ -285,6 +289,77 @@ Sessions are saved:
 - On signals (SIGINT, SIGTERM)
 - On panic (crash handler)
 - Incrementally during long operations
+
+### Session-Scoped Memory
+
+The `memory` tool provides persistent, session-scoped storage for important facts:
+
+```
+.bugbuster/memory/<session-id>.md
+```
+
+- **Session-scoped**: each session has its own memory file, preventing cross-project contamination
+- **Auto-injected**: all facts are loaded into the system prompt at session start
+- **Human-readable**: Markdown format, editable by user
+- **Categories**: facts are organized by category (project, database, metrics, etc.)
+
+Data flow:
+```
+Agent discovers important fact (e.g., project path, DB credentials)
+       │
+       ▼
+memory(action=save, key="project_path", value="/Users/ss/ai/grfn")
+       │
+       ▼
+Write to .bugbuster/memory/<session-id>.md
+       │
+       ▼
+On next session start → LoadAllFacts() → inject into system prompt
+```
+
+### Headless Browser (Browse Tool)
+
+The `browse` tool provides web search and page rendering without external dependencies:
+
+```
+┌─────────────────────────────────────────────┐
+│ Browse Tool                                  │
+│                                              │
+│  Actions:                                    │
+│  ├── search → web search (configurable)      │
+│  ├── fetch  → render page (headless)         │
+│  └── extract → clean text extraction         │
+│                                              │
+│  Search Engines:                             │
+│  ├── DuckDuckGo (default, HTTP HTML)         │
+│  ├── Google (HTTP HTML)                      │
+│  ├── Yandex (headless Chrome, JS required)   │
+│  └── Bing (HTTP HTML)                        │
+│                                              │
+│  Rendering Engines:                          │
+│  ├── chromedp (default, headless Chrome)     │
+│  ├── rod (alternative)                       │
+│  ├── playwright (alternative)                │
+│  └── http (fallback, no JS)                  │
+└─────────────────────────────────────────────┘
+```
+
+Configuration in `bugbuster.yaml`:
+```yaml
+tools:
+  browse:
+    engine: chromedp          # chromedp, rod, playwright, http
+    search_engine: duckduckgo # duckduckgo, google, yandex, bing
+    timeout: 30
+    max_results: 10
+    headless: true
+```
+
+Per-query override:
+```
+browse(action=search, query="competitors", engine=yandex)
+browse(action=fetch, url="https://example.com")
+```
 
 ## UI Modes
 

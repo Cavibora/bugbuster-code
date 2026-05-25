@@ -8,7 +8,7 @@
 
 ## Features
 
-- 🔧 **11+ built-in tools**: read, write, edit, bash, grep, glob, ask, learn, web_fetch, ask_user, delegate_task, todo, lsp, search_context
+- 🔧 **16 built-in tools**: read, write, edit, bash, grep, glob, ask, learn, web_fetch, browse, memory, ask_user, delegate_task, todo, lsp, search_context
 - 🤖 **5 LLM providers**: OpenAI, Anthropic, Ollama, [Cavibora](https://github.com/Cavibora), OpenAI-compatible
 - 🌍 **8 languages**: English, Russian, Spanish, French, German, Japanese, Chinese, Portuguese
 - 🧠 **Thinking/reasoning blocks**: Claude extended thinking, OpenAI o1/o3
@@ -189,6 +189,8 @@ type Provider interface {
 | `ask_user` | Ask user for input |
 | `learn` | Train model on input/output pair |
 | `web_fetch` | Fetch URL content |
+| `browse` | Headless browser + web search (configurable engine) |
+| `memory` | Session-scoped persistent memory |
 | `delegate_task` | Delegate to sub-agent |
 | `todo` | Manage task checklist |
 | `lsp` | Language Server Protocol analysis |
@@ -240,7 +242,7 @@ go build -o bugbuster ./cmd/bugbuster/
 | Document | Description |
 |----------|-------------|
 | [Architecture](docs/ARCHITECTURE.md) | Package structure, data flow, design decisions |
-| [Tools Reference](docs/TOOLS.md) | All 14 built-in tools with parameters and examples |
+| [Tools Reference](docs/TOOLS.md) | All 16 built-in tools with parameters and examples |
 | [Configuration](docs/CONFIGURATION.md) | Full YAML config reference, CLI flags, provider setup |
 | [Security](docs/SECURITY.md) | Security model, threat analysis, best practices |
 | [Contributing](docs/CONTRIBUTING.md) | Development setup, coding conventions, PR process |

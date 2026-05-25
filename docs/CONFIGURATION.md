@@ -90,6 +90,15 @@ tools:
   max_grep_results: 100         # max grep results
   max_glob_results: 1000        # max glob results
 
+  browse:
+    engine: chromedp            # chromedp | rod | playwright | http
+    search_engine: duckduckgo   # duckduckgo | google | yandex | bing
+    timeout: 30                 # page load timeout (seconds)
+    max_results: 10             # max search results (1-20)
+    user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+    headless: true              # run browser in headless mode
+    chrome_path: ""             # custom Chrome path (auto-detect if empty)
+
 # ─── Security ─────────────────────────────────────────────────────────────────
 
 security:

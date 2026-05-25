@@ -16,6 +16,8 @@ BugBuster Code provides 14 built-in tools that the AI agent can use to interact 
 | `ask_user` | Sync | Ask the user for input |
 | `learn` | Sync | Train the model on input/output pairs |
 | `web_fetch` | Sync | Fetch content from URLs |
+| `browse` | Sync | Universal search & content tool with headless browser |
+| `memory` | Sync | Persistent session-scoped memory for important facts |
 | `delegate_task` | Async | Delegate a subtask to a sub-agent |
 | `todo_write` | Sync | Create or update a task checklist |
 | `todo_read` | Sync | Read the current task checklist |
@@ -364,6 +366,142 @@ Fetch content from a URL.
 - Returns response body as text
 - Respects `allow_network` security setting
 - Default timeout: 30 seconds
+
+---
+
+### `browse`
+
+Universal search & content tool with configurable headless browser. Replaces `web_fetch` for advanced use cases.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `action` | string | ✅ | `search`, `fetch`, `extract` (aliases: `find`, `render`, `open`, `readability`) |
+| `query` | string | ❌ | Search query (for `search` action) |
+| `url` | string | ❌ | URL to fetch/extract |
+| `selector` | string | ❌ | CSS selector to extract specific elements |
+| `max_results` | string | ❌ | Max search results (default: 10, max: 20) |
+| `engine` | string | ❌ | Override search engine for this query: `duckduckgo`, `google`, `yandex`, `bing` |
+
+**Actions:**
+
+| Action | Description |
+|--------|-------------|
+| `search` | Search the web using configured search engine |
+| `fetch` | Render a page with headless Chrome (full JS/AJAX support) |
+| `extract` | Extract clean text from a page (removes nav, scripts, styles) |
+
+**Search Engines:**
+
+| Engine | Method | JS Rendering |
+|--------|--------|-------------|
+| `duckduckgo` (default) | HTTP HTML | Not needed |
+| `google` | HTTP HTML | Not needed |
+| `yandex` | Headless Chrome | Required (JS-only) |
+| `bing` | HTTP HTML | Not needed |
+
+**Browser Engines:**
+
+| Engine | Description |
+|--------|-------------|
+| `chromedp` (default) | Headless Chrome via chromedp (Go native) |
+| `rod` | Alternative Chrome driver |
+| `playwright` | Playwright browser automation |
+| `http` | Simple HTTP fetch (no JS rendering) |
+
+**Behavior:**
+- Uses headless Chrome for JS-heavy pages (AJAX, SPAs)
+- Falls back to simple HTTP if Chrome unavailable
+- Extracts clean text: removes `<script>`, `<style>`, `<nav>`, `<header>`, `<footer>`
+- Truncates output at 50,000 characters
+- Per-query engine override: `engine=yandex`
+
+**Examples:**
+```json
+{"action": "search", "query": "Rust async patterns", "engine": "google"}
+{"action": "fetch", "url": "https://example.com"}
+{"action": "extract", "url": "https://example.com/article"}
+{"action": "search", "query": "конкуренты cavibora", "engine": "yandex"}
+```
+
+**Configuration:**
+```yaml
+tools:
+  browse:
+    engine: chromedp          # chromedp, rod, playwright, http
+    search_engine: duckduckgo # duckduckgo, google, yandex, bing
+    timeout: 30
+    max_results: 10
+    user_agent: "Mozilla/5.0..."
+    headless: true
+    chrome_path: ""           # auto-detect if empty
+```
+
+---
+
+### `memory`
+
+Persistent session-scoped memory for storing important project facts. Each session has its own memory file.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `action` | string | ✅ | `save`, `load`, `list`, `delete` |
+| `key` | string | ❌ | Fact identifier |
+| `value` | string | ❌ | Fact value |
+| `category` | string | ❌ | Group name (default: `general`) |
+
+**Actions:**
+
+| Action | Description |
+|--------|-------------|
+| `save` | Save or update a fact |
+| `load` | Load facts by key or category |
+| `list` | List all stored facts |
+| `delete` | Delete a fact by key |
+
+**Behavior:**
+- Each session stores facts in `.bugbuster/memory/<session-id>.md`
+- Facts are automatically loaded into the system prompt at session start
+- Markdown format (human-readable)
+- Case-insensitive key matching
+- Thread-safe (concurrent access protected by mutex)
+- Categories are sorted alphabetically
+
+**Examples:**
+```json
+{"action": "save", "key": "project_path", "value": "/Users/ss/ai/grfn", "category": "project"}
+{"action": "save", "key": "mysql_host", "value": "localhost:3306", "category": "database"}
+{"action": "load", "key": "project_path"}
+{"action": "load", "category": "database"}
+{"action": "list"}
+{"action": "delete", "key": "temp_data"}
+```
+
+**Memory file format:**
+```markdown
+# BugBuster Agent Memory
+
+## database
+- **mysql_host**: localhost:3306
+- **mysql_user**: root
+
+## project
+- **language**: Rust
+- **project_path**: /Users/ss/ai/grfn
+```
+
+**Auto-injection:** At session start, all stored facts are injected into the system prompt:
+```
+Important facts about this project (from agent memory):
+
+[database]
+- mysql_host: localhost:3306
+
+[project]
+- language: Rust
+- project_path: /Users/ss/ai/grfn
+```
 
 ---
 
