@@ -44,6 +44,28 @@ func NewMemoryToolWithPath(filePath string) *MemoryTool {
 	return &MemoryTool{filePath: filePath}
 }
 
+// SetSessionID updates the session ID and file path.
+// Call this after session creation to associate memory with the correct session.
+func (t *MemoryTool) SetSessionID(sessionID string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	home, _ := os.UserHomeDir()
+	memoryDir := filepath.Join(home, ".bugbuster", "memory")
+	newPath := filepath.Join(memoryDir, sessionID+".md")
+	// If old file exists with facts, migrate them to new file
+	if t.filePath != newPath {
+		oldFacts := t.facts
+		t.filePath = newPath
+		t.loaded = false
+		t.facts = nil
+		// Save old facts to new file
+		if len(oldFacts) > 0 {
+			t.facts = oldFacts
+			t.saveToFile()
+		}
+	}
+}
+
 func (t *MemoryTool) Name() string { return "memory" }
 
 func (t *MemoryTool) Description() string {

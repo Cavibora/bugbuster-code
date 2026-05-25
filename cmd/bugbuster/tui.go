@@ -1089,6 +1089,10 @@ func runTUI(cfg *config.BugBusterConfig, loop *agent.AgentLoop, ct *ChangeTracke
 	if searchTool, ok := loop.Tools["search_context"].(*agent.SearchContextTool); ok {
 		searchTool.SessionID = currentSession.ID
 	}
+	// Update SessionID in MemoryTool
+	if memTool, ok := loop.Tools["memory"].(*tools.MemoryTool); ok {
+		memTool.SetSessionID(currentSession.ID)
+	}
 
 	// Restore chat history in TUI
 	if currentSession.Messages != nil && len(currentSession.Messages) > 0 {

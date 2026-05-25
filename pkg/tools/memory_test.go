@@ -693,3 +693,25 @@ func TestMemoryToolSaveTimestamp(t *testing.T) {
 func contains(s, substr string) bool {
 	return strings.Contains(s, substr)
 }
+
+func TestMemoryToolSetSessionID(t *testing.T) {
+	tmpDir := t.TempDir()
+	m := NewMemoryToolWithPath(filepath.Join(tmpDir, "old-session.md"))
+
+	// Save a fact with old session
+	m.Execute(map[string]string{"action": "save", "key": "test_key", "value": "test_value", "category": "test"})
+
+	// Verify fact was saved
+	result := m.Execute(map[string]string{"action": "load", "key": "test_key"})
+	if result.Error != "" {
+		t.Errorf("Expected no error, got: %s", result.Error)
+	}
+	if !strings.Contains(result.Output, "test_value") {
+		t.Errorf("Expected output to contain 'test_value', got: %s", result.Output)
+	}
+
+	// Verify old file exists
+	if _, err := os.Stat(filepath.Join(tmpDir, "old-session.md")); os.IsNotExist(err) {
+		t.Error("Expected old session file to exist")
+	}
+}

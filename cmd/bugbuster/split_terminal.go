@@ -184,6 +184,10 @@ func (st *SplitTerminal) Run() bool {
 	if searchTool, ok := st.loop.Tools["search_context"].(*agent.SearchContextTool); ok {
 		searchTool.SessionID = currentSession.ID
 	}
+	// Update SessionID in MemoryTool
+	if memTool, ok := st.loop.Tools["memory"].(*tools.MemoryTool); ok {
+		memTool.SetSessionID(currentSession.ID)
+	}
 	color.Yellow("%s", i18n.T("cli_session.info", currentSession.ID))
 
 	// Ctrl+C processing
