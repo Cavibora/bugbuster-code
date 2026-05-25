@@ -207,6 +207,16 @@ func (t *BrowseTool) searchDuckDuckGo(query string, maxResults int) ([]searchRes
 
 func (t *BrowseTool) searchGoogle(query string, maxResults int) ([]searchResult, error) {
 	searchURL := fmt.Sprintf("https://www.google.com/search?q=%s&num=%d&hl=en", url.QueryEscape(query), maxResults)
+	// Google requires JS rendering — try headless browser first
+	if t.Config.Engine == "chromedp" || t.Config.Engine == "rod" || t.Config.Engine == "playwright" {
+		content, err := t.fetchWithChrome(searchURL, "")
+		if err == nil {
+			if results := parseGoogleHTML(content, maxResults); len(results) > 0 {
+				return results, nil
+			}
+		}
+	}
+	// Fallback to HTTP
 	body, err := t.httpGet(searchURL)
 	if err != nil {
 		return nil, err
@@ -216,21 +226,35 @@ func (t *BrowseTool) searchGoogle(query string, maxResults int) ([]searchResult,
 
 func (t *BrowseTool) searchYandex(query string, maxResults int) ([]searchResult, error) {
 	searchURL := fmt.Sprintf("https://yandex.ru/search/?text=%s&numdoc=%d", url.QueryEscape(query), maxResults)
-	// Yandex renders via JS — use headless browser
-	content, err := t.fetchWithChrome(searchURL, "")
-	if err != nil {
-		// Fallback to HTTP
-		body, err2 := t.httpGet(searchURL)
-		if err2 != nil {
-			return nil, fmt.Errorf("chrome: %v, http: %v", err, err2)
+	// Yandex requires JS rendering — try headless browser first
+	if t.Config.Engine == "chromedp" || t.Config.Engine == "rod" || t.Config.Engine == "playwright" {
+		content, err := t.fetchWithChrome(searchURL, "")
+		if err == nil {
+			if results := parseYandexHTML(content, maxResults); len(results) > 0 {
+				return results, nil
+			}
 		}
-		return parseYandexHTML(body, maxResults), nil
 	}
-	return parseYandexHTML(content, maxResults), nil
+	// Fallback to HTTP
+	body, err := t.httpGet(searchURL)
+	if err != nil {
+		return nil, err
+	}
+	return parseYandexHTML(body, maxResults), nil
 }
 
 func (t *BrowseTool) searchBing(query string, maxResults int) ([]searchResult, error) {
 	searchURL := fmt.Sprintf("https://www.bing.com/search?q=%s&count=%d", url.QueryEscape(query), maxResults)
+	// Bing requires JS rendering — try headless browser first
+	if t.Config.Engine == "chromedp" || t.Config.Engine == "rod" || t.Config.Engine == "playwright" {
+		content, err := t.fetchWithChrome(searchURL, "")
+		if err == nil {
+			if results := parseBingHTML(content, maxResults); len(results) > 0 {
+				return results, nil
+			}
+		}
+	}
+	// Fallback to HTTP
 	body, err := t.httpGet(searchURL)
 	if err != nil {
 		return nil, err
@@ -366,32 +390,80 @@ func parseDuckDuckGoHTML(html string, maxResults int) []searchResult {
 
 func parseGoogleHTML(html string, maxResults int) []searchResult {
 	var results []searchResult
-	titleRe := regexp.MustCompile(`(?s)<a[^>]*href="(/url\?q=([^"&]*)[^"]*)"[^>]*>.*?<h3[^>]*>(.*?)</h3>`)
-	snippetRe := regexp.MustCompile(`(?s)<span[^>]*>(.*?)</span>`)
+	// Try multiple patterns for Google search results
+	patterns := []struct {
+		title   *regexp.Regexp
+		snippet *regexp.Regexp
+	}{
+		// Pattern 1: Standard Google results (data-href or href with /url?q=)
+		{
+			regexp.MustCompile(`(?s)<a[^>]*(?:data-href|href)="([^"]*(?:/url\?q=|/search\?q=)?[^"]*)"[^>]*>.*?<h3[^>]*>(.*?)</h3>`),
+			regexp.MustCompile(`(?s)<div[^>]*class="[^"]*VwiC3b[^"]*"[^>]*>(.*?)</div>`),
+		},
+		// Pattern 2: Mobile Google results
+		{
+			regexp.MustCompile(`(?s)<a[^>]*href="(/url\?q=([^"&]*)[^"]*)"[^>]*>.*?<h3[^>]*>(.*?)</h3>`),
+			regexp.MustCompile(`(?s)<span[^>]*>(.*?)</span>`),
+		},
+		// Pattern 3: Generic link with title
+		{
+			regexp.MustCompile(`(?s)<h3[^>]*>(.*?)</h3>.*?<a[^>]*href="(https?://[^"]*)"`),
+			regexp.MustCompile(`(?s)<span[^>]*class="[^"]*st[^"]*"[^>]*>(.*?)</span>`),
+		},
+	}
 
-	matches := titleRe.FindAllStringSubmatch(html, -1)
-	allSnippets := snippetRe.FindAllStringSubmatch(html, -1)
+	for _, p := range patterns {
+		matches := p.title.FindAllStringSubmatch(html, -1)
+		if len(matches) > 0 {
+			snippets := p.snippet.FindAllStringSubmatch(html, -1)
+			for i, m := range matches {
+				if len(results) >= maxResults {
+					break
+				}
+				link := ""
+				title := ""
+				switch len(m) {
+				case 4: // Pattern 2: /url?q=URL
+					link = m[2]
+					title = cleanHTMLTags(m[3])
+				case 3: // Pattern 1 or 3
+					link = m[1]
+					title = cleanHTMLTags(m[2])
+					if !strings.HasPrefix(link, "http") {
+						if strings.HasPrefix(link, "/url?q=") {
+							link = strings.TrimPrefix(link, "/url?q=")
+							if idx := strings.Index(link, "&"); idx != -1 {
+								link = link[:idx]
+							}
+						} else if strings.HasPrefix(link, "/search") {
+							continue
+						} else {
+							link = "https://www.google.com" + link
+						}
+					}
+				default:
+					continue
+				}
 
-	for i, m := range matches {
-		if len(results) >= maxResults || len(m) < 4 {
-			break
-		}
-		link := m[2]
-		if strings.HasPrefix(link, "&") || strings.HasPrefix(link, "/search") {
-			continue
-		}
-		if !strings.HasPrefix(link, "http") {
-			link = "https://" + link
-		}
-		title := cleanHTMLTags(m[3])
+				if strings.HasPrefix(link, "&") || strings.HasPrefix(link, "/search") {
+					continue
+				}
+				if !strings.HasPrefix(link, "http") {
+					link = "https://" + link
+				}
 
-		snippet := ""
-		if i < len(allSnippets) && len(allSnippets[i]) >= 2 {
-			snippet = cleanHTMLTags(allSnippets[i][1])
-		}
+				snippet := ""
+				if i < len(snippets) && len(snippets[i]) >= 2 {
+					snippet = cleanHTMLTags(snippets[i][1])
+				}
 
-		if title != "" {
-			results = append(results, searchResult{Title: title, URL: link, Snippet: snippet})
+				if title != "" && link != "" {
+					results = append(results, searchResult{Title: title, URL: link, Snippet: snippet})
+				}
+			}
+			if len(results) > 0 {
+				break // Found results with this pattern
+			}
 		}
 	}
 	return results
@@ -399,30 +471,62 @@ func parseGoogleHTML(html string, maxResults int) []searchResult {
 
 func parseYandexHTML(html string, maxResults int) []searchResult {
 	var results []searchResult
-	// Yandex uses: <h2 class="..."><a href="...">Title</a></h2>
-	titleRe := regexp.MustCompile(`(?s)<h2[^>]*>.*?<a[^>]*href="([^"]*)"[^>]*>(.*?)</a>`)
-	snippetRe := regexp.MustCompile(`(?s)<span class="ExtendedText[^"]*">(.*?)</span>`)
+	// Try multiple patterns for Yandex search results
+	patterns := []struct {
+		title   *regexp.Regexp
+		snippet *regexp.Regexp
+	}{
+		// Pattern 1: Yandex SERP with OrganicTitle
+		{
+			regexp.MustCompile(`(?s)<h2[^>]*>.*?<a[^>]*href="([^"]*)"[^>]*>(.*?)</a>`),
+			regexp.MustCompile(`(?s)<span class="ExtendedText[^"]*">(.*?)</span>`),
+		},
+		// Pattern 2: Yandex with data-cy
+		{
+			regexp.MustCompile(`(?s)<a[^>]*data-cy="[^"]*"[^>]*href="([^"]*)"[^>]*>(.*?)</a>`),
+			regexp.MustCompile(`(?s)<div[^>]*class="[^"]*organic__content[^"]*"[^>]*>(.*?)</div>`),
+		},
+		// Pattern 3: Generic Yandex link
+		{
+			regexp.MustCompile(`(?s)<a[^>]*href="(https?://[^"]*)"[^>]*>(.*?)</a>`),
+			nil,
+		},
+	}
 
-	titleMatches := titleRe.FindAllStringSubmatch(html, -1)
-	snippetMatches := snippetRe.FindAllStringSubmatch(html, -1)
+	for _, p := range patterns {
+		matches := p.title.FindAllStringSubmatch(html, -1)
+		if len(matches) > 0 {
+			var snippets [][]string
+			if p.snippet != nil {
+				snippets = p.snippet.FindAllStringSubmatch(html, -1)
+			}
+			for i, m := range matches {
+				if len(results) >= maxResults {
+					break
+				}
+				if len(m) < 3 {
+					continue
+				}
+				resultURL := m[1]
+				title := cleanHTMLTags(m[2])
 
-	for i, tm := range titleMatches {
-		if len(results) >= maxResults {
-			break
-		}
-		if len(tm) < 3 {
-			continue
-		}
-		resultURL := tm[1]
-		title := cleanHTMLTags(tm[2])
+				// Skip Yandex internal links
+				if strings.Contains(resultURL, "yandex.") && !strings.HasPrefix(resultURL, "http") {
+					continue
+				}
 
-		snippet := ""
-		if i < len(snippetMatches) && len(snippetMatches[i]) >= 2 {
-			snippet = cleanHTMLTags(snippetMatches[i][1])
-		}
+				snippet := ""
+				if snippets != nil && i < len(snippets) && len(snippets[i]) >= 2 {
+					snippet = cleanHTMLTags(snippets[i][1])
+				}
 
-		if title != "" && resultURL != "" {
-			results = append(results, searchResult{Title: title, URL: resultURL, Snippet: snippet})
+				if title != "" && resultURL != "" && strings.HasPrefix(resultURL, "http") {
+					results = append(results, searchResult{Title: title, URL: resultURL, Snippet: snippet})
+				}
+			}
+			if len(results) > 0 {
+				break
+			}
 		}
 	}
 	return results
@@ -430,30 +534,62 @@ func parseYandexHTML(html string, maxResults int) []searchResult {
 
 func parseBingHTML(html string, maxResults int) []searchResult {
 	var results []searchResult
-	// Bing uses: <h2><a href="...">Title</a></h2>
-	titleRe := regexp.MustCompile(`(?s)<h2[^>]*><a[^>]*href="([^"]*)"[^>]*>(.*?)</a>`)
-	snippetRe := regexp.MustCompile(`(?s)<p[^>]*class="[^"]*"[^>]*>(.*?)</p>`)
+	// Try multiple patterns for Bing search results
+	patterns := []struct {
+		title   *regexp.Regexp
+		snippet *regexp.Regexp
+	}{
+		// Pattern 1: Bing with b_algo class
+		{
+			regexp.MustCompile(`(?s)<li class="b_algo">.*?<h2><a[^>]*href="([^"]*)"[^>]*>(.*?)</a></h2>`),
+			regexp.MustCompile(`(?s)<div[^>]*class="[^"]*b_caption[^"]*"[^>]*>.*?<p[^>]*>(.*?)</p>`),
+		},
+		// Pattern 2: Bing with data-h or h attribute
+		{
+			regexp.MustCompile(`(?s)<h2><a[^>]*(?:href|h)="([^"]*)"[^>]*>(.*?)</a></h2>`),
+			regexp.MustCompile(`(?s)<p[^>]*>(.*?)</p>`),
+		},
+		// Pattern 3: Generic Bing result
+		{
+			regexp.MustCompile(`(?s)<a[^>]*href="(https?://[^"]*)"[^>]*>(.*?)</a>`),
+			nil,
+		},
+	}
 
-	titleMatches := titleRe.FindAllStringSubmatch(html, -1)
-	snippetMatches := snippetRe.FindAllStringSubmatch(html, -1)
+	for _, p := range patterns {
+		matches := p.title.FindAllStringSubmatch(html, -1)
+		if len(matches) > 0 {
+			var snippets [][]string
+			if p.snippet != nil {
+				snippets = p.snippet.FindAllStringSubmatch(html, -1)
+			}
+			for i, m := range matches {
+				if len(results) >= maxResults {
+					break
+				}
+				if len(m) < 3 {
+					continue
+				}
+				resultURL := m[1]
+				title := cleanHTMLTags(m[2])
 
-	for i, tm := range titleMatches {
-		if len(results) >= maxResults {
-			break
-		}
-		if len(tm) < 3 {
-			continue
-		}
-		resultURL := tm[1]
-		title := cleanHTMLTags(tm[2])
+				// Skip Bing internal links
+				if strings.Contains(resultURL, "bing.com") || strings.Contains(resultURL, "microsoft.com") {
+					continue
+				}
 
-		snippet := ""
-		if i < len(snippetMatches) && len(snippetMatches[i]) >= 2 {
-			snippet = cleanHTMLTags(snippetMatches[i][1])
-		}
+				snippet := ""
+				if snippets != nil && i < len(snippets) && len(snippets[i]) >= 2 {
+					snippet = cleanHTMLTags(snippets[i][1])
+				}
 
-		if title != "" && resultURL != "" {
-			results = append(results, searchResult{Title: title, URL: resultURL, Snippet: snippet})
+				if title != "" && resultURL != "" && strings.HasPrefix(resultURL, "http") {
+					results = append(results, searchResult{Title: title, URL: resultURL, Snippet: snippet})
+				}
+			}
+			if len(results) > 0 {
+				break
+			}
 		}
 	}
 	return results

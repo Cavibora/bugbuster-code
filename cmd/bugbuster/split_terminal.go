@@ -80,6 +80,33 @@ func NewSplitTerminal(cfg *config.BugBusterConfig, loop *agent.AgentLoop, ct *Ch
 	}
 }
 
+// resetReadline recreates readline instance to ensure clean state.
+// This is necessary because readLineFromStdin() (for ask_user) opens /dev/tty
+// and puts terminal in cooked mode, which can leave readline goroutines
+// (CancelableStdin.ioloop, Operation.ioloop) in a broken state.
+// Recreating readline ensures all goroutines are fresh and terminal is in raw mode.
+func (st *SplitTerminal) resetReadline() {
+	if st.rl != nil {
+		st.rl.Close()
+	}
+	historyFile := filepath.Join(getProjectDir(st.cfg), ".bugbuster", "history")
+	rl, err := readline.NewEx(&readline.Config{
+		Prompt:          color.HiGreenString("❯ "),
+		HistoryFile:     historyFile,
+		HistoryLimit:    1000,
+		InterruptPrompt: "^C",
+		EOFPrompt:       "exit",
+	})
+	if err != nil {
+		color.Red("Failed to reinitialize readline: %v", err)
+		restoreTerminalToNormal()
+		return
+	}
+	st.rl = rl
+	// Clear pending line from previous readline instance
+	st.pendingLine = nil
+}
+
 // Run starts interactive split-terminal mode.
 // Returns true if need to switch to TUI mode.
 func (st *SplitTerminal) Run() bool {
@@ -241,6 +268,14 @@ func (st *SplitTerminal) Run() bool {
 			}
 			// Regular request to model
 			st.runStreamingQuery(input, &currentCancel, &interrupted)
+
+			// Recreate readline after each request to ensure clean state.
+			// readLineFromStdin() (for ask_user) opens /dev/tty and puts
+			// terminal in cooked mode, which can leave readline goroutines
+			// in a broken state. Recreating readline ensures all goroutines
+			// are fresh and terminal is in raw mode.
+			st.resetReadline()
+			rl = st.rl
 
 			// Autopilot: automatically continue after each response,
 			// until plan is completed, iteration limit is reached,

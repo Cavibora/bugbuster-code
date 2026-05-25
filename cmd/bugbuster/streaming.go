@@ -452,6 +452,9 @@ streamLoop:
 				if statusLine != "" {
 					fmt.Println(statusLine)
 				}
+				// Ensure terminal is in normal mode after response
+				// (ask_user may have left it in raw mode)
+				restoreTerminalToNormal()
 				// Incremental session save after each response
 				if session != nil && sessionMgr != nil {
 					session.Messages = loop.Context.GetMessages()
