@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"bugbuster-code/pkg/i18n"
@@ -108,6 +109,8 @@ func (t *BashTool) Execute(params map[string]string) ToolResult {
 		parts := strings.Fields(command)
 		cmd = exec.CommandContext(ctx, parts[0], parts[1:]...)
 	}
+	// Put command in its own process group so we can kill all children
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	if workDir != "" {
 		cmd.Dir = workDir
@@ -129,6 +132,10 @@ func (t *BashTool) Execute(params map[string]string) ToolResult {
 
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
+			// Kill entire process group
+			if cmd.Process != nil {
+				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			}
 			return Error("tools.bash.timeout", timeout)
 		}
 		if output == "" {
@@ -215,7 +222,7 @@ func (t *BashTool) ExecuteAsync(params map[string]string) <-chan AsyncEvent {
 			}
 		}
 
-		// Create command
+		// Create command with process group for clean kill
 		var cmd *exec.Cmd
 		if strings.Contains(command, "&&") || strings.Contains(command, "||") || strings.Contains(command, "|") || strings.Contains(command, ";") {
 			cmd = exec.Command("bash", "-c", command)
@@ -223,6 +230,8 @@ func (t *BashTool) ExecuteAsync(params map[string]string) <-chan AsyncEvent {
 			parts := strings.Fields(command)
 			cmd = exec.Command(parts[0], parts[1:]...)
 		}
+		// Put command in its own process group so we can kill all children
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 		if workDir != "" {
 			cmd.Dir = workDir
@@ -244,12 +253,17 @@ func (t *BashTool) ExecuteAsync(params map[string]string) <-chan AsyncEvent {
 			return
 		}
 
-		// Timeout: kill process and close pipes on expiry
+		// Timeout: graceful then forced kill of entire process group
 		var killTimer *time.Timer
 		if timeout > 0 {
 			killTimer = time.AfterFunc(timeout, func() {
 				if cmd.Process != nil {
-					_ = cmd.Process.Kill()
+					// First try SIGTERM (graceful)
+					_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
+					// After 3 seconds, force SIGKILL
+					time.AfterFunc(3*time.Second, func() {
+						_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+					})
 				}
 				stdoutPipe.Close()
 				stderrPipe.Close()
