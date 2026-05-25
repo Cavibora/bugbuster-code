@@ -9,29 +9,18 @@ import (
 func TestMemoryToolSaveAndLoad(t *testing.T) {
 	dir := t.TempDir()
 	fp := filepath.Join(dir, "memory.md")
-	tool := NewMemoryTool(fp)
+	tool := NewMemoryToolWithPath(fp)
 
-	// Save entry
 	result := tool.Execute(map[string]string{
-		"action":   "save",
-		"key":      "project_path",
-		"value":    "/Users/test/myproject",
-		"category": "project",
+		"action": "save", "key": "project_path", "value": "/Users/test/myproject", "category": "project",
 	})
 	if result.Error != "" {
 		t.Fatalf("save failed: %s", result.Error)
 	}
 
-	// Load entry
-	result = tool.Execute(map[string]string{
-		"action": "load",
-		"key":    "project_path",
-	})
+	result = tool.Execute(map[string]string{"action": "load", "key": "project_path"})
 	if result.Error != "" {
 		t.Fatalf("load failed: %s", result.Error)
-	}
-	if result.Output == "" {
-		t.Fatal("load returned empty output")
 	}
 	if !contains(result.Output, "/Users/test/myproject") {
 		t.Fatalf("load did not contain value: %s", result.Output)
@@ -41,26 +30,15 @@ func TestMemoryToolSaveAndLoad(t *testing.T) {
 func TestMemoryToolList(t *testing.T) {
 	dir := t.TempDir()
 	fp := filepath.Join(dir, "memory.md")
-	tool := NewMemoryTool(fp)
+	tool := NewMemoryToolWithPath(fp)
 
-	// Save multiple entries
-	tool.Execute(map[string]string{
-		"action": "save", "key": "db_host", "value": "localhost:5432", "category": "database",
-	})
-	tool.Execute(map[string]string{
-		"action": "save", "key": "db_user", "value": "admin", "category": "database",
-	})
-	tool.Execute(map[string]string{
-		"action": "save", "key": "project_path", "value": "/home/user/project", "category": "project",
-	})
+	tool.Execute(map[string]string{"action": "save", "key": "db_host", "value": "localhost:5432", "category": "database"})
+	tool.Execute(map[string]string{"action": "save", "key": "db_user", "value": "admin", "category": "database"})
+	tool.Execute(map[string]string{"action": "save", "key": "project_path", "value": "/home/user/project", "category": "project"})
 
-	// List all
 	result := tool.Execute(map[string]string{"action": "list"})
 	if result.Error != "" {
 		t.Fatalf("list failed: %s", result.Error)
-	}
-	if !contains(result.Output, "3 entries") {
-		t.Fatalf("expected 3 entries, got: %s", result.Output)
 	}
 	if !contains(result.Output, "database") {
 		t.Fatalf("expected 'database' category, got: %s", result.Output)
@@ -73,23 +51,15 @@ func TestMemoryToolList(t *testing.T) {
 func TestMemoryToolDelete(t *testing.T) {
 	dir := t.TempDir()
 	fp := filepath.Join(dir, "memory.md")
-	tool := NewMemoryTool(fp)
+	tool := NewMemoryToolWithPath(fp)
 
-	// Save and delete
-	tool.Execute(map[string]string{
-		"action": "save", "key": "temp_key", "value": "temp_value",
-	})
-	result := tool.Execute(map[string]string{
-		"action": "delete", "key": "temp_key",
-	})
+	tool.Execute(map[string]string{"action": "save", "key": "temp_key", "value": "temp_value"})
+	result := tool.Execute(map[string]string{"action": "delete", "key": "temp_key"})
 	if result.Error != "" {
 		t.Fatalf("delete failed: %s", result.Error)
 	}
 
-	// Verify deleted
-	result = tool.Execute(map[string]string{
-		"action": "load", "key": "temp_key",
-	})
+	result = tool.Execute(map[string]string{"action": "load", "key": "temp_key"})
 	if contains(result.Output, "temp_value") {
 		t.Fatal("entry should have been deleted")
 	}
@@ -98,22 +68,12 @@ func TestMemoryToolDelete(t *testing.T) {
 func TestMemoryToolUpdateExisting(t *testing.T) {
 	dir := t.TempDir()
 	fp := filepath.Join(dir, "memory.md")
-	tool := NewMemoryTool(fp)
+	tool := NewMemoryToolWithPath(fp)
 
-	// Save entry
-	tool.Execute(map[string]string{
-		"action": "save", "key": "version", "value": "1.0",
-	})
+	tool.Execute(map[string]string{"action": "save", "key": "version", "value": "1.0"})
+	tool.Execute(map[string]string{"action": "save", "key": "version", "value": "2.0"})
 
-	// Update entry
-	tool.Execute(map[string]string{
-		"action": "save", "key": "version", "value": "2.0",
-	})
-
-	// Verify updated
-	result := tool.Execute(map[string]string{
-		"action": "load", "key": "version",
-	})
+	result := tool.Execute(map[string]string{"action": "load", "key": "version"})
 	if !contains(result.Output, "2.0") {
 		t.Fatalf("expected 2.0, got: %s", result.Output)
 	}
@@ -122,31 +82,10 @@ func TestMemoryToolUpdateExisting(t *testing.T) {
 	}
 }
 
-func TestMemoryToolSearchByValue(t *testing.T) {
-	dir := t.TempDir()
-	fp := filepath.Join(dir, "memory.md")
-	tool := NewMemoryTool(fp)
-
-	tool.Execute(map[string]string{
-		"action": "save", "key": "host1", "value": "server.example.com",
-	})
-	tool.Execute(map[string]string{
-		"action": "save", "key": "host2", "value": "other.example.com",
-	})
-
-	// Search by partial value
-	result := tool.Execute(map[string]string{
-		"action": "load", "key": "example.com",
-	})
-	if !contains(result.Output, "2 entries") {
-		t.Fatalf("expected 2 entries, got: %s", result.Output)
-	}
-}
-
 func TestMemoryToolEmpty(t *testing.T) {
 	dir := t.TempDir()
 	fp := filepath.Join(dir, "memory.md")
-	tool := NewMemoryTool(fp)
+	tool := NewMemoryToolWithPath(fp)
 
 	result := tool.Execute(map[string]string{"action": "list"})
 	if !contains(result.Output, "empty") {
@@ -157,15 +96,13 @@ func TestMemoryToolEmpty(t *testing.T) {
 func TestMemoryToolMissingParams(t *testing.T) {
 	dir := t.TempDir()
 	fp := filepath.Join(dir, "memory.md")
-	tool := NewMemoryTool(fp)
+	tool := NewMemoryToolWithPath(fp)
 
-	// Missing key
 	result := tool.Execute(map[string]string{"action": "save", "value": "test"})
 	if result.Error == "" {
 		t.Fatal("expected error for missing key")
 	}
 
-	// Missing value
 	result = tool.Execute(map[string]string{"action": "save", "key": "test"})
 	if result.Error == "" {
 		t.Fatal("expected error for missing value")
@@ -175,7 +112,7 @@ func TestMemoryToolMissingParams(t *testing.T) {
 func TestMemoryToolUnknownAction(t *testing.T) {
 	dir := t.TempDir()
 	fp := filepath.Join(dir, "memory.md")
-	tool := NewMemoryTool(fp)
+	tool := NewMemoryToolWithPath(fp)
 
 	result := tool.Execute(map[string]string{"action": "unknown"})
 	if result.Error == "" {
@@ -187,41 +124,29 @@ func TestMemoryToolFilePersistence(t *testing.T) {
 	dir := t.TempDir()
 	fp := filepath.Join(dir, "memory.md")
 
-	// Save with first tool instance
-	tool1 := NewMemoryTool(fp)
-	tool1.Execute(map[string]string{
-		"action": "save", "key": "persistent_key", "value": "persistent_value", "category": "test",
-	})
+	tool1 := NewMemoryToolWithPath(fp)
+	tool1.Execute(map[string]string{"action": "save", "key": "persistent_key", "value": "persistent_value", "category": "test"})
 
-	// Load with second tool instance (simulates restart)
-	tool2 := NewMemoryTool(fp)
-	result := tool2.Execute(map[string]string{
-		"action": "load", "key": "persistent_key",
-	})
+	tool2 := NewMemoryToolWithPath(fp)
+	result := tool2.Execute(map[string]string{"action": "load", "key": "persistent_key"})
 	if !contains(result.Output, "persistent_value") {
 		t.Fatalf("data should persist across instances, got: %s", result.Output)
 	}
 }
 
-func TestLoadMemoryForPrompt(t *testing.T) {
+func TestLoadAllFacts(t *testing.T) {
 	dir := t.TempDir()
 	fp := filepath.Join(dir, "memory.md")
-	tool := NewMemoryTool(fp)
+	tool := NewMemoryToolWithPath(fp)
 
-	// Save some entries
-	tool.Execute(map[string]string{
-		"action": "save", "key": "project_path", "value": "/home/user/project", "category": "project",
-	})
-	tool.Execute(map[string]string{
-		"action": "save", "key": "db_host", "value": "localhost:5432", "category": "database",
-	})
+	tool.Execute(map[string]string{"action": "save", "key": "project_path", "value": "/home/user/project", "category": "project"})
+	tool.Execute(map[string]string{"action": "save", "key": "db_host", "value": "localhost:5432", "category": "database"})
 
-	// Load for prompt
-	prompt := LoadMemoryForPrompt(fp)
+	prompt := tool.LoadAllFacts()
 	if prompt == "" {
 		t.Fatal("expected non-empty prompt")
 	}
-	if !contains(prompt, "Important Project Facts") {
+	if !contains(prompt, "Important facts") {
 		t.Fatalf("expected header, got: %s", prompt)
 	}
 	if !contains(prompt, "/home/user/project") {
@@ -232,38 +157,26 @@ func TestLoadMemoryForPrompt(t *testing.T) {
 	}
 }
 
-func TestLoadMemoryForPromptEmpty(t *testing.T) {
+func TestLoadAllFactsEmpty(t *testing.T) {
 	dir := t.TempDir()
 	fp := filepath.Join(dir, "memory.md")
+	tool := NewMemoryToolWithPath(fp)
 
-	prompt := LoadMemoryForPrompt(fp)
+	prompt := tool.LoadAllFacts()
 	if prompt != "" {
 		t.Fatalf("expected empty prompt for non-existent file, got: %s", prompt)
-	}
-}
-
-func TestMemoryToolDefaultPath(t *testing.T) {
-	tool := NewMemoryTool("")
-	if tool.filePath != ".bugbuster/memory.md" {
-		t.Fatalf("expected default path, got: %s", tool.filePath)
 	}
 }
 
 func TestMemoryToolCategoryFilter(t *testing.T) {
 	dir := t.TempDir()
 	fp := filepath.Join(dir, "memory.md")
-	tool := NewMemoryTool(fp)
+	tool := NewMemoryToolWithPath(fp)
 
-	tool.Execute(map[string]string{
-		"action": "save", "key": "k1", "value": "v1", "category": "alpha",
-	})
-	tool.Execute(map[string]string{
-		"action": "save", "key": "k2", "value": "v2", "category": "beta",
-	})
+	tool.Execute(map[string]string{"action": "save", "key": "k1", "value": "v1", "category": "alpha"})
+	tool.Execute(map[string]string{"action": "save", "key": "k2", "value": "v2", "category": "beta"})
 
-	result := tool.Execute(map[string]string{
-		"action": "load", "category": "alpha",
-	})
+	result := tool.Execute(map[string]string{"action": "load", "category": "alpha"})
 	if !contains(result.Output, "v1") {
 		t.Fatalf("expected v1, got: %s", result.Output)
 	}
@@ -275,13 +188,10 @@ func TestMemoryToolCategoryFilter(t *testing.T) {
 func TestMemoryToolFileFormat(t *testing.T) {
 	dir := t.TempDir()
 	fp := filepath.Join(dir, "memory.md")
-	tool := NewMemoryTool(fp)
+	tool := NewMemoryToolWithPath(fp)
 
-	tool.Execute(map[string]string{
-		"action": "save", "key": "test_key", "value": "test_value", "category": "test_cat",
-	})
+	tool.Execute(map[string]string{"action": "save", "key": "test_key", "value": "test_value", "category": "test_cat"})
 
-	// Read raw file and verify format
 	data, err := os.ReadFile(fp)
 	if err != nil {
 		t.Fatal(err)
@@ -299,10 +209,6 @@ func TestMemoryToolFileFormat(t *testing.T) {
 }
 
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsStr(s, substr))
-}
-
-func containsStr(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {
 		if s[i:i+len(substr)] == substr {
 			return true

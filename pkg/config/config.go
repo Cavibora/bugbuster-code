@@ -139,11 +139,23 @@ type LoopDetectionConfig struct {
 
 // ToolsConfig — settings tools
 type ToolsConfig struct {
-	AllowedDirs    []string `yaml:"allowed_dirs"`
-	MaxFileSize    int64    `yaml:"max_file_size"`
-	BashTimeout    int      `yaml:"bash_timeout"`
-	MaxGrepResults int      `yaml:"max_grep_results"`
-	MaxGlobResults int      `yaml:"max_glob_results"`
+	AllowedDirs    []string     `yaml:"allowed_dirs"`
+	MaxFileSize    int64        `yaml:"max_file_size"`
+	BashTimeout    int          `yaml:"bash_timeout"`
+	MaxGrepResults int          `yaml:"max_grep_results"`
+	MaxGlobResults int          `yaml:"max_glob_results"`
+	Browse         BrowseConfig `yaml:"browse"`
+}
+
+// BrowseConfig — headless browser and search configuration
+type BrowseConfig struct {
+	Engine      string `yaml:"engine"`       // "chromedp" (default), "rod", "playwright", "http" (fallback)
+	SearchEngine string `yaml:"search_engine"` // "duckduckgo" (default), "google", "yandex", "bing"
+	Timeout     int    `yaml:"timeout"`       // page load timeout in seconds (default 30)
+	MaxResults  int    `yaml:"max_results"`   // max search results (default 10)
+	UserAgent   string `yaml:"user_agent"`    // custom user agent
+	Headless    bool   `yaml:"headless"`      // run browser in headless mode (default true)
+	ChromePath  string `yaml:"chrome_path"`   // path to Chrome/Chromium binary (auto-detect if empty)
 }
 
 // SecurityConfig — settings security
@@ -373,6 +385,25 @@ func MergeConfigs(configs ...*BugBusterConfig) *BugBusterConfig {
 		}
 		if cfg.Tools.MaxGlobResults > 0 {
 			result.Tools.MaxGlobResults = cfg.Tools.MaxGlobResults
+		}
+		// Browse config
+		if cfg.Tools.Browse.Engine != "" {
+			result.Tools.Browse.Engine = cfg.Tools.Browse.Engine
+		}
+		if cfg.Tools.Browse.SearchEngine != "" {
+			result.Tools.Browse.SearchEngine = cfg.Tools.Browse.SearchEngine
+		}
+		if cfg.Tools.Browse.Timeout > 0 {
+			result.Tools.Browse.Timeout = cfg.Tools.Browse.Timeout
+		}
+		if cfg.Tools.Browse.MaxResults > 0 {
+			result.Tools.Browse.MaxResults = cfg.Tools.Browse.MaxResults
+		}
+		if cfg.Tools.Browse.UserAgent != "" {
+			result.Tools.Browse.UserAgent = cfg.Tools.Browse.UserAgent
+		}
+		if cfg.Tools.Browse.ChromePath != "" {
+			result.Tools.Browse.ChromePath = cfg.Tools.Browse.ChromePath
 		}
 
 		// Security

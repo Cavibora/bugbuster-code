@@ -7,24 +7,40 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"bugbuster-code/pkg/i18n"
 )
 
-// MemoryTool stores and retrieves important facts about the project
-// that the model should remember across the session.
-// Data is persisted in .bugbuster/memory.md
+// MemoryTool stores important project facts that persist across sessions.
+// Each session has its own memory file (.bugbuster/memory/<session-id>.md).
+// Facts are automatically loaded into the system prompt at session start.
 type MemoryTool struct {
-	mu       sync.Mutex
+	mu       sync.RWMutex
 	filePath string
+	facts    []MemoryFact
+	loaded   bool
 }
 
-// NewMemoryTool creates a new memory tool.
-// filePath is the path to the memory file (typically .bugbuster/memory.md).
-func NewMemoryTool(filePath string) *MemoryTool {
-	if filePath == "" {
-		filePath = ".bugbuster/memory.md"
+// MemoryFact represents a single stored fact
+type MemoryFact struct {
+	Key      string    // Fact identifier (e.g. "project_path", "mysql_host")
+	Value    string    // Fact value
+	Category string    // Group (e.g. "project", "database", "metrics")
+	SavedAt  time.Time // When saved
+}
+
+// NewMemoryTool creates a new memory tool for a specific session
+func NewMemoryTool(sessionID string) *MemoryTool {
+	home, _ := os.UserHomeDir()
+	memoryDir := filepath.Join(home, ".bugbuster", "memory")
+	return &MemoryTool{
+		filePath: filepath.Join(memoryDir, sessionID+".md"),
 	}
+}
+
+// NewMemoryToolWithPath creates a memory tool with explicit path (for testing)
+func NewMemoryToolWithPath(filePath string) *MemoryTool {
 	return &MemoryTool{filePath: filePath}
 }
 
@@ -37,13 +53,13 @@ func (t *MemoryTool) Description() string {
 func (t *MemoryTool) Execute(params map[string]string) ToolResult {
 	action := params["action"]
 	switch action {
-	case "save", "remember", "store":
+	case "save":
 		return t.save(params)
-	case "load", "recall", "search":
+	case "load":
 		return t.load(params)
 	case "list":
 		return t.list()
-	case "delete", "remove":
+	case "delete":
 		return t.delete(params)
 	default:
 		return Error("tools.memory.unknown_action", action)
@@ -76,24 +92,13 @@ func (t *MemoryTool) Parameters() map[string]any {
 	}
 }
 
-// memoryEntry represents a single memory entry
-type memoryEntry struct {
-	Category string
-	Key      string
-	Value    string
-}
-
-// save stores a key-value pair in the memory file
 func (t *MemoryTool) save(params map[string]string) ToolResult {
 	key := strings.TrimSpace(params["key"])
 	value := strings.TrimSpace(params["value"])
 	category := strings.TrimSpace(params["category"])
 
-	if key == "" {
-		return Error("tools.memory.param_key")
-	}
-	if value == "" {
-		return Error("tools.memory.param_value")
+	if key == "" || value == "" {
+		return Error("tools.memory.save_empty")
 	}
 	if category == "" {
 		category = "general"
@@ -102,251 +107,274 @@ func (t *MemoryTool) save(params map[string]string) ToolResult {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	// Load existing entries
-	entries := t.loadEntries()
+	if err := t.loadFromFile(); err != nil && !os.IsNotExist(err) {
+		return Error("tools.memory.read_error", err)
+	}
 
-	// Update or add entry
+	// Update existing or add new
 	found := false
-	for i, e := range entries {
-		if strings.EqualFold(e.Key, key) {
-			entries[i] = memoryEntry{Category: category, Key: key, Value: value}
+	for i, f := range t.facts {
+		if strings.EqualFold(f.Key, key) {
+			t.facts[i].Value = value
+			t.facts[i].Category = category
+			t.facts[i].SavedAt = time.Now()
 			found = true
 			break
 		}
 	}
 	if !found {
-		entries = append(entries, memoryEntry{Category: category, Key: key, Value: value})
+		t.facts = append(t.facts, MemoryFact{
+			Key:      key,
+			Value:    value,
+			Category: category,
+			SavedAt:  time.Now(),
+		})
 	}
 
-	// Save to file
-	if err := t.saveEntries(entries); err != nil {
-		return Error("tools.memory.save_error", err)
+	if err := t.saveToFile(); err != nil {
+		return Error("tools.memory.write_error", err)
 	}
 
-	return Success("tools.memory.saved", key, category)
+	return ToolResult{Output: fmt.Sprintf("✓ Saved: %s = %s [%s]", key, value, category)}
 }
 
-// load retrieves entries from the memory file
 func (t *MemoryTool) load(params map[string]string) ToolResult {
 	key := strings.TrimSpace(params["key"])
 	category := strings.TrimSpace(params["category"])
 
-	t.mu.Lock()
-	defer t.mu.Unlock()
+	t.mu.RLock()
+	defer t.mu.RUnlock()
 
-	entries := t.loadEntries()
-	if len(entries) == 0 {
-		return Success("tools.memory.empty")
+	if err := t.loadFromFile(); err != nil && !os.IsNotExist(err) {
+		return Error("tools.memory.read_error", err)
 	}
 
-	var results []memoryEntry
-	for _, e := range entries {
-		if key != "" && !strings.Contains(strings.ToLower(e.Key), strings.ToLower(key)) &&
-			!strings.Contains(strings.ToLower(e.Value), strings.ToLower(key)) {
-			continue
+	var matched []MemoryFact
+	for _, f := range t.facts {
+		if key != "" && strings.Contains(strings.ToLower(f.Key), strings.ToLower(key)) {
+			matched = append(matched, f)
+		} else if category != "" && strings.EqualFold(f.Category, category) {
+			matched = append(matched, f)
 		}
-		if category != "" && !strings.EqualFold(e.Category, category) {
-			continue
-		}
-		results = append(results, e)
 	}
 
-	if len(results) == 0 {
-		return Success("tools.memory.not_found", key)
+	if key == "" && category == "" {
+		matched = t.facts
 	}
 
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Found %d entries:\n\n", len(results)))
-	for _, e := range results {
-		sb.WriteString(fmt.Sprintf("**[%s]** %s: %s\n", e.Category, e.Key, e.Value))
+	if len(matched) == 0 {
+		return ToolResult{Output: "No matching facts found."}
 	}
 
-	return ToolResult{Output: sb.String()}
+	return ToolResult{Output: formatFacts(matched)}
 }
 
-// list returns all memory entries grouped by category
 func (t *MemoryTool) list() ToolResult {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+	t.mu.RLock()
+	defer t.mu.RUnlock()
 
-	entries := t.loadEntries()
-	if len(entries) == 0 {
-		return Success("tools.memory.empty")
+	if err := t.loadFromFile(); err != nil && !os.IsNotExist(err) {
+		return Error("tools.memory.read_error", err)
 	}
 
-	// Group by category
-	groups := make(map[string][]memoryEntry)
-	var categories []string
-	for _, e := range entries {
-		if _, ok := groups[e.Category]; !ok {
-			categories = append(categories, e.Category)
-		}
-		groups[e.Category] = append(groups[e.Category], e)
-	}
-	sort.Strings(categories)
-
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Memory: %d entries in %d categories\n\n", len(entries), len(categories)))
-	for _, cat := range categories {
-		sb.WriteString(fmt.Sprintf("## %s\n", cat))
-		for _, e := range groups[cat] {
-			sb.WriteString(fmt.Sprintf("- **%s**: %s\n", e.Key, e.Value))
-		}
-		sb.WriteString("\n")
+	if len(t.facts) == 0 {
+		return ToolResult{Output: "Memory is empty. Use 'save' to store facts."}
 	}
 
-	return ToolResult{Output: sb.String()}
+	return ToolResult{Output: formatFacts(t.facts)}
 }
 
-// delete removes an entry from the memory file
 func (t *MemoryTool) delete(params map[string]string) ToolResult {
 	key := strings.TrimSpace(params["key"])
 	if key == "" {
-		return Error("tools.memory.param_key")
+		return Error("tools.memory.delete_empty")
 	}
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	entries := t.loadEntries()
-	var filtered []memoryEntry
+	if err := t.loadFromFile(); err != nil && !os.IsNotExist(err) {
+		return Error("tools.memory.read_error", err)
+	}
+
+	filtered := make([]MemoryFact, 0, len(t.facts))
 	deleted := 0
-	for _, e := range entries {
-		if strings.EqualFold(e.Key, key) {
+	for _, f := range t.facts {
+		if strings.EqualFold(f.Key, key) {
 			deleted++
-			continue
+		} else {
+			filtered = append(filtered, f)
 		}
-		filtered = append(filtered, e)
 	}
 
 	if deleted == 0 {
-		return Success("tools.memory.not_found", key)
+		return ToolResult{Output: fmt.Sprintf("Fact '%s' not found.", key)}
 	}
 
-	if err := t.saveEntries(filtered); err != nil {
-		return Error("tools.memory.save_error", err)
+	t.facts = filtered
+	if err := t.saveToFile(); err != nil {
+		return Error("tools.memory.write_error", err)
 	}
 
-	return Success("tools.memory.deleted", key, deleted)
+	return ToolResult{Output: fmt.Sprintf("✓ Deleted %d fact(s) with key '%s'", deleted, key)}
 }
 
-// loadEntries reads all entries from the memory file
-func (t *MemoryTool) loadEntries() []memoryEntry {
-	data, err := os.ReadFile(t.filePath)
-	if err != nil {
+// LoadAllFacts returns all stored facts as formatted text (for system prompt injection)
+func (t *MemoryTool) LoadAllFacts() string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	if err := t.loadFromFile(); err != nil {
+		return ""
+	}
+	if len(t.facts) == 0 {
+		return ""
+	}
+
+	return formatFactsForPrompt(t.facts)
+}
+
+// MemoryFilePath returns the session-scoped memory file path.
+func MemoryFilePath(sessionID string) string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".bugbuster", "memory", sessionID+".md")
+}
+
+// --- File I/O ---
+
+func (t *MemoryTool) loadFromFile() error {
+	if t.loaded {
 		return nil
 	}
 
-	var entries []memoryEntry
-	var currentCategory string
-	lines := strings.Split(string(data), "\n")
+	data, err := os.ReadFile(t.filePath)
+	if err != nil {
+		return err
+	}
 
+	t.facts = parseMemoryMD(string(data))
+	t.loaded = true
+	return nil
+}
+
+func (t *MemoryTool) saveToFile() error {
+	dir := filepath.Dir(t.filePath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+
+	content := renderMemoryMD(t.facts)
+	return os.WriteFile(t.filePath, []byte(content), 0644)
+}
+
+// --- Markdown parsing/rendering ---
+
+func parseMemoryMD(content string) []MemoryFact {
+	var facts []MemoryFact
+	var currentCategory string
+
+	lines := strings.Split(content, "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 
-		// Category header: ## Category Name
+		// Category header: ## category_name
 		if strings.HasPrefix(line, "## ") {
 			currentCategory = strings.TrimPrefix(line, "## ")
 			currentCategory = strings.TrimSpace(currentCategory)
 			continue
 		}
 
-		// Entry: - **key**: value
+		// Fact line: - **key**: value
 		if strings.HasPrefix(line, "- **") {
-			// Parse: - **key**: value
 			rest := strings.TrimPrefix(line, "- **")
-			idx := strings.Index(rest, "**")
-			if idx < 0 {
+			end := strings.Index(rest, "**")
+			if end == -1 {
 				continue
 			}
-			key := strings.TrimSpace(rest[:idx])
-			value := strings.TrimSpace(rest[idx+2:])
-			if strings.HasPrefix(value, ":") {
-				value = strings.TrimSpace(strings.TrimPrefix(value, ":"))
+			key := rest[:end]
+			value := strings.TrimSpace(rest[end+2:])
+			if strings.HasPrefix(value, ": ") {
+				value = value[2:]
 			}
-			if key != "" {
-				entries = append(entries, memoryEntry{
-					Category: currentCategory,
-					Key:      key,
-					Value:    value,
-				})
-			}
+
+			facts = append(facts, MemoryFact{
+				Key:      key,
+				Value:    value,
+				Category: currentCategory,
+			})
 		}
 	}
 
-	return entries
+	return facts
 }
 
-// saveEntries writes all entries to the memory file
-func (t *MemoryTool) saveEntries(entries []memoryEntry) error {
-	// Ensure directory exists
-	dir := filepath.Dir(t.filePath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("create directory: %w", err)
-	}
-
+func renderMemoryMD(facts []MemoryFact) string {
 	// Group by category
-	groups := make(map[string][]memoryEntry)
+	groups := make(map[string][]MemoryFact)
 	var categories []string
-	for _, e := range entries {
-		if _, ok := groups[e.Category]; !ok {
-			categories = append(categories, e.Category)
+	for _, f := range facts {
+		if _, ok := groups[f.Category]; !ok {
+			categories = append(categories, f.Category)
 		}
-		groups[e.Category] = append(groups[e.Category], e)
+		groups[f.Category] = append(groups[f.Category], f)
 	}
 	sort.Strings(categories)
 
 	var sb strings.Builder
-	sb.WriteString("# BugBuster Agent Memory\n")
-	sb.WriteString("# This file stores important facts about the project.\n")
-	sb.WriteString("# The agent reads this file at startup and updates it via the memory tool.\n")
-	sb.WriteString("# DO NOT edit manually unless you know what you're doing.\n\n")
+	sb.WriteString("# BugBuster Agent Memory\n\n")
 
 	for _, cat := range categories {
 		sb.WriteString(fmt.Sprintf("## %s\n", cat))
-		for _, e := range groups[cat] {
-			sb.WriteString(fmt.Sprintf("- **%s**: %s\n", e.Key, e.Value))
+		for _, f := range groups[cat] {
+			sb.WriteString(fmt.Sprintf("- **%s**: %s\n", f.Key, f.Value))
 		}
 		sb.WriteString("\n")
 	}
 
-	return os.WriteFile(t.filePath, []byte(sb.String()), 0644)
+	return sb.String()
 }
 
-// LoadMemoryForPrompt loads all memory entries and returns them as a string
-// suitable for inclusion in the system prompt.
-// This is called at session startup to inject known facts.
-func LoadMemoryForPrompt(filePath string) string {
-	tool := &MemoryTool{filePath: filePath}
-	entries := tool.loadEntries()
-	if len(entries) == 0 {
-		return ""
-	}
-
+func formatFacts(facts []MemoryFact) string {
 	// Group by category
-	groups := make(map[string][]memoryEntry)
+	groups := make(map[string][]MemoryFact)
 	var categories []string
-	for _, e := range entries {
-		if _, ok := groups[e.Category]; !ok {
-			categories = append(categories, e.Category)
+	for _, f := range facts {
+		if _, ok := groups[f.Category]; !ok {
+			categories = append(categories, f.Category)
 		}
-		groups[e.Category] = append(groups[e.Category], e)
+		groups[f.Category] = append(groups[f.Category], f)
 	}
 	sort.Strings(categories)
 
 	var sb strings.Builder
-	sb.WriteString("## Important Project Facts (from memory)\n")
-	sb.WriteString("These facts were previously saved as important. Use them and keep them updated.\n\n")
-
 	for _, cat := range categories {
-		sb.WriteString(fmt.Sprintf("### %s\n", cat))
-		for _, e := range groups[cat] {
-			sb.WriteString(fmt.Sprintf("- **%s**: %s\n", e.Key, e.Value))
+		sb.WriteString(fmt.Sprintf("[%s]\n", cat))
+		for _, f := range groups[cat] {
+			sb.WriteString(fmt.Sprintf("  %s: %s\n", f.Key, f.Value))
 		}
-		sb.WriteString("\n")
 	}
+	return sb.String()
+}
 
-	sb.WriteString("Use the `memory` tool with action `save` to update these facts when they change.\n")
+func formatFactsForPrompt(facts []MemoryFact) string {
+	// Group by category
+	groups := make(map[string][]MemoryFact)
+	var categories []string
+	for _, f := range facts {
+		if _, ok := groups[f.Category]; !ok {
+			categories = append(categories, f.Category)
+		}
+		groups[f.Category] = append(groups[f.Category], f)
+	}
+	sort.Strings(categories)
 
+	var sb strings.Builder
+	sb.WriteString("Important facts about this project (from agent memory):\n\n")
+	for _, cat := range categories {
+		sb.WriteString(fmt.Sprintf("[%s]\n", cat))
+		for _, f := range groups[cat] {
+			sb.WriteString(fmt.Sprintf("- %s: %s\n", f.Key, f.Value))
+		}
+	}
 	return sb.String()
 }

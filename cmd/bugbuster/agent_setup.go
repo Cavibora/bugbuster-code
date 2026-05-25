@@ -167,6 +167,16 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 
 	browseTool := tools.NewBrowseTool()
 	browseTool.AllowNetwork = effectiveSecurity.AllowNetwork
+	// Apply browse configuration from config file
+	browseTool.SetConfig(
+		cfg.Tools.Browse.Engine,
+		cfg.Tools.Browse.SearchEngine,
+		cfg.Tools.Browse.Timeout,
+		cfg.Tools.Browse.MaxResults,
+		cfg.Tools.Browse.UserAgent,
+		cfg.Tools.Browse.Headless,
+		cfg.Tools.Browse.ChromePath,
+	)
 
 	learnTool := tools.NewLearnTool()
 	if provCfg.Type == "cavibora" {
@@ -220,8 +230,9 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 	loop.RegisterTool(learnTool)
 
 	// Memory tool — persistent memory for important project facts
-	memoryFilePath := filepath.Join(getProjectDir(cfg), ".bugbuster", "memory.md")
-	loop.RegisterTool(tools.NewMemoryTool(memoryFilePath))
+	// Session-scoped: each session has its own memory file
+	memTool := tools.NewMemoryTool(sessionID)
+	loop.RegisterTool(memTool)
 
 	// Todo-tools (checklist for planning)
 	todoWrite := tools.NewTodoWriteTool()
@@ -295,8 +306,8 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 	// System prompt
 	systemPrompt := agent.BuildSystemPrompt(dir, loop.Tools)
 
-	// Inject memory into system prompt
-	memoryContent := tools.LoadMemoryForPrompt(filepath.Join(dir, ".bugbuster", "memory.md"))
+	// Inject memory into system prompt (session-scoped)
+	memoryContent := memTool.LoadAllFacts()
 	if memoryContent != "" {
 		systemPrompt += "\n\n" + memoryContent
 	}
