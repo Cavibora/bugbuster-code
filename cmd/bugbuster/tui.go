@@ -876,7 +876,7 @@ func (m TUI) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 		m.output.WriteString(
 			lipgloss.NewStyle().
 				Foreground(lipgloss.Color("11")).
-				Render(fmt.Sprintf("\n  ⚠️  %s", i18n.T("cli.thinking_timeout_warn", minutes))) + "\n",
+				Render(fmt.Sprintf("\n  ⚠️  %s", i18n.T("cli.thinking_timeout_warn", fmt.Sprintf("%.0f", minutes)))) + "\n",
 		)
 		m.syncViewport()
 	case provider.EventRequestTimeout:
@@ -884,7 +884,7 @@ func (m TUI) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 		m.output.WriteString(
 			lipgloss.NewStyle().
 				Foreground(lipgloss.Color("9")).
-				Render(fmt.Sprintf("\n  %s", i18n.T("cli.request_timeout_warn", minutes))) + "\n",
+				Render(fmt.Sprintf("\n  %s", i18n.T("cli.request_timeout_warn", fmt.Sprintf("%.0f", minutes)))) + "\n",
 		)
 		m.syncViewport()
 	case provider.EventUsage:

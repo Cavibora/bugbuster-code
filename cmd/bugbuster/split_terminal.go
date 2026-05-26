@@ -355,7 +355,7 @@ func (st *SplitTerminal) runStreamingQuery(input string, currentCancel *context.
 	rlRecreate := func() {
 		st.resetReadline()
 	}
-	runQueryWithLoop(st.loop, input, st.cfg, st.providerName, ctx, askCh, st.session, st.sessionMgr, rlClose, rlRecreate)
+	runQueryWithLoop(st.loop, input, st.cfg, st.providerName, ctx, cancel, askCh, st.session, st.sessionMgr, rlClose, rlRecreate)
 
 	if askUserTool, ok := st.loop.Tools["ask_user"].(*tools.AskUserTool); ok {
 		askUserTool.SetAskChannel(nil)

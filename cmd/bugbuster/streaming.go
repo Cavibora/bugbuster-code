@@ -191,7 +191,7 @@ func summarizeThinking(thinkingText string) string {
 }
 
 // runQueryWithLoop — request with existing loop (with streaming)
-func runQueryWithLoop(loop *agent.AgentLoop, query string, cfg *config.BugBusterConfig, providerName string, ctx context.Context, askCh *tools.AskChannel, session *agent.Session, sessionMgr *agent.SessionManager, rlClose func(), rlRecreate func()) {
+func runQueryWithLoop(loop *agent.AgentLoop, query string, cfg *config.BugBusterConfig, providerName string, ctx context.Context, cancel context.CancelFunc, askCh *tools.AskChannel, session *agent.Session, sessionMgr *agent.SessionManager, rlClose func(), rlRecreate func()) {
 	ch, err := loop.StreamWithCancel(ctx, query)
 	if err != nil {
 		result, err := loop.Run(query)
@@ -216,6 +216,7 @@ func runQueryWithLoop(loop *agent.AgentLoop, query string, cfg *config.BugBuster
 		toolInputBuf    strings.Builder
 		currentToolName string
 		mdRenderer      = NewGlamourRenderer()
+		startTime       = time.Now()
 	)
 
 	fmt.Println(FormatSeparator())
@@ -237,7 +238,8 @@ streamLoop:
 			spinner = stopActiveSpinner(spinner)
 			fmt.Println()
 			if ctx.Err() == context.DeadlineExceeded {
-				color.Red("%s", i18n.T("cli.request_timeout_warn", "22"))
+				minutes := time.Since(startTime).Minutes()
+				color.Red("%s", i18n.T("cli.request_timeout_warn", fmt.Sprintf("%.0f", minutes)))
 			} else {
 				color.Yellow("%s", i18n.T("cli.cancel_request"))
 			}
@@ -432,12 +434,18 @@ streamLoop:
 			case provider.EventThinkingTimeout:
 				spinner = stopActiveSpinner(spinner)
 				minutes := event.Duration.Minutes()
-				color.Yellow("\n  %s", i18n.T("cli.thinking_timeout_warn", minutes))
+				color.Yellow("\n  %s", i18n.T("cli.thinking_timeout_warn", fmt.Sprintf("%.0f", minutes)))
 
 			case provider.EventRequestTimeout:
 				spinner = stopActiveSpinner(spinner)
 				minutes := event.Duration.Minutes()
-				color.Red("\n  %s", i18n.T("cli.request_timeout_warn", minutes))
+				color.Red("\n  %s", i18n.T("cli.request_timeout_warn", fmt.Sprintf("%.0f", minutes)))
+				color.Yellow("\n  %s", i18n.T("cli.retry_hint"))
+				// Cancel streaming — model has been processing too long
+				if cancel != nil {
+					cancel()
+				}
+				break streamLoop
 
 			case provider.EventIterationEnd:
 				// iteration completed

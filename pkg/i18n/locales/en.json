@@ -104,8 +104,8 @@
   "errors.subagent_timeout_partial": "Subagent timed out but produced partial results. The task may be incomplete.",
   "errors.request_timeout": "request timeout: model has been processing for too long",
   "errors.thinking_timeout": "model is taking too long to respond, still waiting...",
-  "cli.thinking_timeout_warn": "⚠️  Model has been thinking for %.0f min. Press Ctrl+C to cancel and continue with 'Continue'.",
-  "cli.request_timeout_warn": "⏱ Request timed out after %.0f min.",
+  "cli.thinking_timeout_warn": "⚠️  Model has been thinking for %s min. Press Ctrl+C to cancel and continue with 'Continue'.",
+  "cli.request_timeout_warn": "⏱ Request timed out after %s min.",
   "security.path_traversal": "path contains invalid components (..)",
   "security.secret_file": "access to secret file denied: %s",
   "security.system_path": "writing to system path denied: %s",
@@ -429,5 +429,6 @@
   "cli.crash_dismiss": "Use 'bugbuster --clear-crash' to dismiss",
   "cli.crash_cleared": "Crash logs cleared.",
   "cli_flag.session_name": "Set session name",
-  "system_prompt.rule9": "9. TIMEOUT AND RETRY RULES:\n   - When a bash command times out, you MUST retry with a longer timeout (e.g. timeout=120 or timeout=300).\n   - Do NOT give up after a single timeout — long-running commands (cargo build, npm install, docker build) often need 2-5 minutes.\n   - When retrying, use the SAME command with an increased timeout parameter.\n   - If a command times out 3 times in a row, inform the user and suggest alternatives.\n   - For build commands (cargo, npm, go build), always use timeout=300 or higher."
+  "system_prompt.rule9": "9. TIMEOUT AND RETRY RULES:\n   - When a bash command times out, you MUST retry with a longer timeout (e.g. timeout=120 or timeout=300).\n   - Do NOT give up after a single timeout — long-running commands (cargo build, npm install, docker build) often need 2-5 minutes.\n   - When retrying, use the SAME command with an increased timeout parameter.\n   - If a command times out 3 times in a row, inform the user and suggest alternatives.\n   - For build commands (cargo, npm, go build), always use timeout=300 or higher.",
+  "cli.retry_hint": "Press Enter to retry or type a new message."
 }
