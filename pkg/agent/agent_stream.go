@@ -69,11 +69,15 @@ streamLoop:
 	for {
 		// Check request timeout — if entire iteration takes too long
 		if requestTimeout > 0 && time.Since(iterStartTime) > requestTimeout {
+			mins := int(time.Since(iterStartTime).Minutes())
+			if mins < 1 {
+				mins = 1
+			}
 			eventCh <- provider.StreamEvent{
 				Type:     provider.EventRequestTimeout,
 				Duration: time.Since(iterStartTime),
 			}
-			result.err = fmt.Errorf(i18n.T("cli.request_timeout_warn"), time.Since(iterStartTime).Minutes())
+			result.err = fmt.Errorf("%s", i18n.T("cli.request_timeout_warn", fmt.Sprintf("%d", mins)))
 			return result
 		}
 

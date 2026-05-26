@@ -238,8 +238,11 @@ streamLoop:
 			spinner = stopActiveSpinner(spinner)
 			fmt.Println()
 			if ctx.Err() == context.DeadlineExceeded {
-				minutes := time.Since(startTime).Minutes()
-				color.Red("%s", i18n.T("cli.request_timeout_warn", fmt.Sprintf("%.0f", minutes)))
+				mins := int(time.Since(startTime).Minutes())
+				if mins < 1 {
+					mins = 1
+				}
+				color.Red("%s", i18n.T("cli.request_timeout_warn", fmt.Sprintf("%d", mins)))
 			} else {
 				color.Yellow("%s", i18n.T("cli.cancel_request"))
 			}
@@ -433,13 +436,19 @@ streamLoop:
 
 			case provider.EventThinkingTimeout:
 				spinner = stopActiveSpinner(spinner)
-				minutes := event.Duration.Minutes()
-				color.Yellow("\n  %s", i18n.T("cli.thinking_timeout_warn", fmt.Sprintf("%.0f", minutes)))
+				mins := int(event.Duration.Minutes())
+				if mins < 1 {
+					mins = 1
+				}
+				color.Yellow("\n  %s", i18n.T("cli.thinking_timeout_warn", fmt.Sprintf("%d", mins)))
 
 			case provider.EventRequestTimeout:
 				spinner = stopActiveSpinner(spinner)
-				minutes := event.Duration.Minutes()
-				color.Red("\n  %s", i18n.T("cli.request_timeout_warn", fmt.Sprintf("%.0f", minutes)))
+				mins := int(event.Duration.Minutes())
+				if mins < 1 {
+					mins = 1
+				}
+				color.Red("\n  %s", i18n.T("cli.request_timeout_warn", fmt.Sprintf("%d", mins)))
 				color.Yellow("\n  %s", i18n.T("cli.retry_hint"))
 				// Cancel streaming — model has been processing too long
 				if cancel != nil {
@@ -492,6 +501,7 @@ streamLoop:
 			case provider.EventError:
 				spinner = stopActiveSpinner(spinner)
 				color.Red("%s", i18n.T("cli_error.stream", event.Error))
+				break streamLoop
 			}
 		}
 	}
