@@ -126,7 +126,7 @@ func (s *Spinner) Start() {
 				display := strings.Join(parts, appTheme.Dim.ANSICode()+" · "+ansiReset)
 
 				// Clear current line and write spinner frame
-				fmt.Printf("\r\033[2K  %s%s%s %s", appTheme.Primary.ANSICode(), string(s.frames[i%len(s.frames)]), ansiReset, display)
+				fmt.Fprintf(cmdOutput, "\r\033[2K  %s%s%s %s", appTheme.Primary.ANSICode(), string(s.frames[i%len(s.frames)]), ansiReset, display)
 				os.Stdout.Sync()
 				i++
 				time.Sleep(100 * time.Millisecond)
@@ -149,7 +149,7 @@ func (s *Spinner) Stop() {
 	<-s.doneCh // wait for goroutine to finish
 
 	// Clear spinner line
-	fmt.Printf("\r\033[2K\033[?25h")
+	fmt.Fprintf(cmdOutput, "\r\033[2K\033[?25h")
 
 	// Flush buffered output
 	s.outputMu.Lock()
@@ -158,7 +158,7 @@ func (s *Spinner) Stop() {
 	s.outputMu.Unlock()
 
 	for _, line := range lines {
-		fmt.Println(line)
+		fmt.Fprintln(cmdOutput, line)
 	}
 }
 
@@ -1032,25 +1032,25 @@ func printInfo(format string, args ...any) {
 }
 
 func showHelp() {
-	fmt.Println()
+	fmt.Fprintln(cmdOutput, )
 	color.Cyan("  Commands:")
-	fmt.Println("    /help          — " + i18n.T("cli.help_help"))
-	fmt.Println("    /tui           — " + i18n.T("cli.help_tui"))
-	fmt.Println("    /cli           — " + i18n.T("cli.help_cli"))
-	fmt.Println("    /auto          — " + i18n.T("cli.help_auto"))
-	fmt.Println("    /compact       — " + i18n.T("cli.help_compact"))
-	fmt.Println("    /clear         — " + i18n.T("cli.help_clear"))
-	fmt.Println("    /model <name>  — " + i18n.T("cli.help_model"))
-	fmt.Println("    /provider <n>  — " + i18n.T("cli.help_provider"))
-	fmt.Println("    /session <id>  — " + i18n.T("cli.help_session"))
-	fmt.Println("    /sessions      — " + i18n.T("cli.help_sessions"))
-	fmt.Println("    /config        — " + i18n.T("cli.help_config"))
-	fmt.Println("    /exit          — " + i18n.T("cli.help_exit"))
-	fmt.Println()
+	fmt.Fprintln(cmdOutput, "    /help          — " + i18n.T("cli.help_help"))
+	fmt.Fprintln(cmdOutput, "    /tui           — " + i18n.T("cli.help_tui"))
+	fmt.Fprintln(cmdOutput, "    /cli           — " + i18n.T("cli.help_cli"))
+	fmt.Fprintln(cmdOutput, "    /auto          — " + i18n.T("cli.help_auto"))
+	fmt.Fprintln(cmdOutput, "    /compact       — " + i18n.T("cli.help_compact"))
+	fmt.Fprintln(cmdOutput, "    /clear         — " + i18n.T("cli.help_clear"))
+	fmt.Fprintln(cmdOutput, "    /model <name>  — " + i18n.T("cli.help_model"))
+	fmt.Fprintln(cmdOutput, "    /provider <n>  — " + i18n.T("cli.help_provider"))
+	fmt.Fprintln(cmdOutput, "    /session <id>  — " + i18n.T("cli.help_session"))
+	fmt.Fprintln(cmdOutput, "    /sessions      — " + i18n.T("cli.help_sessions"))
+	fmt.Fprintln(cmdOutput, "    /config        — " + i18n.T("cli.help_config"))
+	fmt.Fprintln(cmdOutput, "    /exit          — " + i18n.T("cli.help_exit"))
+	fmt.Fprintln(cmdOutput, )
 	color.Cyan("  Shortcuts:")
-	fmt.Println("    Enter          — " + i18n.T("cli.help_send"))
-	fmt.Println("    Shift+Enter    — " + i18n.T("cli.help_newline"))
-	fmt.Println("    Ctrl+C         — " + i18n.T("cli.help_interrupt"))
-	fmt.Println("    Esc            — " + i18n.T("cli.help_cancel"))
-	fmt.Println()
+	fmt.Fprintln(cmdOutput, "    Enter          — " + i18n.T("cli.help_send"))
+	fmt.Fprintln(cmdOutput, "    Shift+Enter    — " + i18n.T("cli.help_newline"))
+	fmt.Fprintln(cmdOutput, "    Ctrl+C         — " + i18n.T("cli.help_interrupt"))
+	fmt.Fprintln(cmdOutput, "    Esc            — " + i18n.T("cli.help_cancel"))
+	fmt.Fprintln(cmdOutput, )
 }

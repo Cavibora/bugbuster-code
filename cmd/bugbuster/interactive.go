@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -22,7 +23,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// isTerminal checks if stdin is connected to a terminal
+// cmdOutput is the writer for command output. When readline is active,
+// this is set to rl.Stdout() so readline can manage cursor position.
+// Otherwise it defaults to os.Stdout.
+var cmdOutput io.Writer = os.Stdout
+
 func isTerminal() bool {
 	fi, err := os.Stdin.Stat()
 	if err != nil {
@@ -187,7 +192,23 @@ func runInteractive(cmd *cobra.Command, args []string) {
 }
 
 // handleCommand handles slash commands. Returns true if command is recognized.
+// When readline is active (rl != nil), output is written through rl.Stdout()
+// so readline can properly manage cursor position and refresh the prompt (❯).
+// When rl is nil (readline closed for command output), output goes to os.Stdout.
 func handleCommand(input string, loop *agent.AgentLoop, cfg *config.BugBusterConfig, p provider.Provider, ct *ChangeTracker, rl *readline.Instance, sessionMgr *agent.SessionManager, currentSession *agent.Session) bool {
+	// Redirect output through rl.Stdout() if available
+	if rl != nil {
+		rlOut := rl.Stdout()
+		oldColorOut := color.Output
+		color.Output = rlOut
+		oldCmdOutput := cmdOutput
+		cmdOutput = rlOut
+		defer func() {
+			color.Output = oldColorOut
+			cmdOutput = oldCmdOutput
+		}()
+	}
+
 	switch {
 	case input == "/exit", input == "/quit":
 		// exit is handled in calling code — return false to exit main
@@ -233,7 +254,7 @@ func handleCommand(input string, loop *agent.AgentLoop, cfg *config.BugBusterCon
 		tokensUsed := loop.Context.TokenCount()
 		maxTokens := loop.Context.MaxTokens
 		msgCount := len(loop.Context.GetMessages())
-		fmt.Println(FormatContextInfo(msgCount, tokensUsed, maxTokens))
+		fmt.Fprintln(cmdOutput, FormatContextInfo(msgCount, tokensUsed, maxTokens))
 		return true
 	case input == "/compact":
 		tokensBefore := loop.Context.TokenCount()
@@ -278,8 +299,12 @@ func handleCommand(input string, loop *agent.AgentLoop, cfg *config.BugBusterCon
 		if count == 0 {
 			color.Yellow("%s", i18n.T("cli.undo_none"))
 		} else {
-			fmt.Print(i18n.T("cli.undo_all_confirm", count) + " ")
-			answer, _ := rl.Readline()
+			fmt.Fprint(cmdOutput, i18n.T("cli.undo_all_confirm", count)+" ")
+			var answer string
+			if rl != nil {
+				a, _ := rl.Readline()
+				answer = a
+			}
 			answer = strings.TrimSpace(strings.ToLower(answer))
 			if isYesAnswer(answer) {
 				n, err := ct.UndoAll()
@@ -292,7 +317,7 @@ func handleCommand(input string, loop *agent.AgentLoop, cfg *config.BugBusterCon
 		return true
 	case input == "/diff":
 		changes := ct.Diff()
-		fmt.Println(FormatDiff(changes))
+		fmt.Fprintln(cmdOutput, FormatDiff(changes))
 		return true
 	case strings.HasPrefix(input, "/model "):
 		newModel := strings.TrimPrefix(input, "/model ")
@@ -365,7 +390,7 @@ func runQuery(cfg *config.BugBusterConfig, query string) {
 		color.Red("%s", i18n.T("cli_error.general", err))
 		os.Exit(1)
 	}
-	fmt.Println(result)
+	fmt.Fprintln(cmdOutput, result)
 }
 
 // printBanner prints banner
@@ -499,7 +524,7 @@ func restoreOrCreateSession(sessionMgr *agent.SessionManager, rl *readline.Insta
 
 	if len(sessions) == 1 {
 		s := sessions[0]
-		fmt.Print(color.HiCyanString("%s", i18n.T("cli_session.restore_prompt", s.ID, s.UpdatedAt.Format("2006-01-02 15:04"), len(s.Messages))) + " ")
+		fmt.Fprint(cmdOutput, color.HiCyanString("%s", i18n.T("cli_session.restore_prompt", s.ID, s.UpdatedAt.Format("2006-01-02 15:04"), len(s.Messages))) + " ")
 		answer, _ := rl.Readline()
 		answer = strings.TrimSpace(strings.ToLower(answer))
 		if answer == "" || isYesAnswer(answer) {
@@ -510,16 +535,16 @@ func restoreOrCreateSession(sessionMgr *agent.SessionManager, rl *readline.Insta
 	}
 
 	color.Cyan("%s", i18n.T("cli_session.restore_list", len(sessions)))
-	fmt.Println(i18n.T("cli_session.restore_new"))
+	fmt.Fprintln(cmdOutput, i18n.T("cli_session.restore_new"))
 	maxShow := 5
 	if len(sessions) < maxShow {
 		maxShow = len(sessions)
 	}
 	for i, s := range sessions[:maxShow] {
-		fmt.Println(i18n.T("cli_session.restore_entry", i+1, s.ID, s.UpdatedAt.Format("2006-01-02 15:04"), len(s.Messages)))
+		fmt.Fprintln(cmdOutput, i18n.T("cli_session.restore_entry", i+1, s.ID, s.UpdatedAt.Format("2006-01-02 15:04"), len(s.Messages)))
 	}
 
-	fmt.Print(i18n.T("cli_session.restore_choice"))
+	fmt.Fprint(cmdOutput, i18n.T("cli_session.restore_choice"))
 	answer, _ := rl.Readline()
 	answer = strings.TrimSpace(answer)
 	choice := 0
@@ -545,12 +570,12 @@ func printMCPServers(cfg *config.BugBusterConfig) {
 			if server.Enabled {
 				status = "enabled"
 			}
-			fmt.Printf("  %-20s %-15s %s\n", name, server.Type, status)
+			fmt.Fprintf(cmdOutput, "  %-20s %-15s %s\n", name, server.Type, status)
 			if server.Command != "" {
-				fmt.Printf("    command: %s %v\n", server.Command, server.Args)
+				fmt.Fprintf(cmdOutput, "    command: %s %v\n", server.Command, server.Args)
 			}
 			if server.URL != "" {
-				fmt.Printf("    url: %s\n", server.URL)
+				fmt.Fprintf(cmdOutput, "    url: %s\n", server.URL)
 			}
 		}
 	}
@@ -566,7 +591,7 @@ func printMCPServers(cfg *config.BugBusterConfig) {
 	} else {
 		color.Green("  Found %d MCP server(s):", len(configs))
 		for _, c := range configs {
-			fmt.Printf("  %-20s %-15s %s\n", c.Name, c.Type, c.Command)
+			fmt.Fprintf(cmdOutput, "  %-20s %-15s %s\n", c.Name, c.Type, c.Command)
 		}
 	}
 }
@@ -601,7 +626,7 @@ func printSessions(sessionMgr *agent.SessionManager, currentSession *agent.Sessi
 			if name == "" {
 				name = "(unnamed)"
 			}
-			fmt.Printf("  %d. %s [%s] (%d msg, %s)\n", i+1, s.ID, name, len(s.Messages), s.UpdatedAt.Format("2006-01-02 15:04"))
+			fmt.Fprintf(cmdOutput, "  %d. %s [%s] (%d msg, %s)\n", i+1, s.ID, name, len(s.Messages), s.UpdatedAt.Format("2006-01-02 15:04"))
 		}
 	}
 	color.Cyan("  Restore: bugbuster --session <id>")
@@ -621,7 +646,7 @@ func printPlugins(cfg *config.BugBusterConfig) {
 	if len(builtins) > 0 {
 		color.Cyan("  Built-in:")
 		for _, name := range builtins {
-			fmt.Printf("    %-20s [builtin]\n", name)
+			fmt.Fprintf(cmdOutput, "    %-20s [builtin]\n", name)
 		}
 	}
 
@@ -629,7 +654,7 @@ func printPlugins(cfg *config.BugBusterConfig) {
 	if len(cfg.Plugins.GoPlugins) > 0 {
 		color.Cyan("  Go plugins:")
 		for _, gp := range cfg.Plugins.GoPlugins {
-			fmt.Printf("    %-20s %s\n", gp.Name, gp.Path)
+			fmt.Fprintf(cmdOutput, "    %-20s %s\n", gp.Name, gp.Path)
 		}
 	}
 
@@ -650,14 +675,14 @@ func printPlugins(cfg *config.BugBusterConfig) {
 			if srv.Enabled {
 				status = "enabled"
 			}
-			fmt.Printf("    %-20s %-10s %s\n", name, srv.Type, status)
+			fmt.Fprintf(cmdOutput, "    %-20s %-10s %s\n", name, srv.Type, status)
 		}
 	}
 
 	// Available plugins (can be installed)
 	color.Cyan("\nAvailable plugins (/plugin install <name>):")
 	for _, p := range plugin.ListKnownPlugins() {
-		fmt.Printf("    %-20s %s\n", p.Name, p.Description)
+		fmt.Fprintf(cmdOutput, "    %-20s %s\n", p.Name, p.Description)
 	}
 }
 
@@ -760,7 +785,7 @@ func handleDreamCommand(loop *agent.AgentLoop, seed string) {
 	if len(result.Thoughts) > 0 {
 		color.Yellow("  💭 Thoughts:")
 		for i, thought := range result.Thoughts {
-			fmt.Printf("    %d. %s\n", i+1, thought)
+			fmt.Fprintf(cmdOutput, "    %d. %s\n", i+1, thought)
 		}
 	}
 }
@@ -779,7 +804,7 @@ func handleEmotionsCommand(loop *agent.AgentLoop) {
 		return
 	}
 
-	fmt.Printf("💭 %s %s %s\n  %s\n", result.Emoji, result.Emotion, result.Bar, result.Detail)
+	fmt.Fprintf(cmdOutput, "💭 %s %s %s\n  %s\n", result.Emoji, result.Emotion, result.Bar, result.Detail)
 }
 
 // handleMeshStatsCommand handles /mesh-stats command (Cavibora-specific)
@@ -812,7 +837,7 @@ func printSkills(loop *agent.AgentLoop) {
 		return
 	}
 	color.Cyan("Available skills:")
-	fmt.Println()
+	fmt.Fprintln(cmdOutput, )
 	for _, s := range skills {
 		sourceTag := ""
 		switch s.Source {
@@ -823,9 +848,9 @@ func printSkills(loop *agent.AgentLoop) {
 		case "global":
 			sourceTag = color.CyanString("[global]")
 		}
-		fmt.Printf("  %-12s %s %s\n", color.HiWhiteString(s.Name), sourceTag, color.HiBlackString(s.Description))
+		fmt.Fprintf(cmdOutput, "  %-12s %s %s\n", color.HiWhiteString(s.Name), sourceTag, color.HiBlackString(s.Description))
 	}
-	fmt.Println()
+	fmt.Fprintln(cmdOutput, )
 	color.HiBlack("Activate: /skill <name>")
 }
 

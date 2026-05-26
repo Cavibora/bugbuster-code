@@ -234,112 +234,122 @@ func (st *SplitTerminal) Run() bool {
 		ctrlCount = 0
 
 		// Slash command handling
-		handled := handleCommand(input, st.loop, st.cfg, p, st.changeTracker, rl, sessionMgr, currentSession)
-		if !handled {
-			if input == "/exit" || input == "/quit" {
-				st.saveAndExit()
-				rl.Close()
-				color.Cyan("%s", i18n.T("cli.goodbye"))
-				return false
-			}
-			if input == "/tui" {
-				st.autoMode = false
-				st.saveAndExit()
-				switchToTUICleanup(st.rl, st.pendingLine)
-				st.rl = nil
-				st.pendingLine = nil
-				color.Cyan("Switching to TUI mode...")
-				return true
-			}
-			if input == "/auto" || strings.HasPrefix(input, "/auto ") {
-				// Parse /auto [N] — iteration limit
-				maxIter := 0 // 0 = default
-				if parts := strings.Fields(input); len(parts) == 2 {
-					if _, err := fmt.Sscanf(parts[1], "%d", &maxIter); err != nil {
-						maxIter = 0
-					}
+		// Close readline before running command — fmt.Println/color output
+		// breaks readline cursor position. Recreate after output.
+		if st.rl != nil {
+			st.rl.Close()
+			st.rl = nil
+		}
+		handled := handleCommand(input, st.loop, st.cfg, p, st.changeTracker, nil, sessionMgr, currentSession)
+		st.resetReadline()
+		rl = st.rl
+		if handled {
+			continue
+		}
+
+		if input == "/exit" || input == "/quit" {
+			st.saveAndExit()
+			rl.Close()
+			color.Cyan("%s", i18n.T("cli.goodbye"))
+			return false
+		}
+		if input == "/tui" {
+			st.autoMode = false
+			st.saveAndExit()
+			switchToTUICleanup(st.rl, st.pendingLine)
+			st.rl = nil
+			st.pendingLine = nil
+			color.Cyan("Switching to TUI mode...")
+			return true
+		}
+		if input == "/auto" || strings.HasPrefix(input, "/auto ") {
+			// Parse /auto [N] — iteration limit
+			maxIter := 0 // 0 = default
+			if parts := strings.Fields(input); len(parts) == 2 {
+				if _, err := fmt.Sscanf(parts[1], "%d", &maxIter); err != nil {
+					maxIter = 0
 				}
-				st.autoMode = !st.autoMode
-				if st.autoMode {
-					st.autoState = NewAutoPilotState(maxIter)
-					st.autoState.Iteration = 0
-					color.HiCyan("🤖 %s", i18n.T("cli.auto_enabled"))
-					if st.autoState.MaxIterations != autoMaxIterations {
-						color.HiCyan("   Max iterations: %d", st.autoState.MaxIterations)
-					}
-				} else {
-					st.autoState = nil
-					color.Yellow("🤖 %s", i18n.T("cli.auto_disabled"))
+			}
+			st.autoMode = !st.autoMode
+			if st.autoMode {
+				st.autoState = NewAutoPilotState(maxIter)
+				st.autoState.Iteration = 0
+				color.HiCyan("🤖 %s", i18n.T("cli.auto_enabled"))
+				if st.autoState.MaxIterations != autoMaxIterations {
+					color.HiCyan("   Max iterations: %d", st.autoState.MaxIterations)
 				}
+			} else {
+				st.autoState = nil
+				color.Yellow("🤖 %s", i18n.T("cli.auto_disabled"))
+			}
+			continue
+		}
+		// Regular request to model with auto-retry on timeout
+		maxRetries := 2
+		originalTimeout := st.cfg.Agent.RequestTimeout
+		for retry := 0; retry <= maxRetries; retry++ {
+			// Reset interrupted flag before each attempt
+			interrupted = false
+
+			st.runStreamingQuery(input, &currentCancel, &interrupted)
+
+			// Recreate readline ONLY if it was closed (by ask_user).
+			// resetReadline() skips if st.rl != nil — no unnecessary recreation.
+			st.resetReadline()
+			rl = st.rl
+
+			// Check if request was cancelled due to timeout (not user Ctrl+C)
+			// ctx.Err() can be context.DeadlineExceeded (hard timeout)
+			// or context.Canceled (cancel() called from EventRequestTimeout)
+			// User Ctrl+C sets interrupted=true, so we don't retry that.
+			if ctx := st.ctx; ctx != nil && ctx.Err() != nil && !interrupted && retry < maxRetries {
+				// Double timeout for each retry: 20m → 40m → 80m
+				newTimeout := originalTimeout
+				if newTimeout <= 0 {
+					newTimeout = 1200 // 20 min default
+				}
+				newTimeout = newTimeout * (retry + 2) // exponential backoff
+				st.cfg.Agent.RequestTimeout = newTimeout
+				mins := newTimeout / 60
+				color.Yellow("\n  🔄 %s\n", i18n.T("cli.retry_auto", fmt.Sprintf("%d", mins)))
 				continue
 			}
-			// Regular request to model with auto-retry on timeout
-			maxRetries := 2
-			originalTimeout := st.cfg.Agent.RequestTimeout
-			for retry := 0; retry <= maxRetries; retry++ {
-				// Reset interrupted flag before each attempt
-				interrupted = false
+			// Restore original timeout
+			st.cfg.Agent.RequestTimeout = originalTimeout
+			break
+		}
 
-				st.runStreamingQuery(input, &currentCancel, &interrupted)
-
-				// Recreate readline ONLY if it was closed (by ask_user).
-				// resetReadline() skips if st.rl != nil — no unnecessary recreation.
-				st.resetReadline()
-				rl = st.rl
-
-				// Check if request was cancelled due to timeout (not user Ctrl+C)
-				// ctx.Err() can be context.DeadlineExceeded (hard timeout)
-				// or context.Canceled (cancel() called from EventRequestTimeout)
-				// User Ctrl+C sets interrupted=true, so we don't retry that.
-				if ctx := st.ctx; ctx != nil && ctx.Err() != nil && !interrupted && retry < maxRetries {
-					// Double timeout for each retry: 20m → 40m → 80m
-					newTimeout := originalTimeout
-					if newTimeout <= 0 {
-						newTimeout = 1200 // 20 min default
-					}
-					newTimeout = newTimeout * (retry + 2) // exponential backoff
-					st.cfg.Agent.RequestTimeout = newTimeout
-					mins := newTimeout / 60
-					color.Yellow("\n  🔄 %s\n", i18n.T("cli.retry_auto", fmt.Sprintf("%d", mins)))
-					continue
-				}
-				// Restore original timeout
-				st.cfg.Agent.RequestTimeout = originalTimeout
+		// Autopilot: automatically continue after each response,
+		// until plan is completed, iteration limit is reached,
+		// or user interrupts (Ctrl+C)
+		if st.autoMode {
+			st.autoState.Iteration = 1 // first request already completed
+		}
+		for st.autoMode && !interrupted {
+			// Check iteration limit
+			if st.autoState.Iteration >= st.autoState.MaxIterations {
+				st.autoMode = false
+				color.Yellow("🤖 %s", i18n.T("cli.auto_max_iterations", st.autoState.MaxIterations))
 				break
 			}
-
-			// Autopilot: automatically continue after each response,
-			// until plan is completed, iteration limit is reached,
-			// or user interrupts (Ctrl+C)
-			if st.autoMode {
-				st.autoState.Iteration = 1 // first request already completed
-			}
-			for st.autoMode && !interrupted {
-				// Check iteration limit
-				if st.autoState.Iteration >= st.autoState.MaxIterations {
-					st.autoMode = false
-					color.Yellow("🤖 %s", i18n.T("cli.auto_max_iterations", st.autoState.MaxIterations))
-					break
-				}
-				// Check plan completion
-				lastMsg := getLastAssistantMessage(st.loop)
-				if isPlanCompleted(lastMsg) {
-					st.autoMode = false
-					color.Green("✅ %s", i18n.T("cli.auto_plan_completed"))
-					break
-				}
-				// Delay between iterations for rate limiting
-				time.Sleep(autoDelayBetweenIterations)
-				// Generate encouraging phrase and start
-				phrase := randomContinuePhrase()
-				st.autoState.Iteration++
-				color.HiCyan("%s", formatAutoIteration(st.autoState.Iteration, st.autoState.MaxIterations, phrase))
-				st.runStreamingQuery(phrase, &currentCancel, &interrupted)
-			}
-			if interrupted && st.autoMode {
+			// Check plan completion
+			lastMsg := getLastAssistantMessage(st.loop)
+			if isPlanCompleted(lastMsg) {
 				st.autoMode = false
-				color.Yellow("🤖 %s", i18n.T("cli.auto_interrupted"))
+				color.Green("✅ %s", i18n.T("cli.auto_plan_completed"))
+				break
 			}
+			// Delay between iterations for rate limiting
+			time.Sleep(autoDelayBetweenIterations)
+			// Generate encouraging phrase and start
+			phrase := randomContinuePhrase()
+			st.autoState.Iteration++
+			color.HiCyan("%s", formatAutoIteration(st.autoState.Iteration, st.autoState.MaxIterations, phrase))
+			st.runStreamingQuery(phrase, &currentCancel, &interrupted)
+		}
+		if interrupted && st.autoMode {
+			st.autoMode = false
+			color.Yellow("🤖 %s", i18n.T("cli.auto_interrupted"))
 		}
 	}
 }
