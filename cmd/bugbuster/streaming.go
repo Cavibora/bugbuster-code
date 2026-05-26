@@ -191,7 +191,7 @@ func summarizeThinking(thinkingText string) string {
 }
 
 // runQueryWithLoop — request with existing loop (with streaming)
-func runQueryWithLoop(loop *agent.AgentLoop, query string, cfg *config.BugBusterConfig, providerName string, ctx context.Context, askCh *tools.AskChannel, session *agent.Session, sessionMgr *agent.SessionManager) {
+func runQueryWithLoop(loop *agent.AgentLoop, query string, cfg *config.BugBusterConfig, providerName string, ctx context.Context, askCh *tools.AskChannel, session *agent.Session, sessionMgr *agent.SessionManager, rlClose func(), rlRecreate func()) {
 	ch, err := loop.StreamWithCancel(ctx, query)
 	if err != nil {
 		result, err := loop.Run(query)
@@ -253,12 +253,26 @@ streamLoop:
 			spinner = stopActiveSpinner(spinner)
 			fmt.Print(mdRenderer.Flush())
 			fmt.Printf("\n❓ %s\n> ", question)
+			// Close readline BEFORE reading answer.
+			// readLineFromStdin() puts terminal in cooked mode via stty sane,
+			// but /dev/tty and os.Stdin point to the SAME terminal device.
+			// If readline goroutines are active, they expect raw mode and
+			// get confused by cooked mode — causing text corruption and hangs.
+			// Closing readline kills all its goroutines first.
+			if rlClose != nil {
+				rlClose()
+			}
 			answer := readLineFromStdin()
 			answer = strings.TrimSpace(answer)
 			// Non-blocking send: if tool is no longer waiting, don't hang
 			select {
 			case askAnswer <- answer:
 			default:
+			}
+			// Recreate readline AFTER reading answer.
+			// This ensures fresh goroutines and correct terminal state.
+			if rlRecreate != nil {
+				rlRecreate()
 			}
 			spinner = NewSpinner(i18n.T("cli.spinner_thinking"))
 			spinner.Start()
