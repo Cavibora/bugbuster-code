@@ -92,7 +92,7 @@ func runInteractive(cmd *cobra.Command, args []string) {
 
 	// Change tracker for undo (create BEFORE agent so hooks work)
 	changeTracker := NewChangeTracker()
-	changesFile := filepath.Join(getProjectDir(cfg), ".bugbuster", "changes.json")
+	changesFile := filepath.Join(getProjectDir(cfg), ".bugbuster", "changes", sessionID+".json")
 	changeTracker.LoadFromFile(changesFile)
 
 	// Create agent with connected tracker

@@ -32,9 +32,12 @@ type ChangeTracker struct {
 func NewChangeTracker() *ChangeTracker {
 	return &ChangeTracker{
 		changes: make([]FileChange, 0),
-		maxSize: 1024 * 1024, // 1MB per file
+		maxSize: 256 * 1024, // 256KB per file (was 1MB — too large)
 	}
 }
+
+// maxChanges limits the number of stored changes to prevent unbounded growth
+const maxChanges = 50
 
 // RecordWrite records change on file write
 func (ct *ChangeTracker) RecordWrite(path string, newContent string) {
@@ -66,6 +69,11 @@ func (ct *ChangeTracker) RecordWrite(path string, newContent string) {
 		Timestamp:  time.Now(),
 		Operation:  operation,
 	})
+
+	// Trim to maxChanges — keep most recent
+	if len(ct.changes) > maxChanges {
+		ct.changes = ct.changes[len(ct.changes)-maxChanges:]
+	}
 }
 
 // RecordEdit records change on file edit
@@ -84,6 +92,11 @@ func (ct *ChangeTracker) RecordEdit(path string, oldContent, newContent string) 
 		Timestamp:  time.Now(),
 		Operation:  "modify",
 	})
+
+	// Trim to maxChanges — keep most recent
+	if len(ct.changes) > maxChanges {
+		ct.changes = ct.changes[len(ct.changes)-maxChanges:]
+	}
 }
 
 // Undo reverts last change

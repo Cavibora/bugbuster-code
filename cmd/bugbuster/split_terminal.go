@@ -460,7 +460,7 @@ func (st *SplitTerminal) saveAndExit() {
 		}
 	}
 	if st.changeTracker != nil {
-		changesFile := filepath.Join(getProjectDir(st.cfg), ".bugbuster", "changes.json")
+		changesFile := filepath.Join(getProjectDir(st.cfg), ".bugbuster", "changes", st.loop.Context.SessionID+".json")
 		st.changeTracker.SaveToFile(changesFile)
 	}
 }

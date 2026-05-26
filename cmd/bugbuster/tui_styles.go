@@ -160,7 +160,7 @@ func saveSessionTUI(m TUI) {
 		}
 	}
 	if m.changeTracker != nil {
-		changesFile := filepath.Join(getProjectDir(m.cfg), ".bugbuster", "changes.json")
+		changesFile := filepath.Join(getProjectDir(m.cfg), ".bugbuster", "changes", m.loop.Context.SessionID+".json")
 		m.changeTracker.SaveToFile(changesFile)
 	}
 }
