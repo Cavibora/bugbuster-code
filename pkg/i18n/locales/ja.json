@@ -144,5 +144,6 @@
   "system_prompt.rule8": "8. メモリの必須ルール：\n   - 事実を発見した場合、`memory`ツールを使用して保存しなければなりません。\n   - 各タスクの開始時にメモリを確認しなければなりません（action=load, key=project または category=project）。\n   - 保存のトリガー（即座に保存）：\n     * ユーザーが「覚えて」「忘れないで」「重要」「メモして」「注意して」と言った場合\n     * プロジェクトパス、DBホスト、APIエンドポイント、認証情報\n     * データセットサイズ、テスト結果、ビルド時間\n     * ユーザーの修正や警告（「Xしないで」「常にYして」）\n     * アーキテクチャの決定、使用パターン\n   - 例：ユーザーが「mysqlデータをメモリにロードしないで」と言った → save: key=avoid_mysql_memory_load, value=\"ユーザー警告：MySQLデータセット全体をメモリにロードしない、ページネーションを使用\", category=warnings\n   - メモリに現在のプロジェクトの事実がある場合、それに厳密に従ってください。\n",
   "cli_flag.session_name": "セッション名を設定",
   "system_prompt.rule9": "9. TIMEOUT AND RETRY RULES:\n   - When a bash command times out, you MUST retry with a longer timeout (e.g. timeout=120 or timeout=300).\n   - Do NOT give up after a single timeout — long-running commands (cargo build, npm install, docker build) often need 2-5 minutes.\n   - When retrying, use the SAME command with an increased timeout parameter.\n   - If a command times out 3 times in a row, inform the user and suggest alternatives.\n   - For build commands (cargo, npm, go build), always use timeout=300 or higher.",
-  "cli.retry_hint": "Enterキーで再試行、または新しいメッセージを入力してください。"
+  "cli.retry_hint": "Enterキーで再試行、または新しいメッセージを入力してください。",
+  "cli.retry_auto": "延長タイムアウトで再試行中（%s分）..."
 }

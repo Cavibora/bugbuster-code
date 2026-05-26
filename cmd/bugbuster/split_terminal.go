@@ -273,20 +273,42 @@ func (st *SplitTerminal) Run() bool {
 				}
 				continue
 			}
-			// Regular request to model
-			st.runStreamingQuery(input, &currentCancel, &interrupted)
+			// Regular request to model with auto-retry on timeout
+			maxRetries := 2
+			originalTimeout := st.cfg.Agent.RequestTimeout
+			for retry := 0; retry <= maxRetries; retry++ {
+				// Reset interrupted flag before each attempt
+				interrupted = false
 
-			// Ensure terminal is in normal mode before recreating readline.
-			// After timeout or error, terminal may be in an inconsistent state.
-			restoreTerminalToNormal()
+				st.runStreamingQuery(input, &currentCancel, &interrupted)
 
-			// Recreate readline after each request to ensure clean state.
-			// readLineFromStdin() (for ask_user) opens /dev/tty and puts
-			// terminal in cooked mode, which can leave readline goroutines
-			// in a broken state. Recreating readline ensures all goroutines
-			// are fresh and terminal is in raw mode.
-			st.resetReadline()
-			rl = st.rl
+				// Ensure terminal is in normal mode before recreating readline.
+				restoreTerminalToNormal()
+
+				// Recreate readline after each request to ensure clean state.
+				st.resetReadline()
+				rl = st.rl
+
+				// Check if request was cancelled due to timeout (not user Ctrl+C)
+				// ctx.Err() can be context.DeadlineExceeded (hard timeout)
+				// or context.Canceled (cancel() called from EventRequestTimeout)
+				// User Ctrl+C sets interrupted=true, so we don't retry that.
+				if ctx := st.ctx; ctx != nil && ctx.Err() != nil && !interrupted && retry < maxRetries {
+					// Double timeout for each retry: 20m → 40m → 80m
+					newTimeout := originalTimeout
+					if newTimeout <= 0 {
+						newTimeout = 1200 // 20 min default
+					}
+					newTimeout = newTimeout * (retry + 2) // exponential backoff
+					st.cfg.Agent.RequestTimeout = newTimeout
+					mins := newTimeout / 60
+					color.Yellow("\n  🔄 %s\n", i18n.T("cli.retry_auto", fmt.Sprintf("%d", mins)))
+					continue
+				}
+				// Restore original timeout
+				st.cfg.Agent.RequestTimeout = originalTimeout
+				break
+			}
 
 			// Autopilot: automatically continue after each response,
 			// until plan is completed, iteration limit is reached,

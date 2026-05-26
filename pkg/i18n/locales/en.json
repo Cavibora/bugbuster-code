@@ -430,5 +430,6 @@
   "cli.crash_cleared": "Crash logs cleared.",
   "cli_flag.session_name": "Set session name",
   "system_prompt.rule9": "9. TIMEOUT AND RETRY RULES:\n   - When a bash command times out, you MUST retry with a longer timeout (e.g. timeout=120 or timeout=300).\n   - Do NOT give up after a single timeout — long-running commands (cargo build, npm install, docker build) often need 2-5 minutes.\n   - When retrying, use the SAME command with an increased timeout parameter.\n   - If a command times out 3 times in a row, inform the user and suggest alternatives.\n   - For build commands (cargo, npm, go build), always use timeout=300 or higher.",
-  "cli.retry_hint": "Press Enter to retry or type a new message."
+  "cli.retry_hint": "Press Enter to retry or type a new message.",
+  "cli.retry_auto": "Retrying with extended timeout (%s min)..."
 }
