@@ -745,6 +745,10 @@ func (a *AgentLoop) maybeCompact(eventCh chan<- provider.StreamEvent, ctx contex
 	case eventCh <- provider.StreamEvent{Type: provider.EventCompactionDone}:
 	default:
 	}
+	// AfterCompact callback — inject memory facts after compaction
+	if a.Context.AfterCompact != nil {
+		a.Context.AfterCompact()
+	}
 }
 
 // drainUserInject extracts all user comments from the channel

@@ -145,5 +145,6 @@
   "cli.crash_error": "Erreur",
   "cli.crash_log": "Journal de crash",
   "cli.crash_dismiss": "Utilisez 'bugbuster --clear-crash' pour ignorer",
-  "cli.crash_cleared": "Journaux de crash effacés."
+  "cli.crash_cleared": "Journaux de crash effacés.",
+  "system_prompt.rule8": "8. RÈGLES OBLIGATOIRES DE MÉMOIRE:\n   - Vous DEVEZ utiliser l'outil `memory` pour sauvegarder les faits quand vous les découvrez.\n   - Vous DEVEZ vérifier la mémoire (action=load, key=project ou category=project) au DÉBUT de chaque tâche.\n   - DÉCLENCHEURS de sauvegarde (sauvegardez immédiatement):\n     * L'utilisateur dit \"souviens-toi\", \"n'oublie pas\", \"important\", \"note\", \"garde à l'esprit\"\n     * Chemins de projet, hôtes de BD, endpoints API, identifiants\n     * Tailles de datasets, résultats de tests, temps de build\n     * Corrections ou avertissements de l'utilisateur (\"ne fais pas X\", \"fais toujours Y\")\n     * Décisions d'architecture, patterns utilisés\n   - Exemple: L'utilisateur dit \"ne charge pas les données mysql en mémoire\" → save: key=avoid_mysql_memory_load, value=\"Utilisateur a averti: ne jamais charger de datasets MySQL complets en mémoire, utiliser la pagination\", category=warnings\n   - Si la mémoire contient des faits pour le projet actuel, suivez-les STRICTEMENT.\n"
 }

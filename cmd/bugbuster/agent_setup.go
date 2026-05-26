@@ -314,6 +314,28 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 
 	loop.SetSystemPrompt(systemPrompt)
 
+	// AfterCompact callback — re-inject memory facts after context compaction
+	// This ensures memory facts are never lost even when context is truncated
+	loop.Context.AfterCompact = func() {
+		facts := memTool.LoadAllFacts()
+		if facts == "" {
+			return
+		}
+		msgs := loop.Context.GetMessages()
+		// Find system message and append memory facts
+		for i, msg := range msgs {
+			if msg.Role == "system" {
+				// Check if memory facts already injected
+				if !strings.Contains(msg.GetText(), "## Memory Facts") {
+					updated := msg.GetText() + "\n\n## Memory Facts\n\n" + facts
+					msgs[i] = provider.SystemMsg(updated)
+				}
+				break
+			}
+		}
+		loop.Context.Messages = msgs
+	}
+
 	// MCP-tools (from cfg.MCP.Servers and cfg.Plugins.MCP)
 	mcpServers := cfg.MCP.Servers
 	if cfg.Plugins.MCP != nil {

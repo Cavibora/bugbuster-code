@@ -19,6 +19,7 @@ type ConversationContext struct {
 	Compactor           Compactor         // context compactor (nil = simple truncation)
 	AutoCompact         bool              // automatically compact on Add() (default: true)
 	OnCompact           func()            // callback before compaction (for UI notification)
+	AfterCompact        func()            // callback after compaction (for memory injection)
 	Ctx                 context.Context   // cancellation context for compaction (nil = context.Background())
 	Archive             *ArchiveStore     // context archive (nil = archiving disabled)
 	Optimizer           *ArchiveOptimizer // archive optimizer (nil = optimization disabled)

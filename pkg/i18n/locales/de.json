@@ -140,5 +140,6 @@
   "cli.crash_error": "Fehler",
   "cli.crash_log": "Crash-Log",
   "cli.crash_dismiss": "Verwenden Sie 'bugbuster --clear-crash' zum Ausblenden",
-  "cli.crash_cleared": "Crash-Logs gelöscht."
+  "cli.crash_cleared": "Crash-Logs gelöscht.",
+  "system_prompt.rule8": "8. OBLIGATORISCHE SPEICHERREGELN:\n   - Sie MÜSSEN das Tool `memory` verwenden, um Fakten zu speichern, wenn Sie sie entdecken.\n   - Sie MÜSSEN den Speicher (action=load, key=project oder category=project) am START jeder Aufgabe prüfen.\n   - SPEICHER-AUSLÖSER (sofort speichern):\n     * Nutzer sagt \"merke\", \"vergiss nicht\", \"wichtig\", \"notiere\", \"behalte im Kopf\"\n     * Projektpfade, Datenbank-Hosts, API-Endpunkte, Zugangsdaten\n     * Datensatzgrößen, Testergebnisse, Build-Zeiten\n     * Nutzerkorrekturen oder Warnungen (\"mach X nicht\", \"mach immer Y\")\n     * Architekturentscheidungen, verwendete Patterns\n   - Beispiel: Nutzer sagt \"lade keine MySQL-Daten in den Speicher\" → save: key=avoid_mysql_memory_load, value=\"Nutzer warnte: niemals vollständige MySQL-Datensätze in den Speicher laden, Paginierung verwenden\", category=warnings\n   - Wenn der Speicher Fakten zum aktuellen Projekt enthält, befolgen Sie diese STRENG.\n"
 }

@@ -229,5 +229,6 @@
   "cli.crash_error": "Error",
   "cli.crash_log": "Registro de fallo",
   "cli.crash_dismiss": "Use 'bugbuster --clear-crash' para descartar",
-  "cli.crash_cleared": "Registros de fallos eliminados."
+  "cli.crash_cleared": "Registros de fallos eliminados.",
+  "system_prompt.rule8": "8. REGLAS OBLIGATORIAS DE MEMORIA:\n   - DEBE usar la herramienta `memory` para guardar hechos cuando los descubra.\n   - DEBE verificar la memoria (action=load, key=project o category=project) al INICIO de cada tarea.\n   - DISPARADORES para guardar (guarde inmediatamente):\n     * El usuario dice \"recuerda\", \"no olvides\", \"importante\", \"anota\", \"ten en cuenta\"\n     * Rutas de proyectos, hosts de BD, endpoints de API, credenciales\n     * Tamaños de datasets, resultados de tests, tiempos de build\n     * Correcciones o advertencias del usuario (\"no hagas X\", \"siempre haz Y\")\n     * Decisiones de arquitectura, patrones utilizados\n   - Ejemplo: El usuario dice \"no cargues datos de mysql en memoria\" → save: key=avoid_mysql_memory_load, value=\"Usuario advirtió: nunca cargar datasets completos de MySQL en memoria, usar paginación\", category=warnings\n   - Si la memoria tiene hechos del proyecto actual, sígalos ESTRICTAMENTE.\n"
 }
