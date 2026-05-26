@@ -186,7 +186,7 @@ func (st *SplitTerminal) Run() bool {
 	}
 	// Update SessionID in MemoryTool
 	if memTool, ok := st.loop.Tools["memory"].(*tools.MemoryTool); ok {
-		memTool.SetSessionID(currentSession.ID)
+		memTool.SetSessionIDForProject(currentSession.ID, getProjectDir(st.cfg))
 	}
 	color.Yellow("%s", i18n.T("cli_session.info", currentSession.ID))
 

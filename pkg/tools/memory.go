@@ -49,16 +49,29 @@ func NewMemoryToolWithPath(filePath string) *MemoryTool {
 func (t *MemoryTool) SetSessionID(sessionID string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	home, _ := os.UserHomeDir()
-	memoryDir := filepath.Join(home, ".bugbuster", "memory")
-	newPath := filepath.Join(memoryDir, sessionID+".md")
-	// If old file exists with facts, migrate them to new file
+	newPath := MemoryFilePath(sessionID)
 	if t.filePath != newPath {
 		oldFacts := t.facts
 		t.filePath = newPath
 		t.loaded = false
 		t.facts = nil
-		// Save old facts to new file
+		if len(oldFacts) > 0 {
+			t.facts = oldFacts
+			t.saveToFile()
+		}
+	}
+}
+
+// SetSessionIDForProject updates the session ID and file path using project directory.
+func (t *MemoryTool) SetSessionIDForProject(sessionID, projectDir string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	newPath := MemoryFilePathForProject(sessionID, projectDir)
+	if t.filePath != newPath {
+		oldFacts := t.facts
+		t.filePath = newPath
+		t.loaded = false
+		t.facts = nil
 		if len(oldFacts) > 0 {
 			t.facts = oldFacts
 			t.saveToFile()
@@ -256,8 +269,38 @@ func (t *MemoryTool) LoadAllFacts() string {
 	return formatFactsForPrompt(t.facts)
 }
 
-// MemoryFilePath returns the session-scoped memory file path.
+// MemoryFilePath returns the path to the memory file for a session.
+// Priority: <project>/.bugbuster/memory/ if .bugbuster exists in project dir,
+// otherwise ~/.bugbuster/memory/
 func MemoryFilePath(sessionID string) string {
+	// Check if .bugbuster exists in current working directory
+	if cwd, err := os.Getwd(); err == nil {
+		bbDir := filepath.Join(cwd, ".bugbuster")
+		if info, err := os.Stat(bbDir); err == nil && info.IsDir() {
+			return filepath.Join(cwd, ".bugbuster", "memory", sessionID+".md")
+		}
+	}
+	// Fallback to home directory
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".bugbuster", "memory", sessionID+".md")
+}
+
+// MemoryFilePathForProject returns the path to the memory file for a session,
+// using the given project directory as the first choice.
+func MemoryFilePathForProject(sessionID, projectDir string) string {
+	// Check if .bugbuster exists in project directory
+	bbDir := filepath.Join(projectDir, ".bugbuster")
+	if info, err := os.Stat(bbDir); err == nil && info.IsDir() {
+		return filepath.Join(projectDir, ".bugbuster", "memory", sessionID+".md")
+	}
+	// Check if .bugbuster exists in current working directory
+	if cwd, err := os.Getwd(); err == nil {
+		bbDir := filepath.Join(cwd, ".bugbuster")
+		if info, err := os.Stat(bbDir); err == nil && info.IsDir() {
+			return filepath.Join(cwd, ".bugbuster", "memory", sessionID+".md")
+		}
+	}
+	// Fallback to home directory
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".bugbuster", "memory", sessionID+".md")
 }

@@ -231,7 +231,7 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 
 	// Memory tool — persistent memory for important project facts
 	// Session-scoped: each session has its own memory file
-	memTool := tools.NewMemoryTool(sessionID)
+	memTool := tools.NewMemoryToolWithPath(tools.MemoryFilePathForProject(sessionID, getProjectDir(cfg)))
 	loop.RegisterTool(memTool)
 
 	// Todo-tools (checklist for planning)

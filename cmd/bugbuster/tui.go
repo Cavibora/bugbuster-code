@@ -1100,7 +1100,7 @@ func runTUI(cfg *config.BugBusterConfig, loop *agent.AgentLoop, ct *ChangeTracke
 	}
 	// Update SessionID in MemoryTool
 	if memTool, ok := loop.Tools["memory"].(*tools.MemoryTool); ok {
-		memTool.SetSessionID(currentSession.ID)
+		memTool.SetSessionIDForProject(currentSession.ID, getProjectDir(m.cfg))
 	}
 
 	// Restore chat history in TUI
