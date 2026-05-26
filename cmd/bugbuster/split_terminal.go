@@ -241,12 +241,22 @@ func (st *SplitTerminal) Run() bool {
 
 		// Slash command handling
 		// Commands write to os.Stdout directly (fmt.Println, color.XXX).
-		// After command output, refresh readline prompt so it repositions cursor.
 		handled := handleCommand(input, st.loop, st.cfg, p, st.changeTracker, st.rl, sessionMgr, currentSession)
 		if handled {
+			// Close and recreate readline to kill paste-detection goroutine
 			if st.rl != nil {
-				st.rl.Refresh()
+				st.rl.Close()
+				st.rl = nil
 			}
+			if st.pendingLine != nil {
+				select {
+				case <-st.pendingLine:
+				default:
+				}
+				st.pendingLine = nil
+			}
+			st.resetReadline()
+			rl = st.rl
 			continue
 		}
 
@@ -296,8 +306,22 @@ func (st *SplitTerminal) Run() bool {
 
 			st.runStreamingQuery(input, &currentCancel, &interrupted)
 
-			// Recreate readline ONLY if it was closed (by ask_user).
-			// resetReadline() skips if st.rl != nil — no unnecessary recreation.
+			// After each request, close and recreate readline.
+			// This kills the paste-detection goroutine that may still
+			// be blocking on rl.Readline(). If we don't, the stale
+			// goroutine steals the user's next Enter key, causing
+			// readline to enter multiline mode instead of submitting.
+			if st.rl != nil {
+				st.rl.Close()
+				st.rl = nil
+			}
+			if st.pendingLine != nil {
+				select {
+				case <-st.pendingLine:
+				default:
+				}
+				st.pendingLine = nil
+			}
 			st.resetReadline()
 			rl = st.rl
 
