@@ -80,17 +80,17 @@ func NewSplitTerminal(cfg *config.BugBusterConfig, loop *agent.AgentLoop, ct *Ch
 	}
 }
 
-// resetReadline recreates readline instance to ensure clean state.
-// This is necessary because readLineFromStdin() (for ask_user) opens /dev/tty
-// and puts terminal in cooked mode, which can leave readline goroutines
-// (CancelableStdin.ioloop, Operation.ioloop) in a broken state.
-// Recreating readline ensures all goroutines are fresh and terminal is in raw mode.
+// resetReadline recreates readline instance ONLY if it was closed
+// (st.rl == nil). This happens after ask_user closes readline via rlClose.
+// If readline is still active (st.rl != nil), we skip recreation to avoid
+// "first Enter absorbed" issue — new readline instance reads one byte
+// from stdin during initialization, which can eat the user's first Enter.
 func (st *SplitTerminal) resetReadline() {
 	if st.rl != nil {
-		st.rl.Close()
+		// Readline is still active — no need to recreate
+		return
 	}
-	// Always recreate readline, even if st.rl is nil
-	// (rlClose in ask_user sets st.rl = nil)
+	// Readline was closed (by rlClose in ask_user) — recreate it
 	restoreTerminalToNormal()
 	historyFile := filepath.Join(getProjectDir(st.cfg), ".bugbuster", "history", st.loop.Context.SessionID)
 	rl, err := readline.NewEx(&readline.Config{
@@ -282,10 +282,8 @@ func (st *SplitTerminal) Run() bool {
 
 				st.runStreamingQuery(input, &currentCancel, &interrupted)
 
-				// Ensure terminal is in normal mode before recreating readline.
-				restoreTerminalToNormal()
-
-				// Recreate readline after each request to ensure clean state.
+				// Recreate readline ONLY if it was closed (by ask_user).
+				// resetReadline() skips if st.rl != nil — no unnecessary recreation.
 				st.resetReadline()
 				rl = st.rl
 
