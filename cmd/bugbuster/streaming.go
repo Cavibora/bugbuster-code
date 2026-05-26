@@ -246,7 +246,6 @@ streamLoop:
 			} else {
 				color.Yellow("%s", i18n.T("cli.cancel_request"))
 			}
-			color.Yellow("\n  %s", i18n.T("cli.retry_hint"))
 			if askAnswer != nil {
 				select {
 				case askAnswer <- "":
@@ -452,7 +451,6 @@ streamLoop:
 					mins = 1
 				}
 				color.Red("\n  %s", i18n.T("cli.request_timeout_warn", fmt.Sprintf("%d", mins)))
-				color.Yellow("\n  %s", i18n.T("cli.retry_hint"))
 				// Cancel streaming — model has been processing too long
 				if cancel != nil {
 					cancel()
