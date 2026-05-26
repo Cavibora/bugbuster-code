@@ -193,7 +193,7 @@ func runAgentForMCP(ctx context.Context, cfg *config.BugBusterConfig, prompt str
 		return "", fmt.Errorf("provider error: %w", err)
 	}
 
-	loop := createAgentLoop(cfg, p, nil)
+	loop := createAgentLoop(cfg, p, nil, "")
 	loop.SetNonInteractive(true)
 
 	if askUser, ok := loop.Tools["ask_user"].(*tools.AskUserTool); ok {

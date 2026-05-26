@@ -51,7 +51,7 @@ func getProviderNames(providers map[string]provider.ProviderConfig) []string {
 // createAgentLoop creates and configures agent loop.
 // If changeTracker != nil, write/edit tools are wrapped in HookedTool
 // for automatic change tracking (undo).
-func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTracker *ChangeTracker) *agent.AgentLoop {
+func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTracker *ChangeTracker, sessionID string) *agent.AgentLoop {
 	loop := agent.NewAgentLoop(p)
 
 	loop.SetVerbose(verbose || cfg.Agent.Verbose)

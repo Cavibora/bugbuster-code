@@ -33,7 +33,7 @@ func scanCmd() *cobra.Command {
 				color.Red("%s", i18n.T("cli_error.general", err))
 				return err
 			}
-			loop := createAgentLoop(cfg, p, nil)
+			loop := createAgentLoop(cfg, p, nil, "")
 			result, err := loop.Run(fmt.Sprintf(i18n.T("cli_subcommands.scan_prompt"), absDir))
 			if err != nil {
 				color.Red("%s", i18n.T("cli_error.general", err))
@@ -59,7 +59,7 @@ func fixCmd() *cobra.Command {
 				color.Red("%s", i18n.T("cli_error.general", err))
 				return err
 			}
-			loop := createAgentLoop(cfg, p, nil)
+			loop := createAgentLoop(cfg, p, nil, "")
 			result, err := loop.Run(fmt.Sprintf(i18n.T("cli_subcommands.fix_prompt"), description))
 			if err != nil {
 				color.Red("%s", i18n.T("cli_error.general", err))
@@ -88,7 +88,7 @@ func testCmd() *cobra.Command {
 				color.Red("%s", i18n.T("cli_error.general", err))
 				return err
 			}
-			loop := createAgentLoop(cfg, p, nil)
+			loop := createAgentLoop(cfg, p, nil, "")
 			result, err := loop.Run(fmt.Sprintf(i18n.T("cli_subcommands.test_prompt"), dir))
 			if err != nil {
 				color.Red("%s", i18n.T("cli_error.general", err))

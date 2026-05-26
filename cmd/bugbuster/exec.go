@@ -72,7 +72,7 @@ func runExec(cmd *cobra.Command, args []string) {
 	}
 
 	// Create agent (without change tracker — exec does not need undo)
-	loop := createAgentLoop(cfg, p, nil)
+	loop := createAgentLoop(cfg, p, nil, "")
 	loop.SetNonInteractive(true)
 
 	// In non-interactive mode ask_user is skipped

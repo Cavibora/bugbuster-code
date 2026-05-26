@@ -96,7 +96,7 @@ func runInteractive(cmd *cobra.Command, args []string) {
 	changeTracker.LoadFromFile(changesFile)
 
 	// Create agent with connected tracker
-	loop := createAgentLoop(cfg, p, changeTracker)
+	loop := createAgentLoop(cfg, p, changeTracker, sessionID)
 
 	// If --tui flag is specified — start TUI mode
 	if tuiMode != "" {
@@ -352,7 +352,7 @@ func runQuery(cfg *config.BugBusterConfig, query string) {
 		os.Exit(1)
 	}
 
-	loop := createAgentLoop(cfg, p, nil)
+	loop := createAgentLoop(cfg, p, nil, "")
 	result, err := loop.Run(query)
 	if err != nil {
 		color.Red("%s", i18n.T("cli_error.general", err))
