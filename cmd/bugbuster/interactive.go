@@ -196,19 +196,6 @@ func runInteractive(cmd *cobra.Command, args []string) {
 // so readline can properly manage cursor position and refresh the prompt (❯).
 // When rl is nil (readline closed for command output), output goes to os.Stdout.
 func handleCommand(input string, loop *agent.AgentLoop, cfg *config.BugBusterConfig, p provider.Provider, ct *ChangeTracker, rl *readline.Instance, sessionMgr *agent.SessionManager, currentSession *agent.Session) bool {
-	// Redirect output through rl.Stdout() if available
-	if rl != nil {
-		rlOut := rl.Stdout()
-		oldColorOut := color.Output
-		color.Output = rlOut
-		oldCmdOutput := cmdOutput
-		cmdOutput = rlOut
-		defer func() {
-			color.Output = oldColorOut
-			cmdOutput = oldCmdOutput
-		}()
-	}
-
 	switch {
 	case input == "/exit", input == "/quit":
 		// exit is handled in calling code — return false to exit main

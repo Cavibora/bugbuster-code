@@ -90,6 +90,14 @@ func (st *SplitTerminal) resetReadline() {
 		// Readline is still active — no need to recreate
 		return
 	}
+	// Drain any pending readline result from previous instance
+	if st.pendingLine != nil {
+		select {
+		case <-st.pendingLine:
+		default:
+		}
+		st.pendingLine = nil
+	}
 	// Readline was closed (by rlClose in ask_user) — recreate it
 	restoreTerminalToNormal()
 	historyFile := filepath.Join(getProjectDir(st.cfg), ".bugbuster", "history", st.loop.Context.SessionID)
@@ -106,8 +114,6 @@ func (st *SplitTerminal) resetReadline() {
 		return
 	}
 	st.rl = rl
-	// Clear pending line from previous readline instance
-	st.pendingLine = nil
 }
 
 // Run starts interactive split-terminal mode.
@@ -234,16 +240,13 @@ func (st *SplitTerminal) Run() bool {
 		ctrlCount = 0
 
 		// Slash command handling
-		// Close readline before running command — fmt.Println/color output
-		// breaks readline cursor position. Recreate after output.
-		if st.rl != nil {
-			st.rl.Close()
-			st.rl = nil
-		}
-		handled := handleCommand(input, st.loop, st.cfg, p, st.changeTracker, nil, sessionMgr, currentSession)
-		st.resetReadline()
-		rl = st.rl
+		// Commands write to os.Stdout directly (fmt.Println, color.XXX).
+		// After command output, refresh readline prompt so it repositions cursor.
+		handled := handleCommand(input, st.loop, st.cfg, p, st.changeTracker, st.rl, sessionMgr, currentSession)
 		if handled {
+			if st.rl != nil {
+				st.rl.Refresh()
+			}
 			continue
 		}
 
