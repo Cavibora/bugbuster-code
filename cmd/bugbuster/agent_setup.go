@@ -15,6 +15,7 @@ import (
 	"bugbuster-code/pkg/mcp"
 	"bugbuster-code/pkg/plugin"
 	"bugbuster-code/pkg/provider"
+	"bugbuster-code/pkg/skills"
 	"bugbuster-code/pkg/tools"
 
 	"github.com/fatih/color"
@@ -312,6 +313,18 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 		systemPrompt += "\n\n" + memoryContent
 	}
 
+	// Skill system — reusable instruction sets for complex tasks
+	skillMgr := skills.NewManager()
+	skillMgr.LoadBuiltins()
+	// Load project-specific skills
+	projectSkillsDir := filepath.Join(getProjectDir(cfg), ".bugbuster", "skills")
+	skillMgr.LoadFromDir(projectSkillsDir, "project")
+	// Load global skills
+	home, _ := os.UserHomeDir()
+	globalSkillsDir := filepath.Join(home, ".bugbuster", "skills")
+	skillMgr.LoadFromDir(globalSkillsDir, "global")
+	loop.SkillManager = skillMgr
+
 	loop.SetSystemPrompt(systemPrompt)
 
 	// AfterCompact callback — re-inject memory facts after context compaction
@@ -537,6 +550,10 @@ func printHelp() {
 	fmt.Println("  /auto  — " + i18n.T("cli_help.auto"))
 	fmt.Println("  /auto N — Autopilot with N iterations limit")
 	fmt.Println("  /cli   — " + i18n.T("cli_help.cli"))
+	fmt.Println()
+	color.Cyan("%s", "🛠 Skills")
+	fmt.Println("  /skills          — List available skills")
+	fmt.Println("  /skill <name>    — Activate a skill (inject instructions)")
 	fmt.Println()
 	color.Cyan("%s", "🧠 Cavibora Commands")
 	fmt.Println("  /dream [seed]  — Trigger memory consolidation")

@@ -282,6 +282,25 @@ i18n: add Portuguese translations
 5. Write tests in `pkg/provider/my_provider_test.go`
 6. Update [CONFIGURATION.md](CONFIGURATION.md)
 
+## Adding a New Skill
+
+1. Create `skills/my-skill.md` in the project root (or `~/.bugbuster/skills/` for global)
+2. Follow the skill file format:
+   ```markdown
+   # Skill Name
+   ## Description
+   What the skill does
+   ## Steps
+   1. Step one
+   2. Step two
+   ## Tools
+   - read, edit, bash
+   ## Context
+   - go.mod, README.md
+   ```
+3. Test with `/skills` (should appear in list) and `/skill my-skill` (should activate)
+4. Update [TOOLS.md](TOOLS.md) and [ARCHITECTURE.md](ARCHITECTURE.md)
+
 ## Adding a New Language
 
 1. Copy `pkg/i18n/locales/en.json` to `pkg/i18n/locales/xx.json`

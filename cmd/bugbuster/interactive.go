@@ -195,6 +195,13 @@ func handleCommand(input string, loop *agent.AgentLoop, cfg *config.BugBusterCon
 	case input == "/sessions":
 		printSessions(sessionMgr, currentSession)
 		return true
+	case input == "/skills":
+		printSkills(loop)
+		return true
+	case strings.HasPrefix(input, "/skill "):
+		name := strings.TrimSpace(strings.TrimPrefix(input, "/skill"))
+		activateSkill(loop, name)
+		return true
 	case strings.HasPrefix(input, "/rename "):
 		name := strings.TrimSpace(strings.TrimPrefix(input, "/rename"))
 		if name == "" {
@@ -792,6 +799,58 @@ func handleMeshStatsCommand(loop *agent.AgentLoop) {
 	color.Green("🧠 %s", i18n.T("cli.mesh_stats_result",
 		result.Cells, result.Bindings, result.Learnings,
 		result.ModelName, result.Version, result.Uptime, result.Temperature))
+}
+
+func printSkills(loop *agent.AgentLoop) {
+	if loop.SkillManager == nil {
+		color.Yellow("Skills not available")
+		return
+	}
+	skills := loop.SkillManager.List()
+	if len(skills) == 0 {
+		color.Yellow("No skills available")
+		return
+	}
+	color.Cyan("Available skills:")
+	fmt.Println()
+	for _, s := range skills {
+		sourceTag := ""
+		switch s.Source {
+		case "builtin":
+			sourceTag = color.HiBlackString("[builtin]")
+		case "project":
+			sourceTag = color.GreenString("[project]")
+		case "global":
+			sourceTag = color.CyanString("[global]")
+		}
+		fmt.Printf("  %-12s %s %s\n", color.HiWhiteString(s.Name), sourceTag, color.HiBlackString(s.Description))
+	}
+	fmt.Println()
+	color.HiBlack("Activate: /skill <name>")
+}
+
+func activateSkill(loop *agent.AgentLoop, name string) {
+	if loop.SkillManager == nil {
+		color.Red("Skills not available")
+		return
+	}
+	content, err := loop.SkillManager.Activate(name)
+	if err != nil {
+		color.Red("%v", err)
+		return
+	}
+	// Inject skill into system prompt
+	msgs := loop.Context.GetMessages()
+	for i, msg := range msgs {
+		if msg.Role == "system" {
+			updated := msg.GetText() + "\n\n" + content
+			msgs[i] = provider.SystemMsg(updated)
+			break
+		}
+	}
+	loop.Context.Messages = msgs
+	color.Green("✓ Skill '%s' activated", name)
+	color.HiBlack("  Instructions injected into system prompt")
 }
 
 

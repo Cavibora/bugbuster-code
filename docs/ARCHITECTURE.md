@@ -117,6 +117,15 @@ bugbuster-code/
 │   ├── plugin/             # Plugin system
 │   │   └── plugin.go       # Go plugin loading (.so), builtin plugins
 │   │
+│   ├── skills/             # Skills system
+│   │   ├── manager.go       # Skill loading, activation, deactivation
+│   │   └── skills/          # Built-in skill files
+│   │       ├── debug.md     # Systematic debugging workflow
+│   │       ├── refactor.md  # Safe refactoring workflow
+│   │       ├── review.md    # Code review workflow
+│   │       ├── deploy.md    # Deployment workflow
+│   │       └── analyze.md  # Codebase analysis workflow
+│   │
 │   └── logger/             # Logging
 │       └── logger.go       # Structured logging with levels
 ```
@@ -374,6 +383,84 @@ Per-query override:
 ```
 browse(action=search, query="competitors", engine=yandex)
 browse(action=fetch, url="https://example.com")
+```
+
+### Skills System
+
+Skills are reusable step-by-step procedures that combine instructions, context, and tools into guided workflows. Unlike tools (single operations), skills provide the model with a **procedure** to follow.
+
+**Architecture:**
+```
+┌──────────────────────────────────────────────────────┐
+│ Skill Manager                                         │
+│                                                       │
+│  Load skills from:                                    │
+│  ├── <project>/.bugbuster/skills/*.md  (project)      │
+│  └── ~/.bugbuster/skills/*.md         (global)        │
+│                                                       │
+│  Activate skill:                                      │
+│  1. Parse skill file (Name, Description, Steps, etc.) │
+│  2. Read Context files (if listed)                    │
+│  3. Inject skill instructions into system prompt      │
+│  4. Model follows steps using listed tools            │
+│                                                       │
+│  Deactivate skill:                                    │
+│  1. Remove skill from system prompt                   │
+│  2. Clear skill context                               │
+│                                                       │
+│  Compaction-safe:                                     │
+│  AfterCompact callback re-injects active skill        │
+└──────────────────────────────────────────────────────┘
+```
+
+**Built-in skills:**
+
+| Skill | File | Purpose |
+|-------|------|---------|
+| `debug` | `skills/debug.md` | Systematic debugging workflow |
+| `refactor` | `skills/refactor.md` | Safe refactoring with dependency analysis |
+| `review` | `skills/review.md` | Code review with security checks |
+| `deploy` | `skills/deploy.md` | Deployment with rollback safety |
+| `analyze` | `skills/analyze.md` | Codebase analysis and metrics |
+
+**Custom skills:** Users create `.bugbuster/skills/*.md` files with Markdown format:
+```markdown
+# Skill Name
+## Description
+What the skill does
+## Steps
+1. Step one
+2. Step two
+## Tools
+- read, edit, bash
+## Context
+- go.mod, README.md
+```
+
+**Data flow:**
+```
+User: /skill debug
+       │
+       ▼
+SkillManager.Activate("debug")
+       │
+       ├── Load debug.md from .bugbuster/skills/
+       ├── Parse: Name, Description, Steps, Tools, Context
+       ├── Read Context files (if listed)
+       └── Inject into system prompt:
+           "You are following the 'debug' skill:
+            1. Read the error message
+            2. Find the relevant file
+            3. ..."
+       │
+       ▼
+Model follows steps → uses listed tools → produces result
+       │
+       ▼
+User: /skill off
+       │
+       ▼
+SkillManager.Deactivate() → remove from system prompt
 ```
 
 ## UI Modes

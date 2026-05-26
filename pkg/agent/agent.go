@@ -13,6 +13,7 @@ import (
 	"bugbuster-code/pkg/i18n"
 	"bugbuster-code/pkg/logger"
 	"bugbuster-code/pkg/provider"
+	"bugbuster-code/pkg/skills"
 	"bugbuster-code/pkg/tools"
 )
 
@@ -27,6 +28,7 @@ type AgentLoop struct {
 	nonInteractive    bool   // exec mode: auto-skip ask_user
 	PermissionChecker PermissionChecker
 	LoopDetector      *LoopDetector // loop detector
+	SkillManager      *skills.Manager // skill system
 
 	// LLM request timeouts
 	RequestTimeout  time.Duration // max time for a single LLM request (0 = 20 min)

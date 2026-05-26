@@ -1,6 +1,6 @@
 # Tools Reference
 
-BugBuster Code provides 14 built-in tools that the AI agent can use to interact with your codebase and environment.
+BugBuster Code provides 17 built-in tools that the AI agent can use to interact with your codebase and environment.
 
 ## Tool Overview
 
@@ -526,6 +526,85 @@ Important facts about this project (from agent memory):
 [warnings]
 - avoid_mysql_memory_load: User warned: never load full MySQL datasets into memory, use pagination
 ```
+
+---
+
+## Skills
+
+Skills are reusable step-by-step procedures that guide the agent through common tasks. Unlike tools (which perform single operations), skills combine **instructions + context + tools** into a workflow.
+
+### Built-in Skills
+
+| Skill | Description | Steps |
+|-------|-------------|-------|
+| `debug` | Systematic debugging | Read error → Find file → Read context → Propose fix → Run tests |
+| `refactor` | Safe refactoring | Find usages → Dependency graph → Plan → Make changes → Verify tests |
+| `review` | Code review | Read diff → Check style → Check security → Check tests → Write report |
+| `deploy` | Deployment | Run tests → Build → Deploy → Health check → Rollback if needed |
+| `analyze` | Codebase analysis | Structure overview → Find patterns → Metrics → Recommendations |
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `/skills` | List available skills |
+| `/skill <name>` | Activate a skill |
+| `/skill off` | Deactivate current skill |
+
+### Custom Skills
+
+Create `.bugbuster/skills/my-skill.md` in your project:
+
+```markdown
+# My Custom Skill
+
+## Description
+Does something custom and useful
+
+## Steps
+1. First, read the relevant files
+2. Analyze the code structure
+3. Identify the problem
+4. Propose a solution
+5. Implement the fix
+6. Run tests to verify
+
+## Tools
+- read
+- grep
+- edit
+- bash
+
+## Context
+- README.md
+- go.mod
+- pkg/config/config.go
+```
+
+### How Skills Work
+
+1. **Activation** — `/skill debug` injects the skill's instructions into the system prompt
+2. **Execution** — the model follows the skill's steps using the listed tools
+3. **Context** — files listed in `Context` are automatically read when the skill activates
+4. **Compaction-safe** — skills are re-injected after context compaction (never lost)
+5. **Deactivation** — `/skill off` removes the skill from the system prompt
+
+### Skill File Format
+
+| Section | Required | Description |
+|---------|----------|-------------|
+| `# Name` | ✅ | Skill name (H1 heading) |
+| `## Description` | ✅ | What the skill does |
+| `## Steps` | ✅ | Ordered list of steps to follow |
+| `## Tools` | ❌ | Tools the skill should use |
+| `## Context` | ❌ | Files to read when skill activates |
+
+### Storage Priority
+
+| Priority | Path | When |
+|----------|------|------|
+| 1 | `<project>/.bugbuster/skills/*.md` | `.bugbuster/` exists in project directory |
+| 2 | `~/.bugbuster/skills/*.md` | Fallback (global skills) |
 
 ---
 

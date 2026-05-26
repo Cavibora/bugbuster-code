@@ -251,6 +251,7 @@ bugbuster.yaml
 |------|----------------------------------------|--------------------------|
 | Sessions | `sessions/<id>.jsonl` | — |
 | Memory | `memory/<id>.md` | `memory/<id>.md` (fallback) |
+| Skills | `skills/*.md` | `skills/*.md` (fallback) |
 | History | `history/<id>` | — |
 | Changes | `changes/<id>.json` | — |
 | Crash logs | — | `crashes/` |

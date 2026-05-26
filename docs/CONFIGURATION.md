@@ -258,6 +258,9 @@ BugBuster resolves these at load time. If a variable is not set, the value remai
 | `/tui` | Switch to TUI mode |
 | `/cli` | Switch to CLI mode |
 | `/config` | Show current configuration |
+| `/skills` | List available skills |
+| `/skill <name>` | Activate a skill |
+| `/skill off` | Deactivate current skill |
 
 ## Agent Instructions
 

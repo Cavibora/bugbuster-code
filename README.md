@@ -18,6 +18,8 @@
 - 📡 **MCP**: Both client and server (stdio, SSE, streamable HTTP)
 - 🎨 **TUI**: Rich terminal UI with markdown rendering, spinners, progress bars
 - 💾 **Sessions**: Save/restore conversation context with names and per-session history
+- 🧠 **Memory**: Session-scoped persistent memory (project-local, compaction-safe)
+- 🎯 **Skills**: Reusable step-by-step procedures (debug, refactor, review, deploy, analyze + custom)
 - 🔒 **Security**: Path traversal protection, secret file blocking, sandbox mode, command blocking
 
 ## Quick Start
@@ -116,6 +118,9 @@ agent:
 | `/diff` | Show file changes list |
 | `/lang <code>` | Switch interface language |
 | `/auto` | Toggle autopilot mode |
+| `/skills` | List available skills |
+| `/skill <name>` | Activate a skill |
+| `/skill off` | Deactivate current skill |
 
 ## Agent Instructions
 
@@ -213,6 +218,51 @@ mcp:
 ```
 
 Supported transports: `stdio`, `sse`, `streamable-http`
+
+## Skills
+
+Skills are reusable step-by-step procedures that guide the agent through common tasks. Unlike tools (single operations), skills combine **instructions + context + tools** into a workflow.
+
+### Built-in Skills
+
+| Skill | Description |
+|-------|-------------|
+| `debug` | Systematic debugging: read error → find file → propose fix → run tests |
+| `refactor` | Safe refactoring: find usages → plan → make changes → verify tests |
+| `review` | Code review: diff → style → security → tests → report |
+| `deploy` | Deployment: tests → build → deploy → health check → rollback |
+| `analyze` | Codebase analysis: structure → patterns → metrics → recommendations |
+
+### Custom Skills
+
+Create `.bugbuster/skills/my-skill.md` in your project:
+
+```markdown
+# My Custom Skill
+
+## Description
+Does something custom and useful
+
+## Steps
+1. Read the relevant files
+2. Analyze the code structure
+3. Identify the problem
+4. Propose a solution
+5. Implement the fix
+6. Run tests to verify
+
+## Tools
+- read
+- grep
+- edit
+- bash
+
+## Context
+- README.md
+- go.mod
+```
+
+Skills are automatically injected into the system prompt and survive context compaction.
 
 ## Security
 
