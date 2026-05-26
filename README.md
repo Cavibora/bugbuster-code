@@ -17,7 +17,7 @@
 - 🤝 **Sub-agents**: Isolated context, parallelism semaphore, timeouts
 - 📡 **MCP**: Both client and server (stdio, SSE, streamable HTTP)
 - 🎨 **TUI**: Rich terminal UI with markdown rendering, spinners, progress bars
-- 💾 **Sessions**: Save/restore conversation context
+- 💾 **Sessions**: Save/restore conversation context with names and per-session history
 - 🔒 **Security**: Path traversal protection, secret file blocking, sandbox mode, command blocking
 
 ## Quick Start
@@ -94,6 +94,7 @@ agent:
 | `--dir` | `-d` | Working directory |
 | `--permission-mode` | `-p` | Permission mode: `auto-approve`, `ask`, `deny` |
 | `--session` | `-s` | Session ID to restore |
+| `--session-name` | `-n` | Set session name |
 | `--lang` | `-l` | Interface language: `en`, `ru`, `es`, `fr`, `de`, `ja`, `zh`, `pt` |
 | `--tui` | `-t` | TUI mode: `auto` (default) or `inline` |
 
@@ -109,6 +110,7 @@ agent:
 | `/model <name>` | Switch model |
 | `/provider <name>` | Switch provider |
 | `/sessions` | Show saved sessions |
+| `/rename <name>` | Rename current session |
 | `/undo` | Undo last file change |
 | `/undoall` | Undo all file changes |
 | `/diff` | Show file changes list |
@@ -190,7 +192,7 @@ type Provider interface {
 | `learn` | Train model on input/output pair |
 | `web_fetch` | Fetch URL content |
 | `browse` | Headless browser + web search (configurable engine) |
-| `memory` | Session-scoped persistent memory |
+| `memory` | Session-scoped persistent memory (project-local storage) |
 | `delegate_task` | Delegate to sub-agent |
 | `todo` | Manage task checklist |
 | `lsp` | Language Server Protocol analysis |

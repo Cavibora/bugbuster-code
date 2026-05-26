@@ -226,6 +226,7 @@ BugBuster resolves these at load time. If a variable is not set, the value remai
 | `--dir` | `-d` | Working directory |
 | `--permission-mode` | `-p` | `auto-approve`, `ask`, `deny` |
 | `--session` | `-s` | Session ID to restore |
+| `--session-name` | `-n` | Set session name |
 | `--lang` | `-l` | Interface language |
 | `--tui` | `-t` | Start in TUI mode |
 | `--query` | `-q` | Non-interactive query mode |
@@ -246,6 +247,7 @@ BugBuster resolves these at load time. If a variable is not set, the value remai
 | `/provider <name>` | Switch provider |
 | `/sessions` | Show saved sessions |
 | `/session <id>` | Restore session |
+| `/rename <name>` | Rename current session |
 | `/compact` | Force context compaction |
 | `/clear` | Clear screen |
 | `/undo` | Undo last file change |

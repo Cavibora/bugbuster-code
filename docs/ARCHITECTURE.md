@@ -294,27 +294,42 @@ Sessions are saved:
 
 The `memory` tool provides persistent, session-scoped storage for important facts:
 
-```
-.bugbuster/memory/<session-id>.md
-```
+**Storage Priority:**
+| Priority | Path | When |
+|----------|------|------|
+| 1 | `<project>/.bugbuster/memory/<session-id>.md` | `.bugbuster/` exists in project directory |
+| 2 | `~/.bugbuster/memory/<session-id>.md` | Fallback (no `.bugbuster/` in project) |
 
-- **Session-scoped**: each session has its own memory file, preventing cross-project contamination
+- **Session-scoped**: each session has its own memory file, preventing cross-session contamination
+- **Project-local**: memory is stored in the project's `.bugbuster/` directory when available
 - **Auto-injected**: all facts are loaded into the system prompt at session start
+- **Compaction-safe**: facts are re-injected after context compaction (never lost)
+- **Mandatory**: the model is required to save and check memory (enforced via system prompt rule8)
 - **Human-readable**: Markdown format, editable by user
-- **Categories**: facts are organized by category (project, database, metrics, etc.)
+- **Categories**: facts are organized by category (project, database, warnings, metrics, etc.)
+
+**Save triggers** (model must save immediately):
+- User says "remember", "don't forget", "important", "note"
+- Project paths, DB hosts, API endpoints, credentials
+- Dataset sizes, test results, build times
+- User corrections/warnings ("don't do X", "always do Y")
+- Architecture decisions, design patterns
 
 Data flow:
 ```
-Agent discovers important fact (e.g., project path, DB credentials)
+Agent discovers important fact (e.g., user warning)
        │
        ▼
-memory(action=save, key="project_path", value="/Users/ss/ai/grfn")
+memory(action=save, key="avoid_mysql_memory_load",
+       value="User warned: never load full MySQL datasets into memory",
+       category="warnings")
        │
        ▼
-Write to .bugbuster/memory/<session-id>.md
+Write to <project>/.bugbuster/memory/<session-id>.md
        │
        ▼
 On next session start → LoadAllFacts() → inject into system prompt
+After context compaction → AfterCompact callback → re-inject facts
 ```
 
 ### Headless Browser (Browse Tool)

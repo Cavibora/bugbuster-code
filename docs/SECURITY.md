@@ -245,6 +245,18 @@ providers:
 bugbuster.yaml
 ```
 
+### 7. Data Storage Locations
+
+| Data | Project-local (`<project>/.bugbuster/`) | Global (`~/.bugbuster/`) |
+|------|----------------------------------------|--------------------------|
+| Sessions | `sessions/<id>.jsonl` | — |
+| Memory | `memory/<id>.md` | `memory/<id>.md` (fallback) |
+| History | `history/<id>` | — |
+| Changes | `changes/<id>.json` | — |
+| Crash logs | — | `crashes/` |
+
+Project-local storage is used when `.bugbuster/` exists in the project directory. This keeps project data isolated and portable.
+
 ## Crash Handler
 
 BugBuster includes a crash handler that:

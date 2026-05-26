@@ -441,7 +441,7 @@ tools:
 
 ### `memory`
 
-Persistent session-scoped memory for storing important project facts. Each session has its own memory file.
+Persistent session-scoped memory for storing important project facts. Each session has its own memory file. The model is **required** to save and check memory.
 
 **Parameters:**
 | Name | Type | Required | Description |
@@ -460,10 +460,28 @@ Persistent session-scoped memory for storing important project facts. Each sessi
 | `list` | List all stored facts |
 | `delete` | Delete a fact by key |
 
+**Mandatory Rules (enforced via system prompt):**
+- The model MUST save facts when it discovers them
+- The model MUST check memory at the START of every task
+- **Save triggers** — save immediately when:
+  - User says "remember", "don't forget", "important", "note", "keep in mind"
+  - Project paths, database hosts, API endpoints, credentials
+  - Dataset sizes, test results, build times
+  - User corrections or warnings ("don't do X", "always do Y")
+  - Architecture decisions, design patterns
+- If memory has facts for the current project, the model MUST follow them strictly
+
+**Storage Priority:**
+| Priority | Path | When |
+|----------|------|------|
+| 1 | `<project>/.bugbuster/memory/<session-id>.md` | `.bugbuster/` exists in project directory |
+| 2 | `~/.bugbuster/memory/<session-id>.md` | Fallback (no `.bugbuster/` in project) |
+
 **Behavior:**
-- Each session stores facts in `.bugbuster/memory/<session-id>.md`
-- Facts are automatically loaded into the system prompt at session start
-- Markdown format (human-readable)
+- Each session has its own memory file (session-scoped)
+- Facts are automatically injected into the system prompt at session start
+- Facts are re-injected after context compaction (never lost)
+- Markdown format (human-readable and editable)
 - Case-insensitive key matching
 - Thread-safe (concurrent access protected by mutex)
 - Categories are sorted alphabetically
@@ -471,9 +489,9 @@ Persistent session-scoped memory for storing important project facts. Each sessi
 **Examples:**
 ```json
 {"action": "save", "key": "project_path", "value": "/Users/ss/ai/grfn", "category": "project"}
-{"action": "save", "key": "mysql_host", "value": "localhost:3306", "category": "database"}
+{"action": "save", "key": "avoid_mysql_memory_load", "value": "User warned: never load full MySQL datasets into memory, use pagination", "category": "warnings"}
 {"action": "load", "key": "project_path"}
-{"action": "load", "category": "database"}
+{"action": "load", "category": "warnings"}
 {"action": "list"}
 {"action": "delete", "key": "temp_data"}
 ```
@@ -489,9 +507,12 @@ Persistent session-scoped memory for storing important project facts. Each sessi
 ## project
 - **language**: Rust
 - **project_path**: /Users/ss/ai/grfn
+
+## warnings
+- **avoid_mysql_memory_load**: User warned: never load full MySQL datasets into memory, use pagination
 ```
 
-**Auto-injection:** At session start, all stored facts are injected into the system prompt:
+**Auto-injection:** At session start and after context compaction, all stored facts are injected into the system prompt:
 ```
 Important facts about this project (from agent memory):
 
@@ -501,6 +522,9 @@ Important facts about this project (from agent memory):
 [project]
 - language: Rust
 - project_path: /Users/ss/ai/grfn
+
+[warnings]
+- avoid_mysql_memory_load: User warned: never load full MySQL datasets into memory, use pagination
 ```
 
 ---
