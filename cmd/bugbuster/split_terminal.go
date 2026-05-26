@@ -89,6 +89,9 @@ func (st *SplitTerminal) resetReadline() {
 	if st.rl != nil {
 		st.rl.Close()
 	}
+	// Always recreate readline, even if st.rl is nil
+	// (rlClose in ask_user sets st.rl = nil)
+	restoreTerminalToNormal()
 	historyFile := filepath.Join(getProjectDir(st.cfg), ".bugbuster", "history", st.loop.Context.SessionID)
 	rl, err := readline.NewEx(&readline.Config{
 		Prompt:          color.HiGreenString("❯ "),
@@ -272,6 +275,10 @@ func (st *SplitTerminal) Run() bool {
 			}
 			// Regular request to model
 			st.runStreamingQuery(input, &currentCancel, &interrupted)
+
+			// Ensure terminal is in normal mode before recreating readline.
+			// After timeout or error, terminal may be in an inconsistent state.
+			restoreTerminalToNormal()
 
 			// Recreate readline after each request to ensure clean state.
 			// readLineFromStdin() (for ask_user) opens /dev/tty and puts

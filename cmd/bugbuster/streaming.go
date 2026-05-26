@@ -246,12 +246,15 @@ streamLoop:
 			} else {
 				color.Yellow("%s", i18n.T("cli.cancel_request"))
 			}
+			color.Yellow("\n  %s", i18n.T("cli.retry_hint"))
 			if askAnswer != nil {
 				select {
 				case askAnswer <- "":
 				default:
 				}
 			}
+			// Force restore terminal to normal mode
+			restoreTerminalToNormal()
 			break streamLoop
 
 		case question := <-askQuestion:
