@@ -331,7 +331,12 @@ func (m TUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.askUserChannel = askCh
 
-			ctx, cancel := context.WithCancel(context.Background())
+			// Use request timeout from config as hard deadline
+			requestTimeout := 20 * time.Minute
+			if m.cfg != nil && m.cfg.Agent.RequestTimeout > 0 {
+				requestTimeout = time.Duration(m.cfg.Agent.RequestTimeout) * time.Second
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), requestTimeout+2*time.Minute)
 			m.ctx = ctx
 			m.cancel = cancel
 
@@ -693,8 +698,12 @@ func (m TUI) handleSend() (retModel tea.Model, retCmd tea.Cmd) {
 	m.streaming = true
 	m.syncViewport()
 
-	// Start streaming
-	ctx, cancel := context.WithCancel(context.Background())
+	// Start streaming with request timeout as hard deadline
+	requestTimeout := 20 * time.Minute
+	if m.cfg != nil && m.cfg.Agent.RequestTimeout > 0 {
+		requestTimeout = time.Duration(m.cfg.Agent.RequestTimeout) * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout+2*time.Minute)
 	m.ctx = ctx
 	m.cancel = cancel
 

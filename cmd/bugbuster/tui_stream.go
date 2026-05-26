@@ -38,6 +38,14 @@ func (m *TUI) runStream(query string, ctx context.Context, program *tea.Program)
 	for event := range ch {
 		select {
 		case <-ctx.Done():
+			if ctx.Err() == context.DeadlineExceeded {
+				if program != nil {
+					program.Send(streamEventMsg{event: provider.StreamEvent{
+						Type:     provider.EventRequestTimeout,
+						Duration: 22 * time.Minute,
+					}})
+				}
+			}
 			if program != nil {
 				program.Send(streamDoneMsg{})
 			}

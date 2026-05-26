@@ -319,7 +319,15 @@ func (st *SplitTerminal) Run() bool {
 
 // runStreamingQuery starts request to model with all context settings and AskChannel
 func (st *SplitTerminal) runStreamingQuery(input string, currentCancel *context.CancelFunc, interrupted *bool) {
-	ctx, cancel := context.WithCancel(context.Background())
+	// Use request timeout from config as hard deadline.
+	// This ensures the request is cancelled even if the provider
+	// doesn't send EventDone or EventRequestTimeout.
+	requestTimeout := 20 * time.Minute
+	if st.cfg != nil && st.cfg.Agent.RequestTimeout > 0 {
+		requestTimeout = time.Duration(st.cfg.Agent.RequestTimeout) * time.Second
+	}
+	// Add 2 minute buffer to allow provider's own timeout handling
+	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout+2*time.Minute)
 	*currentCancel = cancel
 	*interrupted = false
 

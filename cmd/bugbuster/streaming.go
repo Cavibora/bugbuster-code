@@ -236,7 +236,11 @@ streamLoop:
 		case <-ctx.Done():
 			spinner = stopActiveSpinner(spinner)
 			fmt.Println()
-			color.Yellow("%s", i18n.T("cli.cancel_request"))
+			if ctx.Err() == context.DeadlineExceeded {
+				color.Red("%s", i18n.T("cli.request_timeout_warn", "22"))
+			} else {
+				color.Yellow("%s", i18n.T("cli.cancel_request"))
+			}
 			if askAnswer != nil {
 				select {
 				case askAnswer <- "":
