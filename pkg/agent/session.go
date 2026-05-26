@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 // Session — serializable session state
 type Session struct {
 	ID        string             `json:"id"`
+	Name      string             `json:"name,omitempty"`
 	CreatedAt time.Time          `json:"created_at"`
 	UpdatedAt time.Time          `json:"updated_at"`
 	Messages  []provider.Message `json:"messages"`
@@ -102,6 +104,9 @@ func (sm *SessionManager) SaveSessionMessages(session *Session) error {
 		"created_at": session.CreatedAt.Format(time.RFC3339),
 		"updated_at": session.UpdatedAt.Format(time.RFC3339),
 	}
+	if session.Name != "" {
+		meta["name"] = session.Name
+	}
 	metaData, _ := json.Marshal(meta)
 	fmt.Fprintf(f, "%s\n", metaData)
 
@@ -183,6 +188,9 @@ func (sm *SessionManager) parseJSONL(data []byte) (*Session, error) {
 						session.UpdatedAt = t
 					}
 				}
+				if name, ok := meta["name"]; ok {
+					session.Name = name
+				}
 				continue
 			}
 		}
@@ -230,6 +238,11 @@ func (sm *SessionManager) ListSessions() ([]*Session, error) {
 		sessions = append(sessions, session)
 	}
 
+	// Sort by updated_at (newest first)
+	sort.Slice(sessions, func(i, j int) bool {
+		return sessions[i].UpdatedAt.After(sessions[j].UpdatedAt)
+	})
+
 	return sessions, nil
 }
 
@@ -237,6 +250,16 @@ func (sm *SessionManager) ListSessions() ([]*Session, error) {
 func (sm *SessionManager) DeleteSession(sessionID string) error {
 	filePath := filepath.Join(sm.SessionsDir, sessionID+".jsonl")
 	return os.Remove(filePath)
+}
+
+// RenameSession sets a human-readable name for a session
+func (sm *SessionManager) RenameSession(sessionID string, name string) error {
+	session, err := sm.LoadSession(sessionID)
+	if err != nil {
+		return err
+	}
+	session.Name = name
+	return sm.SaveSessionMessages(session)
 }
 
 // generateSessionID generates unique ID sessions

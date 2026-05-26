@@ -89,7 +89,7 @@ func (st *SplitTerminal) resetReadline() {
 	if st.rl != nil {
 		st.rl.Close()
 	}
-	historyFile := filepath.Join(getProjectDir(st.cfg), ".bugbuster", "history")
+	historyFile := filepath.Join(getProjectDir(st.cfg), ".bugbuster", "history", st.loop.Context.SessionID)
 	rl, err := readline.NewEx(&readline.Config{
 		Prompt:          color.HiGreenString("❯ "),
 		HistoryFile:     historyFile,
@@ -141,7 +141,7 @@ func (st *SplitTerminal) Run() bool {
 	printBanner(st.cfg, p)
 
 	// Readline with command history
-	historyFile := filepath.Join(getProjectDir(st.cfg), ".bugbuster", "history")
+	historyFile := filepath.Join(getProjectDir(st.cfg), ".bugbuster", "history", st.loop.Context.SessionID)
 	rl, err := readline.NewEx(&readline.Config{
 		Prompt:          color.HiGreenString("❯ "),
 		HistoryFile:     historyFile,

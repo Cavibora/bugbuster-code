@@ -524,6 +524,7 @@ func printHelp() {
 	fmt.Println(i18n.T("cli_help.model"))
 	fmt.Println(i18n.T("cli_help.provider"))
 	fmt.Println(i18n.T("cli_help.sessions"))
+	fmt.Println("  /rename <name>  — Rename current session")
 	fmt.Println(i18n.T("cli_help.undo"))
 	fmt.Println(i18n.T("cli_help.undo_all"))
 	fmt.Println(i18n.T("cli_help.diff"))

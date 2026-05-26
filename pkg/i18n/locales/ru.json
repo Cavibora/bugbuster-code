@@ -427,5 +427,6 @@
   "cli.crash_error": "Ошибка",
   "cli.crash_log": "Лог краша",
   "cli.crash_dismiss": "Используйте 'bugbuster --clear-crash' чтобы скрыть",
-  "cli.crash_cleared": "Логи крашей очищены."
+  "cli.crash_cleared": "Логи крашей очищены.",
+  "cli_flag.session_name": "Задать имя сессии"
 }

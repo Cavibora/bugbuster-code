@@ -17,6 +17,7 @@ var (
 	projectDir   string
 	permissionMode string
 	sessionID    string
+	sessionName   string
 	langFlag     string
 	tuiMode      string // "auto", "inline", "" (no TUI)
 	clearCrash   bool
@@ -67,6 +68,7 @@ func main() {
 	rootCmd.PersistentFlags().StringVarP(&projectDir, "dir", "d", "", i18n.T("cli_flag.dir"))
 	rootCmd.PersistentFlags().StringVarP(&permissionMode, "permission-mode", "p", "", i18n.T("cli_flag.permission_mode"))
 	rootCmd.PersistentFlags().StringVarP(&sessionID, "session", "s", "", i18n.T("cli_flag.session"))
+	rootCmd.PersistentFlags().StringVarP(&sessionName, "session-name", "n", "", i18n.T("cli_flag.session_name"))
 	rootCmd.PersistentFlags().StringVarP(&langFlag, "lang", "l", "", i18n.T("cli_flag.lang"))
 	rootCmd.PersistentFlags().StringVarP(&tuiMode, "tui", "t", "", "TUI mode: auto (AltScreen) or inline")
 	rootCmd.PersistentFlags().BoolVar(&clearCrash, "clear-crash", false, "Clear crash logs and dismiss notification")

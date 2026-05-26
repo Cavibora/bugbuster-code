@@ -427,5 +427,6 @@
   "cli.crash_error": "Error",
   "cli.crash_log": "Crash log",
   "cli.crash_dismiss": "Use 'bugbuster --clear-crash' to dismiss",
-  "cli.crash_cleared": "Crash logs cleared."
+  "cli.crash_cleared": "Crash logs cleared.",
+  "cli_flag.session_name": "Set session name"
 }

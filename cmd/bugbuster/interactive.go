@@ -195,6 +195,23 @@ func handleCommand(input string, loop *agent.AgentLoop, cfg *config.BugBusterCon
 	case input == "/sessions":
 		printSessions(sessionMgr, currentSession)
 		return true
+	case strings.HasPrefix(input, "/rename "):
+		name := strings.TrimSpace(strings.TrimPrefix(input, "/rename"))
+		if name == "" {
+			color.Red("Usage: /rename <name>")
+			return true
+		}
+		if currentSession == nil {
+			color.Red("No active session")
+			return true
+		}
+		if err := sessionMgr.RenameSession(currentSession.ID, name); err != nil {
+			color.Red("Error renaming session: %v", err)
+		} else {
+			currentSession.Name = name
+			color.Green("Session renamed to: %s", name)
+		}
+		return true
 	case input == "/help":
 		printHelp()
 		return true
@@ -385,6 +402,11 @@ func restoreOrNewSession(sessionMgr *agent.SessionManager, rl *readline.Instance
 			}
 		}
 	}
+	// Set session name if provided via --session-name flag
+	if sessionName != "" && currentSession != nil {
+		currentSession.Name = sessionName
+		sessionMgr.RenameSession(currentSession.ID, sessionName)
+	}
 	return currentSession
 }
 
@@ -547,7 +569,11 @@ func printSessions(sessionMgr *agent.SessionManager, currentSession *agent.Sessi
 	color.Cyan("Sessions:")
 
 	if currentSession != nil {
-		color.Green("  Current: %s (%d messages)", currentSession.ID, len(currentSession.Messages))
+		name := currentSession.Name
+		if name == "" {
+			name = "(unnamed)"
+		}
+		color.Green("  Current: %s [%s] (%d messages)", currentSession.ID, name, len(currentSession.Messages))
 	}
 
 	sessions, err := sessionMgr.ListSessions()
@@ -564,10 +590,15 @@ func printSessions(sessionMgr *agent.SessionManager, currentSession *agent.Sessi
 			maxShow = len(sessions)
 		}
 		for i, s := range sessions[:maxShow] {
-			fmt.Printf("  %d. %s (%d msg, %s)\n", i+1, s.ID, len(s.Messages), s.UpdatedAt.Format("2006-01-02 15:04"))
+			name := s.Name
+			if name == "" {
+				name = "(unnamed)"
+			}
+			fmt.Printf("  %d. %s [%s] (%d msg, %s)\n", i+1, s.ID, name, len(s.Messages), s.UpdatedAt.Format("2006-01-02 15:04"))
 		}
 	}
 	color.Cyan("  Restore: bugbuster --session <id>")
+	color.Cyan("  Rename:  /rename <name>")
 }
 
 
