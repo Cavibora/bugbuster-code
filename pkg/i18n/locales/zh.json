@@ -142,5 +142,6 @@
   "cli.crash_dismiss": "使用'bugbuster --clear-crash'来忽略",
   "cli.crash_cleared": "崩溃日志已清除。",
   "system_prompt.rule8": "8. 强制记忆规则：\n   - 发现事实时，必须使用`memory`工具保存。\n   - 每个任务开始时，必须检查记忆（action=load, key=project 或 category=project）。\n   - 保存触发条件（立即保存）：\n     * 用户说\"记住\"、\"别忘了\"、\"重要\"、\"记下\"、\"注意\"\n     * 项目路径、数据库主机、API端点、凭据\n     * 数据集大小、测试结果、构建时间\n     * 用户的修正或警告（\"不要做X\"、\"总是做Y\"）\n     * 架构决策、使用的设计模式\n   - 示例：用户说\"不要把mysql数据加载到内存\" → save: key=avoid_mysql_memory_load, value=\"用户警告：永远不要将完整的MySQL数据集加载到内存，使用分页\", category=warnings\n   - 如果记忆中有当前项目的事实，请严格遵守。\n",
-  "cli_flag.session_name": "设置会话名称"
+  "cli_flag.session_name": "设置会话名称",
+  "system_prompt.rule9": "9. TIMEOUT AND RETRY RULES:\n   - When a bash command times out, you MUST retry with a longer timeout (e.g. timeout=120 or timeout=300).\n   - Do NOT give up after a single timeout — long-running commands (cargo build, npm install, docker build) often need 2-5 minutes.\n   - When retrying, use the SAME command with an increased timeout parameter.\n   - If a command times out 3 times in a row, inform the user and suggest alternatives.\n   - For build commands (cargo, npm, go build), always use timeout=300 or higher."
 }

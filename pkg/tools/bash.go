@@ -26,7 +26,6 @@ type BashTool struct {
 }
 
 // NewBashTool creates a tool for executing bash commands with optional timeout.
-// NewBashTool creates a tool for executing bash commands with optional timeout.
 func NewBashTool() *BashTool {
 	return &BashTool{
 		Timeout: 30 * time.Second,
@@ -62,7 +61,6 @@ func (t *BashTool) Execute(params map[string]string) ToolResult {
 	// Security: blocked commands (from config + defaults)
 	blocked := t.BlockedCommands
 	if len(blocked) == 0 {
-		// Default list if config is not set
 		blocked = []string{"rm -rf /", "mkfs", "dd if=", "> /dev/sd", "format c:"}
 	}
 	lowerCmd := strings.ToLower(command)
@@ -72,12 +70,12 @@ func (t *BashTool) Execute(params map[string]string) ToolResult {
 		}
 	}
 
-	// Security: dangerous constructs (command substitution, pipe to shell, etc.)
+	// Security: dangerous constructs
 	dangerousPatterns := []string{
 		"$(rm", "$(rmdir", "$(mkfs", "$(dd ", "$(format",
 		"`rm", "`rmdir", "`mkfs",
 		"> /dev/sd", "> /dev/hd",
-		":(){:|:&};:", // fork bomb
+		":(){:|:&};:",
 	}
 	for _, pattern := range dangerousPatterns {
 		if strings.Contains(lowerCmd, pattern) {
@@ -132,11 +130,23 @@ func (t *BashTool) Execute(params map[string]string) ToolResult {
 
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			// Kill entire process group
+			// Kill entire process group (graceful then forced)
 			if cmd.Process != nil {
-				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
+				time.AfterFunc(3*time.Second, func() {
+					_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+				})
 			}
-			return Error("tools.bash.timeout", timeout)
+			// Include partial output so model can decide whether to retry
+			partialOutput := output
+			if partialOutput == "" {
+				partialOutput = "(no output before timeout)"
+			}
+			return ToolResult{
+				Error: fmt.Sprintf(i18n.T("tools.bash.timeout"), timeout) +
+					"\n\nPartial output:\n" + partialOutput +
+					"\n\nTip: Retry with a longer timeout, e.g. timeout=120",
+			}
 		}
 		if output == "" {
 			output = err.Error()
@@ -230,7 +240,6 @@ func (t *BashTool) ExecuteAsync(params map[string]string) <-chan AsyncEvent {
 			parts := strings.Fields(command)
 			cmd = exec.Command(parts[0], parts[1:]...)
 		}
-		// Put command in its own process group so we can kill all children
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 		if workDir != "" {
@@ -254,13 +263,13 @@ func (t *BashTool) ExecuteAsync(params map[string]string) <-chan AsyncEvent {
 		}
 
 		// Timeout: graceful then forced kill of entire process group
+		timedOut := false
 		var killTimer *time.Timer
 		if timeout > 0 {
 			killTimer = time.AfterFunc(timeout, func() {
+				timedOut = true
 				if cmd.Process != nil {
-					// First try SIGTERM (graceful)
 					_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
-					// After 3 seconds, force SIGKILL
 					time.AfterFunc(3*time.Second, func() {
 						_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 					})
@@ -297,13 +306,10 @@ func (t *BashTool) ExecuteAsync(params map[string]string) <-chan AsyncEvent {
 			}
 		}()
 
-		// Wait for stream reading to complete
 		wg.Wait()
 
-		// Wait for process to complete
 		err = cmd.Wait()
 
-		// Stop timeout if process completed on time
 		if killTimer != nil {
 			killTimer.Stop()
 		}
@@ -315,6 +321,23 @@ func (t *BashTool) ExecuteAsync(params map[string]string) <-chan AsyncEvent {
 				output += "\n"
 			}
 			output += stderrStr
+		}
+
+		// Handle timeout — include partial output and retry hint
+		if timedOut {
+			partialOutput := output
+			if partialOutput == "" {
+				partialOutput = "(no output before timeout)"
+			}
+			ch <- AsyncEvent{
+				Type:   "result",
+				Output: partialOutput,
+				Error: fmt.Sprintf(i18n.T("tools.bash.timeout"), timeout) +
+					"\n\nPartial output:\n" + partialOutput +
+					"\n\nTip: Retry with a longer timeout, e.g. timeout=120",
+				Done: true,
+			}
+			return
 		}
 
 		if err != nil {

@@ -169,8 +169,8 @@ func TestExecuteAsync_TimeoutKillsProcess(t *testing.T) {
 	if result.Error == "" {
 		t.Fatal("expected error for killed process")
 	}
-	if !strings.Contains(result.Error, "command failed:") {
-		t.Fatalf("expected 'command failed:' in error, got: %s", result.Error)
+	if !strings.Contains(result.Error, "timeout") && !strings.Contains(result.Error, "command failed:") {
+		t.Fatalf("expected 'timeout' or 'command failed:' in error, got: %s", result.Error)
 	}
 }
 
