@@ -431,5 +431,22 @@
   "cli_flag.session_name": "Set session name",
   "system_prompt.rule9": "9. TIMEOUT AND RETRY RULES:\n   - When a bash command times out, you MUST retry with a longer timeout (e.g. timeout=120 or timeout=300).\n   - Do NOT give up after a single timeout — long-running commands (cargo build, npm install, docker build) often need 2-5 minutes.\n   - When retrying, use the SAME command with an increased timeout parameter.\n   - If a command times out 3 times in a row, inform the user and suggest alternatives.\n   - For build commands (cargo, npm, go build), always use timeout=300 or higher.",
   "cli.retry_hint": "Press Enter to retry or type a new message.",
-  "cli.retry_auto": "Retrying with extended timeout (%s min)..."
+  "cli.retry_auto": "Retrying with extended timeout (%s min)...",
+  "tools.background.description": "Run a command in the background (non-blocking). Returns process ID and log file path. Use ps/logs/kill tools to manage background processes.",
+  "tools.background.param_command": "Missing required parameter: command",
+  "tools.background.log_create_error": "Failed to create log file: %s",
+  "tools.background.start_error": "Failed to start background process: %s",
+  "tools.background.started": "Background process #%d started (PID: %d). Logs: %s",
+  "tools.ps.description": "List all background processes with their status, PID, and uptime",
+  "tools.ps.no_processes": "No background processes running",
+  "tools.logs.description": "View logs of a background process. Use id parameter to specify process ID and lines to limit output.",
+  "tools.logs.param_id": "Missing required parameter: id",
+  "tools.logs.invalid_id": "Invalid process ID: %s",
+  "tools.logs.read_error": "Failed to read log file: %s",
+  "tools.logs.empty": "Process #%d has no output yet",
+  "tools.kill.description": "Kill a background process by ID. Sends SIGTERM to the entire process group.",
+  "tools.kill.param_id": "Missing required parameter: id",
+  "tools.kill.invalid_id": "Invalid process ID: %s",
+  "tools.kill.error": "Failed to kill process: %s",
+  "tools.kill.success": "Process #%d killed"
 }

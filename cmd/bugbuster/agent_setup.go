@@ -235,6 +235,13 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 	memTool := tools.NewMemoryToolWithPath(tools.MemoryFilePathForProject(sessionID, getProjectDir(cfg)))
 	loop.RegisterTool(memTool)
 
+	// Background process tools — run, monitor, and kill background processes
+	bgTool := tools.NewBackgroundTool(filepath.Join(getProjectDir(cfg), ".bugbuster", "bg_logs"))
+	loop.RegisterTool(bgTool)
+	loop.RegisterTool(tools.NewPSTool(bgTool))
+	loop.RegisterTool(tools.NewLogsTool(bgTool))
+	loop.RegisterTool(tools.NewKillProcessTool(bgTool))
+
 	// Todo-tools (checklist for planning)
 	todoWrite := tools.NewTodoWriteTool()
 	loop.RegisterTool(todoWrite)
