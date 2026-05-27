@@ -150,6 +150,10 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 		bashTool.DefaultDir = projectDir
 	}
 
+	// Background process tools — run, monitor, and kill background processes
+	bgTool := tools.NewBackgroundTool(filepath.Join(getProjectDir(cfg), ".bugbuster", "bg_logs"))
+	bashTool.BgTool = bgTool // link bash tool to background tool for timeout-to-background
+
 	grepTool := tools.NewGrepTool()
 	grepTool.AllowedDirs = cfg.Tools.AllowedDirs
 	grepTool.MaxResults = cfg.Tools.MaxGrepResults
@@ -235,8 +239,7 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 	memTool := tools.NewMemoryToolWithPath(tools.MemoryFilePathForProject(sessionID, getProjectDir(cfg)))
 	loop.RegisterTool(memTool)
 
-	// Background process tools — run, monitor, and kill background processes
-	bgTool := tools.NewBackgroundTool(filepath.Join(getProjectDir(cfg), ".bugbuster", "bg_logs"))
+	// Background process tools (bgTool created earlier with bashTool)
 	loop.RegisterTool(bgTool)
 	loop.RegisterTool(tools.NewPSTool(bgTool))
 	loop.RegisterTool(tools.NewLogsTool(bgTool))

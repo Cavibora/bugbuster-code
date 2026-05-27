@@ -204,6 +204,85 @@ func (t *BackgroundTool) ReadLogs(id int, lines int) (string, error) {
 	return strings.Join(allLines, "\n"), nil
 }
 
+// MoveToBackground moves a running command to background management.
+// Used when bash command times out — the process continues running in background.
+func (t *BackgroundTool) MoveToBackground(cmd *exec.Cmd, stdout, stderr string, startTime time.Time) (int, error) {
+	if cmd == nil || cmd.Process == nil {
+		return 0, fmt.Errorf("no process to move to background")
+	}
+
+	id := int(t.nextID.Add(1))
+	logFile := filepath.Join(t.logDir, fmt.Sprintf("bg_%d.log", id))
+
+	// Write existing output to log file
+	if stdout != "" || stderr != "" {
+		f, err := os.Create(logFile)
+		if err != nil {
+			return 0, fmt.Errorf("failed to create log file: %w", err)
+		}
+		if stdout != "" {
+			f.WriteString("=== STDOUT (before background) ===\n")
+			f.WriteString(stdout)
+			if !strings.HasSuffix(stdout, "\n") {
+				f.WriteString("\n")
+			}
+		}
+		if stderr != "" {
+			f.WriteString("=== STDERR (before background) ===\n")
+			f.WriteString(stderr)
+			if !strings.HasSuffix(stderr, "\n") {
+				f.WriteString("\n")
+			}
+		}
+		f.Close()
+	}
+
+	// Redirect further output to log file (append mode)
+	f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return 0, fmt.Errorf("failed to open log file: %w", err)
+	}
+
+	// Replace stdout/stderr pipes with file
+	cmd.Stdout = f
+	cmd.Stderr = f
+
+	proc := &BackgroundProcess{
+		ID:        id,
+		PID:       cmd.Process.Pid,
+		Command:   strings.Join(cmd.Args, " "),
+		Dir:       cmd.Dir,
+		LogFile:   logFile,
+		StartTime: startTime,
+		Running:   true,
+	}
+
+	t.mu.Lock()
+	t.processes[id] = proc
+	t.mu.Unlock()
+
+	// Monitor process in background
+	go func() {
+		err := cmd.Wait()
+		f.Close()
+
+		t.mu.Lock()
+		defer t.mu.Unlock()
+		if p, ok := t.processes[id]; ok {
+			p.Running = false
+			if err != nil {
+				if exitErr, ok := err.(*exec.ExitError); ok {
+					p.ExitCode = exitErr.ExitCode()
+				} else {
+					p.ExitCode = -1
+				}
+			}
+		}
+	}()
+
+	return id, nil
+}
+
 // Cleanup removes log files for stopped processes
 func (t *BackgroundTool) Cleanup() {
 	t.mu.Lock()

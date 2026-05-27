@@ -146,6 +146,7 @@
   "tools.bash.param_command": "параметр 'command' обязателен",
   "tools.bash.exec_error": "ошибка выполнения команды: %s\n%s",
   "tools.bash.timeout": "команда превысила время ожидания (%v)",
+  "tools.bash.timeout_moved_to_bg": "Команда превысила время ожидания (%v) — перенесена в фон (процесс #%d, PID: %d)",
   "tools.bash.empty_output": "(команда выполнена успешно, вывод пуст)",
   "tools.bash.truncated": "\n... (обрезано, всего %d символов)",
   "tools.bash.param_command_desc": "Shell-команда для выполнения",

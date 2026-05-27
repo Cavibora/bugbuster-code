@@ -146,6 +146,7 @@
   "tools.bash.param_command": "parameter 'command' is required",
   "tools.bash.exec_error": "error executing command: %s\n%s",
   "tools.bash.timeout": "command timed out after %v",
+  "tools.bash.timeout_moved_to_bg": "Command timed out after %s — moved to background (process #%s, PID: %s)",
   "tools.bash.empty_output": "(command executed successfully, empty output)",
   "tools.bash.truncated": "\n... (truncated, total %d characters)",
   "tools.bash.param_command_desc": "Shell command to execute",

@@ -4,7 +4,13 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"bugbuster-code/pkg/i18n"
 )
+
+func init() {
+	i18n.Init("en")
+}
 
 // TestExecuteAsync_ReturnsChannel проверяет что ExecuteAsync возвращает канал
 func TestExecuteAsync_ReturnsChannel(t *testing.T) {
@@ -49,7 +55,6 @@ func TestExecuteAsync_ReceivesResult(t *testing.T) {
 // TestExecuteAsync_ReceivesProgress проверяет что длинная команда отправляет progress события
 func TestExecuteAsync_ReceivesProgress(t *testing.T) {
 	tool := NewBashTool()
-	// Команда, которая выводит несколько строк с задержкой
 	ch := tool.ExecuteAsync(map[string]string{
 		"command": "echo line1 && echo line2 && echo line3",
 	})
@@ -75,7 +80,6 @@ func TestExecuteAsync_ReceivesProgress(t *testing.T) {
 	if !gotResult {
 		t.Fatal("never received final result event")
 	}
-	// Должно быть хотя бы одно progress событие (или больше)
 	if progressCount == 0 {
 		t.Log("no progress events (acceptable for fast commands)")
 	}
@@ -102,19 +106,13 @@ func TestExecuteAsync_BlockedCommand(t *testing.T) {
 // TestExecuteAsync_DoesNotBlock проверяет что ExecuteAsync не блокирует вызывающий поток
 func TestExecuteAsync_DoesNotBlock(t *testing.T) {
 	tool := NewBashTool()
-	// Команда, которая спит 2 секунды
 	ch := tool.ExecuteAsync(map[string]string{"command": "sleep 2 && echo done"})
 
-	// Сразу после вызова ExecuteAsync мы должны иметь канал
-	// и не быть заблокированными
 	select {
 	case <-ch:
-		// Можем получить событие сразу (маловероятно для sleep)
 	default:
-		// Ожидаемо — канал пуст, но мы не заблокированы
 	}
 
-	// Ждём результат с таймаутом
 	timeout := time.After(10 * time.Second)
 	var gotResult bool
 	for evt := range ch {
@@ -137,10 +135,12 @@ func TestExecuteAsync_DoesNotBlock(t *testing.T) {
 	}
 }
 
-// TestExecuteAsync_TimeoutKillsProcess проверяет что таймаут убивает процесс и не зависает
-func TestExecuteAsync_TimeoutKillsProcess(t *testing.T) {
+// TestExecuteAsync_TimeoutMovesToBackground проверяет что таймаут переносит процесс в фон
+func TestExecuteAsync_TimeoutMovesToBackground(t *testing.T) {
 	tool := NewBashTool()
 	tool.Timeout = 100 * time.Millisecond
+	bgTool := NewBackgroundTool(t.TempDir())
+	tool.BgTool = bgTool
 
 	start := time.Now()
 	ch := tool.ExecuteAsync(map[string]string{"command": "sleep 10"})
@@ -150,7 +150,7 @@ func TestExecuteAsync_TimeoutKillsProcess(t *testing.T) {
 	for evt := range ch {
 		select {
 		case <-timeout:
-			t.Fatal("timeout waiting for async result after kill")
+			t.Fatal("timeout waiting for async result after move to background")
 		default:
 		}
 		if evt.Done {
@@ -166,11 +166,18 @@ func TestExecuteAsync_TimeoutKillsProcess(t *testing.T) {
 	if !result.Done {
 		t.Fatal("expected Done=true")
 	}
-	if result.Error == "" {
-		t.Fatal("expected error for killed process")
+	// Process should be moved to background, not killed
+	if !strings.Contains(result.Output, "background") {
+		t.Fatalf("expected 'background' in output, got: %s", result.Output)
 	}
-	if !strings.Contains(result.Error, "timeout") && !strings.Contains(result.Error, "command failed:") {
-		t.Fatalf("expected 'timeout' or 'command failed:' in error, got: %s", result.Error)
+	// Check that process is in background
+	processes := bgTool.ListProcesses()
+	if len(processes) == 0 {
+		t.Fatal("expected background process to be registered")
+	}
+	// Kill the background process to clean up
+	for _, p := range processes {
+		bgTool.KillProcess(p.ID)
 	}
 }
 

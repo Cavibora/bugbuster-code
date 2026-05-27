@@ -3,13 +3,11 @@ package tools
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"fmt"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -18,11 +16,12 @@ import (
 
 // BashTool is the shell command execution tool
 type BashTool struct {
-	AllowedDirs     []string // allowed directories for commands
-	DefaultDir      string   // default working directory
+	AllowedDirs     []string        // allowed directories for commands
+	DefaultDir      string          // default working directory
 	Timeout         time.Duration
-	BlockedCommands []string // blocked commands (from config)
-	AllowNetwork    bool     // whether network commands are allowed
+	BlockedCommands []string        // blocked commands (from config)
+	AllowNetwork    bool            // whether network commands are allowed
+	BgTool          *BackgroundTool // for moving timed-out processes to background
 }
 
 // NewBashTool creates a tool for executing bash commands with optional timeout.
@@ -96,7 +95,6 @@ func (t *BashTool) Execute(params map[string]string) ToolResult {
 	// Auto-detect background commands (&) and redirect to background tool
 	trimmedCmd := strings.TrimSpace(command)
 	if strings.HasSuffix(trimmedCmd, "&") {
-		// Strip trailing & and redirect to background tool
 		bgCmd := strings.TrimSuffix(trimmedCmd, "&")
 		bgCmd = strings.TrimSpace(bgCmd)
 		return ToolResult{
@@ -104,21 +102,18 @@ func (t *BashTool) Execute(params map[string]string) ToolResult {
 		}
 	}
 
-	// Command execution with timeout via context
+	// Command execution with timeout
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
 
 	var cmd *exec.Cmd
 	if strings.Contains(command, "&&") || strings.Contains(command, "||") || strings.Contains(command, "|") || strings.Contains(command, ";") {
-		cmd = exec.CommandContext(ctx, "bash", "-c", command)
+		cmd = exec.Command("bash", "-c", command)
 	} else {
 		parts := strings.Fields(command)
-		cmd = exec.CommandContext(ctx, parts[0], parts[1:]...)
+		cmd = exec.Command(parts[0], parts[1:]...)
 	}
-	// Put command in its own process group so we can kill all children
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	if workDir != "" {
@@ -129,53 +124,77 @@ func (t *BashTool) Execute(params map[string]string) ToolResult {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err := cmd.Run()
-
-	output := stdout.String()
-	if stderrStr := stderr.String(); stderrStr != "" {
-		if output != "" {
-			output += "\n"
-		}
-		output += stderrStr
+	// Start command
+	if err := cmd.Start(); err != nil {
+		return Error("tools.bash.exec_error", err, "")
 	}
 
-	if err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			// Kill entire process group (graceful then forced)
-			if cmd.Process != nil {
-				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
-				time.AfterFunc(3*time.Second, func() {
-					_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-				})
+	// Wait with timeout
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+
+	select {
+	case err := <-done:
+		// Command completed within timeout
+		output := stdout.String()
+		if stderrStr := stderr.String(); stderrStr != "" {
+			if output != "" {
+				output += "\n"
 			}
-			// Include partial output so model can decide whether to retry
-			partialOutput := output
-			if partialOutput == "" {
-				partialOutput = "(no output before timeout)"
-			}
-			return ToolResult{
-				Error: fmt.Sprintf(i18n.T("tools.bash.timeout"), timeout) +
-					"\n\nPartial output:\n" + partialOutput +
-					"\n\nTip: Retry with a longer timeout, e.g. timeout=120",
-			}
+			output += stderrStr
 		}
+
+		if err != nil {
+			if output == "" {
+				output = err.Error()
+			}
+			return Error("tools.bash.exec_error", err, output)
+		}
+
 		if output == "" {
-			output = err.Error()
+			output = i18n.T("tools.bash.empty_output")
 		}
-		return Error("tools.bash.exec_error", err, output)
-	}
 
-	if output == "" {
-		output = i18n.T("tools.bash.empty_output")
-	}
+		maxOutput := 50000
+		if len(output) > maxOutput {
+			output = output[:maxOutput] + fmt.Sprintf(i18n.T("tools.bash.truncated"), len(output))
+		}
 
-	// Limit output
-	maxOutput := 50000
-	if len(output) > maxOutput {
-		output = output[:maxOutput] + fmt.Sprintf(i18n.T("tools.bash.truncated"), len(output))
-	}
+		return Success("%s", output)
 
-	return Success("%s", output)
+	case <-time.After(timeout):
+		// Timeout — move process to background instead of killing
+		if t.BgTool != nil && cmd.Process != nil {
+			bgID, bgErr := t.BgTool.MoveToBackground(cmd, stdout.String(), stderr.String(), time.Now())
+			if bgErr == nil {
+				partialOutput := stdout.String()
+				if partialOutput == "" {
+					partialOutput = "(no output before timeout)"
+				}
+				return ToolResult{
+					Output: i18n.T("tools.bash.timeout_moved_to_bg", fmt.Sprintf("%v", timeout), strconv.Itoa(bgID), strconv.Itoa(cmd.Process.Pid)) +
+						"\n\nPartial output:\n" + partialOutput +
+						"\n\nUse `ps()` to check status, `logs(id=\"" + strconv.Itoa(bgID) + "\")` to view output, `kill(id=\"" + strconv.Itoa(bgID) + "\")` to stop.",
+				}
+			}
+		}
+		// Fallback: kill process if MoveToBackground failed
+		if cmd.Process != nil {
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
+			time.AfterFunc(3*time.Second, func() {
+				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			})
+		}
+		partialOutput := stdout.String()
+		if partialOutput == "" {
+			partialOutput = "(no output before timeout)"
+		}
+		return ToolResult{
+			Error: fmt.Sprintf(i18n.T("tools.bash.timeout"), timeout) +
+				"\n\nPartial output:\n" + partialOutput +
+				"\n\nTip: Retry with a longer timeout, e.g. timeout=120",
+		}
+	}
 }
 
 // ExecuteAsync executes a bash command asynchronously, returning a channel with progress events
@@ -286,30 +305,23 @@ func (t *BashTool) ExecuteAsync(params map[string]string) <-chan AsyncEvent {
 			return
 		}
 
-		// Timeout: graceful then forced kill of entire process group
-		timedOut := false
-		var killTimer *time.Timer
+		// Timeout channel
+		timeoutCh := make(chan struct{})
 		if timeout > 0 {
-			killTimer = time.AfterFunc(timeout, func() {
-				timedOut = true
-				if cmd.Process != nil {
-					_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
-					time.AfterFunc(3*time.Second, func() {
-						_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-					})
+			go func() {
+				select {
+				case <-time.After(timeout):
+					close(timeoutCh)
+				case <-timeoutCh:
 				}
-				stdoutPipe.Close()
-				stderrPipe.Close()
-			})
+			}()
 		}
 
-		// Read stdout and stderr in parallel
+		// Read stdout and stderr
 		var stdoutBuf, stderrBuf strings.Builder
-		var wg sync.WaitGroup
-		wg.Add(2)
-
+		scanDone := make(chan struct{})
 		go func() {
-			defer wg.Done()
+			defer close(scanDone)
 			scanner := bufio.NewScanner(stdoutPipe)
 			for scanner.Scan() {
 				line := scanner.Text()
@@ -317,11 +329,7 @@ func (t *BashTool) ExecuteAsync(params map[string]string) <-chan AsyncEvent {
 				stdoutBuf.WriteString("\n")
 				ch <- AsyncEvent{Type: "progress", Output: line}
 			}
-		}()
-
-		go func() {
-			defer wg.Done()
-			scanner := bufio.NewScanner(stderrPipe)
+			scanner = bufio.NewScanner(stderrPipe)
 			for scanner.Scan() {
 				line := scanner.Text()
 				stderrBuf.WriteString(line)
@@ -330,26 +338,41 @@ func (t *BashTool) ExecuteAsync(params map[string]string) <-chan AsyncEvent {
 			}
 		}()
 
-		wg.Wait()
+		// Wait for command to finish or timeout
+		waitCh := make(chan error, 1)
+		go func() { waitCh <- cmd.Wait() }()
 
-		err = cmd.Wait()
-
-		if killTimer != nil {
-			killTimer.Stop()
-		}
-
-		// Form result
-		output := stdoutBuf.String()
-		if stderrStr := stderrBuf.String(); stderrStr != "" {
-			if output != "" {
-				output += "\n"
+		var cmdErr error
+		select {
+		case cmdErr = <-waitCh:
+			// Command completed
+		case <-timeoutCh:
+			// Timeout — move process to background
+			if t.BgTool != nil && cmd.Process != nil {
+				bgID, bgErr := t.BgTool.MoveToBackground(cmd, stdoutBuf.String(), stderrBuf.String(), time.Now())
+				if bgErr == nil {
+					partialOutput := stdoutBuf.String()
+					if partialOutput == "" {
+						partialOutput = "(no output before timeout)"
+					}
+					ch <- AsyncEvent{
+						Type: "result",
+							Output: i18n.T("tools.bash.timeout_moved_to_bg", fmt.Sprintf("%v", timeout), strconv.Itoa(bgID), strconv.Itoa(cmd.Process.Pid)) +
+							"\n\nPartial output:\n" + partialOutput +
+							"\n\nUse `ps()` to check status, `logs(id=\"" + strconv.Itoa(bgID) + "\")` to view output, `kill(id=\"" + strconv.Itoa(bgID) + "\")` to stop.",
+						Done: true,
+					}
+					return
+				}
 			}
-			output += stderrStr
-		}
-
-		// Handle timeout — include partial output and retry hint
-		if timedOut {
-			partialOutput := output
+			// Fallback: kill process if MoveToBackground failed
+			if cmd.Process != nil {
+				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
+				time.AfterFunc(3*time.Second, func() {
+					_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+				})
+			}
+			partialOutput := stdoutBuf.String()
 			if partialOutput == "" {
 				partialOutput = "(no output before timeout)"
 			}
@@ -364,12 +387,24 @@ func (t *BashTool) ExecuteAsync(params map[string]string) <-chan AsyncEvent {
 			return
 		}
 
-		if err != nil {
+		close(timeoutCh) // cancel timeout goroutine
+		<-scanDone        // wait for scanners to finish
+
+		// Form result
+		output := stdoutBuf.String()
+		if stderrStr := stderrBuf.String(); stderrStr != "" {
+			if output != "" {
+				output += "\n"
+			}
+			output += stderrStr
+		}
+
+		if cmdErr != nil {
 			var errDetail string
-			if exitErr, ok := err.(*exec.ExitError); ok {
+			if exitErr, ok := cmdErr.(*exec.ExitError); ok {
 				errDetail = exitErr.ProcessState.String()
 			} else {
-				errDetail = err.Error()
+				errDetail = cmdErr.Error()
 			}
 			if output == "" {
 				output = errDetail
