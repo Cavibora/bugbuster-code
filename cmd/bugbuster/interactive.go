@@ -7,7 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"bugbuster-code/pkg/agent"
 	"bugbuster-code/pkg/config"
@@ -17,6 +19,7 @@ import (
 	"bugbuster-code/pkg/plugin"
 	"bugbuster-code/pkg/provider"
 	"bugbuster-code/pkg/theme"
+	"bugbuster-code/pkg/tools"
 
 	"github.com/chzyer/readline"
 	"github.com/fatih/color"
@@ -195,7 +198,7 @@ func runInteractive(cmd *cobra.Command, args []string) {
 // When readline is active (rl != nil), output is written through rl.Stdout()
 // so readline can properly manage cursor position and refresh the prompt (❯).
 // When rl is nil (readline closed for command output), output goes to os.Stdout.
-func handleCommand(input string, loop *agent.AgentLoop, cfg *config.BugBusterConfig, p provider.Provider, ct *ChangeTracker, rl *readline.Instance, sessionMgr *agent.SessionManager, currentSession *agent.Session) bool {
+func handleCommand(input string, loop *agent.AgentLoop, cfg *config.BugBusterConfig, p provider.Provider, ct *ChangeTracker, rl *readline.Instance, sessionMgr *agent.SessionManager, currentSession *agent.Session, bgTool *tools.BackgroundTool) bool {
 	switch {
 	case input == "/exit", input == "/quit":
 		// exit is handled in calling code — return false to exit main
@@ -258,6 +261,17 @@ func handleCommand(input string, loop *agent.AgentLoop, cfg *config.BugBusterCon
 		return true
 	case input == "/tools":
 		printTools(loop)
+		return true
+	case input == "/ps":
+		printBackgroundProcesses(bgTool)
+		return true
+	case strings.HasPrefix(input, "/logs "):
+		idStr := strings.TrimSpace(strings.TrimPrefix(input, "/logs"))
+		showBackgroundLogs(bgTool, idStr)
+		return true
+	case strings.HasPrefix(input, "/kill "):
+		idStr := strings.TrimSpace(strings.TrimPrefix(input, "/kill"))
+		killBackgroundProcess(bgTool, idStr)
 		return true
 	case input == "/mcp":
 		printMCPServers(cfg)
@@ -863,6 +877,80 @@ func activateSkill(loop *agent.AgentLoop, name string) {
 	loop.Context.Messages = msgs
 	color.Green("✓ Skill '%s' activated", name)
 	color.HiBlack("  Instructions injected into system prompt")
+}
+
+func printBackgroundProcesses(bgTool *tools.BackgroundTool) {
+	if bgTool == nil {
+		color.Yellow("Background process manager not available")
+		return
+	}
+	processes := bgTool.ListProcesses()
+	if len(processes) == 0 {
+		color.Yellow("No background processes")
+		return
+	}
+	fmt.Println()
+	color.Cyan("Background Processes:")
+	fmt.Println(color.HiBlackString("─────────────────────────────────────────────────────────────"))
+	fmt.Printf(color.HiBlackString("%-4s %-8s %-10s %-12s %s\n"), "ID", "PID", "STATUS", "UPTIME", "COMMAND")
+	fmt.Println(color.HiBlackString("─────────────────────────────────────────────────────────────"))
+	for _, p := range processes {
+		status := color.GreenString("running")
+		if !p.Running {
+			status = color.RedString("exit(%d)", p.ExitCode)
+		}
+		uptime := time.Since(p.StartTime).Truncate(time.Second)
+		cmd := p.Command
+		if len(cmd) > 50 {
+			cmd = cmd[:47] + "..."
+		}
+		fmt.Printf("%-4d %-8d %-10s %-12s %s\n", p.ID, p.PID, status, uptime, cmd)
+	}
+	fmt.Println(color.HiBlackString("─────────────────────────────────────────────────────────────"))
+	fmt.Println(color.HiBlackString("Use /logs <id> to view logs, /kill <id> to kill a process"))
+}
+
+func showBackgroundLogs(bgTool *tools.BackgroundTool, idStr string) {
+	if bgTool == nil {
+		color.Yellow("Background process manager not available")
+		return
+	}
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		color.Red("Invalid process ID: %s", idStr)
+		return
+	}
+	content, err := bgTool.ReadLogs(id, 50)
+	if err != nil {
+		color.Red("Error reading logs: %v", err)
+		return
+	}
+	if content == "" {
+		color.Yellow("Process #%d has no output yet", id)
+		return
+	}
+	fmt.Println()
+	color.Cyan("Logs for process #%d:", id)
+	fmt.Println(color.HiBlackString("─────────────────────────────────────────────────────────────"))
+	fmt.Println(content)
+	fmt.Println(color.HiBlackString("─────────────────────────────────────────────────────────────"))
+}
+
+func killBackgroundProcess(bgTool *tools.BackgroundTool, idStr string) {
+	if bgTool == nil {
+		color.Yellow("Background process manager not available")
+		return
+	}
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		color.Red("Invalid process ID: %s", idStr)
+		return
+	}
+	if err := bgTool.KillProcess(id); err != nil {
+		color.Red("Error killing process: %v", err)
+		return
+	}
+	color.Green("Process #%d killed", id)
 }
 
 

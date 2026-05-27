@@ -68,15 +68,21 @@ type SplitTerminal struct {
 	// readMultilineInput. This ensures only one goroutine
 	// calls rl.Readline() concurrently (no data race).
 	pendingLine chan lineResult
+
+	// Background process manager
+	bgTool *tools.BackgroundTool
 }
 
 // NewSplitTerminal creates a new split-terminal mode
 func NewSplitTerminal(cfg *config.BugBusterConfig, loop *agent.AgentLoop, ct *ChangeTracker, providerName string) *SplitTerminal {
+	projectDir := getProjectDir(cfg)
+	bgTool := tools.NewBackgroundTool(filepath.Join(projectDir, ".bugbuster", "bg_logs"))
 	return &SplitTerminal{
 		cfg:           cfg,
 		loop:          loop,
 		changeTracker: ct,
 		providerName:  providerName,
+		bgTool:        bgTool,
 	}
 }
 
@@ -241,7 +247,7 @@ func (st *SplitTerminal) Run() bool {
 
 		// Slash command handling
 		// Commands write to os.Stdout directly (fmt.Println, color.XXX).
-		handled := handleCommand(input, st.loop, st.cfg, p, st.changeTracker, st.rl, sessionMgr, currentSession)
+		handled := handleCommand(input, st.loop, st.cfg, p, st.changeTracker, st.rl, sessionMgr, currentSession, st.bgTool)
 		if handled {
 			continue
 		}

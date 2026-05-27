@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -117,6 +118,9 @@ type TUI struct {
 	// Autopilot — automatically continue after each response
 	autoMode  bool
 	autoState *AutoPilotState
+
+	// Background process manager
+	bgTool *tools.BackgroundTool
 }
 
 // streamEventMsg — streaming event sent via tea.Program.Send
@@ -179,6 +183,7 @@ func NewTUI(cfg *config.BugBusterConfig, loop *agent.AgentLoop, ct *ChangeTracke
 		ctxTokens:     loop.Context.TokenCount(),
 		ctxMaxTokens:  loop.Context.MaxTokens,
 		askUserTool:   askUserTool,
+		bgTool:        tools.NewBackgroundTool(filepath.Join(getProjectDir(cfg), ".bugbuster", "bg_logs")),
 	}
 }
 
@@ -569,6 +574,56 @@ func (m TUI) handleSend() (retModel tea.Model, retCmd tea.Cmd) {
 		return m, nil
 	case "/sessions":
 		m.output.WriteString(sessionsInfoString(m.sessionMgr, m.session) + "\n")
+		m.syncViewport()
+		m.textarea.Reset()
+		return m, nil
+	case "/ps":
+		processes := m.bgTool.ListProcesses()
+		if len(processes) == 0 {
+			m.output.WriteString("  No background processes\n")
+		} else {
+			m.output.WriteString("  Background Processes:\n")
+			for _, p := range processes {
+				status := "running"
+				if !p.Running {
+					status = fmt.Sprintf("exit(%d)", p.ExitCode)
+				}
+				uptime := time.Since(p.StartTime).Truncate(time.Second)
+				m.output.WriteString(fmt.Sprintf("  #%d PID:%d %s %s %s\n", p.ID, p.PID, status, uptime, p.Command))
+			}
+		}
+		m.syncViewport()
+		m.textarea.Reset()
+		return m, nil
+	case "/kill ":
+		idStr := strings.TrimPrefix(input, "/kill ")
+		id, err := strconv.Atoi(strings.TrimSpace(idStr))
+		if err != nil {
+			m.output.WriteString(fmt.Sprintf("  ✗ Invalid process ID: %s\n", idStr))
+		} else if err := m.bgTool.KillProcess(id); err != nil {
+			m.output.WriteString(fmt.Sprintf("  ✗ %v\n", err))
+		} else {
+			m.output.WriteString(fmt.Sprintf("  ✓ Process #%d killed\n", id))
+		}
+		m.syncViewport()
+		m.textarea.Reset()
+		return m, nil
+	case "/logs ":
+		idStr := strings.TrimPrefix(input, "/logs ")
+		id, err := strconv.Atoi(strings.TrimSpace(idStr))
+		if err != nil {
+			m.output.WriteString(fmt.Sprintf("  ✗ Invalid process ID: %s\n", idStr))
+		} else {
+			content, err := m.bgTool.ReadLogs(id, 50)
+			if err != nil {
+				m.output.WriteString(fmt.Sprintf("  ✗ %v\n", err))
+			} else if content == "" {
+				m.output.WriteString(fmt.Sprintf("  Process #%d has no output yet\n", id))
+			} else {
+				m.output.WriteString(fmt.Sprintf("  Logs for process #%d:\n", id))
+				m.output.WriteString(content + "\n")
+			}
+		}
 		m.syncViewport()
 		m.textarea.Reset()
 		return m, nil
