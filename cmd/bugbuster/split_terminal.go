@@ -59,8 +59,8 @@ type SplitTerminal struct {
 	streaming bool
 	verbose   bool
 	debug     bool
-	autoMode  bool            // autopilot: automatically continue after each response
-	autoState *AutoPilotState  // state autopilot
+	autoMode  bool           // autopilot: automatically continue after each response
+	autoState *AutoPilotState // state autopilot
 
 	// Deferred readline result from paste detection.
 	// On timeout goroutine is still blocked on rl.Readline() —
@@ -289,10 +289,10 @@ func (st *SplitTerminal) Run() bool {
 			}
 			continue
 		}
-	// Regular request to model
-	st.runStreamingQuery(input, &currentCancel, &interrupted)
-	st.resetReadline()
-	rl = st.rl
+		// Regular request to model
+		st.runStreamingQuery(input, &currentCancel, &interrupted)
+		st.resetReadline()
+		rl = st.rl
 
 		// Autopilot: automatically continue after each response,
 		// until plan is completed, iteration limit is reached,
@@ -382,8 +382,11 @@ func (st *SplitTerminal) runStreamingQuery(input string, currentCancel *context.
 }
 
 // readMultilineInput reads input with multiline support.
-// Paste detection removed — it launches a background goroutine that
-// blocks on rl.Readline() and steals the user's next Enter key.
+// Uses a simple approach: read lines one at a time.
+// Lines ending with \ are continuation lines.
+// Empty lines are ignored (unless in multiline mode).
+// Paste detection is handled by checking if stdin has more data
+// available after each line — if so, keep reading.
 func (st *SplitTerminal) readMultilineInput(rl *readline.Instance) string {
 	prompt := color.HiGreenString("❯ ")
 	continuation := color.HiGreenString("... ")
@@ -391,7 +394,53 @@ func (st *SplitTerminal) readMultilineInput(rl *readline.Instance) string {
 	rl.SetPrompt(prompt)
 
 	var lines []string
+
+	// Check if we have a pending line from previous paste detection
+	if st.pendingLine != nil {
+		select {
+		case res := <-st.pendingLine:
+			st.pendingLine = nil
+			if res.err != nil {
+				return ""
+			}
+			line := strings.TrimSpace(res.line)
+			if line != "" {
+				lines = append(lines, line)
+			}
+		default:
+			// No pending line, clear it
+			st.pendingLine = nil
+		}
+	}
+
 	for {
+		// If we already have lines from paste detection, check if more
+		// data is available on stdin before reading the next line.
+		// This prevents pasted text from being split into separate requests.
+		if len(lines) > 0 && stdinHasData() {
+			// More data available — this is a paste, read next line immediately
+			line, err := rl.Readline()
+			if err != nil {
+				if err == readline.ErrInterrupt {
+					if len(lines) > 0 {
+						lines = nil
+						fmt.Println()
+						continue
+					}
+					return ""
+				}
+				// EOF — return what we have
+				result := strings.Join(lines, "\n")
+				rl.SetPrompt(prompt)
+				return result
+			}
+			line = strings.TrimSpace(line)
+			if line != "" {
+				lines = append(lines, line)
+			}
+			continue
+		}
+
 		line, err := rl.Readline()
 		if err != nil {
 			if err == readline.ErrInterrupt {
@@ -422,6 +471,24 @@ func (st *SplitTerminal) readMultilineInput(rl *readline.Instance) string {
 		rl.SetPrompt(prompt)
 		return result
 	}
+}
+
+// stdinHasData checks if there is data available on stdin.
+// This is used for paste detection — when multiple lines are pasted,
+// they arrive very quickly and stdin will have more data available.
+func stdinHasData() bool {
+	fd := os.Stdin.Fd()
+	if !term.IsTerminal(fd) {
+		return false
+	}
+	// Use select() with zero timeout to check if stdin has data
+	// This is non-blocking — it returns immediately
+	var tv syscall.Timeval
+	tv.Usec = 0 // zero timeout = poll
+	var readFds syscall.FdSet
+	readFds.Bits[0] = 1 << 0 // fd 0 = stdin
+	err := syscall.Select(1, &readFds, nil, nil, &tv)
+	return err == nil && readFds.Bits[0] != 0
 }
 
 // saveAndExit saves session and exits

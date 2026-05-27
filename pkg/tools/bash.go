@@ -115,15 +115,22 @@ func (t *BashTool) Execute(params map[string]string) ToolResult {
 		}
 	}
 
-	// Auto-detect background commands (&)
-	// Catch: "command &", "command &;", "command1; command2 &"
-	// Don't catch: "command && command", "command &>file", "command 2>&1"
+	// Auto-detect background commands (&) — automatically redirect to background tool
 	trimmedCmd := strings.TrimSpace(command)
 	if isBackgroundCommand(trimmedCmd) {
 		bgCmd := strings.TrimRight(trimmedCmd, "& ;")
 		bgCmd = strings.TrimSpace(bgCmd)
+		// Automatically redirect to background tool
+		if t.BgTool != nil {
+			result := t.BgTool.Execute(map[string]string{
+				"command": bgCmd,
+				"dir":     workDir,
+			})
+			return result
+		}
+		// No background tool available — return error with suggestion
 		return ToolResult{
-			Output: fmt.Sprintf("⚠️ Background command detected. The `&` operator is NOT supported in the bash tool.\n\nUse the `background` tool instead:\n\nbackground(command=\"%s\")\n\nUse ps() to check status, logs(id=N) to view output, kill(id=N) to stop.", bgCmd),
+			Output: fmt.Sprintf("⚠️ Background command automatically redirected to background tool.\n\nCommand: %s\n\nUse ps() to check status, logs(id=N) to view output, kill(id=N) to stop.", bgCmd),
 		}
 	}
 

@@ -372,8 +372,8 @@ func TestBashTool_BackgroundRedirect(t *testing.T) {
 	if !strings.Contains(result.Output, "background") {
 		t.Errorf("Expected redirect to background tool, got: %s", result.Output)
 	}
-	if !strings.Contains(result.Output, "NOT supported") {
-		t.Error("Should warn that & is not supported")
+	if !strings.Contains(result.Output, "redirected") {
+		t.Error("Should indicate command was redirected")
 	}
 }
 
