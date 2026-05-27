@@ -243,20 +243,6 @@ func (st *SplitTerminal) Run() bool {
 		// Commands write to os.Stdout directly (fmt.Println, color.XXX).
 		handled := handleCommand(input, st.loop, st.cfg, p, st.changeTracker, st.rl, sessionMgr, currentSession)
 		if handled {
-			// Close and recreate readline to kill paste-detection goroutine
-			if st.rl != nil {
-				st.rl.Close()
-				st.rl = nil
-			}
-			if st.pendingLine != nil {
-				select {
-				case <-st.pendingLine:
-				default:
-				}
-				st.pendingLine = nil
-			}
-			st.resetReadline()
-			rl = st.rl
 			continue
 		}
 
@@ -306,22 +292,11 @@ func (st *SplitTerminal) Run() bool {
 
 			st.runStreamingQuery(input, &currentCancel, &interrupted)
 
-			// After each request, close and recreate readline.
-			// This kills the paste-detection goroutine that may still
-			// be blocking on rl.Readline(). If we don't, the stale
-			// goroutine steals the user's next Enter key, causing
-			// readline to enter multiline mode instead of submitting.
-			if st.rl != nil {
-				st.rl.Close()
-				st.rl = nil
-			}
-			if st.pendingLine != nil {
-				select {
-				case <-st.pendingLine:
-				default:
-				}
-				st.pendingLine = nil
-			}
+			// Recreate readline ONLY if it was closed (by ask_user via rlClose).
+			// Do NOT close readline here — paste detection was removed,
+			// so there's no stale goroutine stealing Enter keys.
+			// Closing and recreating readline causes old goroutines to
+			// compete with new ones for stdin, breaking input.
 			st.resetReadline()
 			rl = st.rl
 
@@ -438,31 +413,17 @@ func (st *SplitTerminal) runStreamingQuery(input string, currentCancel *context.
 }
 
 // readMultilineInput reads input with multiline support.
+// Paste detection removed — it launches a background goroutine that
+// blocks on rl.Readline() and steals the user's next Enter key.
 func (st *SplitTerminal) readMultilineInput(rl *readline.Instance) string {
-	var lines []string
 	prompt := color.HiGreenString("❯ ")
 	continuation := color.HiGreenString("... ")
 
 	rl.SetPrompt(prompt)
 
+	var lines []string
 	for {
-		var line string
-		var err error
-
-		if st.pendingLine != nil {
-			select {
-			case res := <-st.pendingLine:
-				st.pendingLine = nil
-				line, err = res.line, res.err
-			case <-time.After(30 * time.Second):
-				// Timeout — readline goroutine is stuck, discard it
-				st.pendingLine = nil
-				line, err = "", fmt.Errorf("readline timeout")
-			}
-		} else {
-			line, err = rl.Readline()
-		}
-
+		line, err := rl.Readline()
 		if err != nil {
 			if err == readline.ErrInterrupt {
 				if len(lines) > 0 {
@@ -486,34 +447,6 @@ func (st *SplitTerminal) readMultilineInput(rl *readline.Instance) string {
 			lines[len(lines)-1] = strings.TrimSuffix(line, "\\")
 			rl.SetPrompt(continuation)
 			continue
-		}
-
-		pasting := false
-		for {
-			ch := make(chan lineResult, 1)
-			go func() {
-				l, e := rl.Readline()
-				ch <- lineResult{l, e}
-			}()
-			select {
-			case res := <-ch:
-				if res.err != nil {
-					goto done
-				}
-				pasting = true
-				lines = append(lines, strings.TrimSpace(res.line))
-			case <-time.After(100 * time.Millisecond):
-				st.pendingLine = ch
-				goto done
-			}
-		}
-
-	done:
-		if pasting {
-			lineCount := len(lines)
-			if lineCount > 1 {
-				fmt.Printf("\n  📋 +%d %s\n", lineCount, i18n.T("cli.paste_lines"))
-			}
 		}
 
 		result := strings.Join(lines, "\n")

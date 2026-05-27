@@ -252,8 +252,6 @@ streamLoop:
 				default:
 				}
 			}
-			// Force restore terminal to normal mode
-			restoreTerminalToNormal()
 			break streamLoop
 
 		case question := <-askQuestion:
