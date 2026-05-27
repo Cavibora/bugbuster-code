@@ -122,7 +122,7 @@ type AgentConfig struct {
 	Verbose         bool                `yaml:"verbose"`
 	PermissionMode  string              `yaml:"permission_mode"`  // auto-approve, ask, deny
 	Language        string              `yaml:"language"`         // interface language (en, ru, es, fr, de, ja, zh, pt)
-	RequestTimeout  int                 `yaml:"request_timeout"`  // max time for a single LLM request in seconds (0 = default 1200 = 20 min)
+	RequestTimeout  int                 `yaml:"request_timeout"`  // max time for a single LLM request in seconds (0 = default 2400 = 40 min)
 	ThinkingTimeout int                 `yaml:"thinking_timeout"` // max time without tokens from model in seconds (0 = default 600 = 10 min)
 	IdleTimeout     int                 `yaml:"idle_timeout"`     // streaming timeout without events in seconds (0 = default 120 = 2 min)
 	LoopDetection   LoopDetectionConfig `yaml:"loop_detection"`   // loop detection settings
@@ -175,7 +175,7 @@ func DefaultConfig() *BugBusterConfig {
 			Verbose:         false,
 			PermissionMode:  "auto-approve",
 			Language:        "en",
-			RequestTimeout:  1200, // 20 minutes
+			RequestTimeout:  2400, // 40 minutes
 			ThinkingTimeout: 600,  // 10 minutes
 			IdleTimeout:     300,  // 5 minutes
 			LoopDetection: LoopDetectionConfig{

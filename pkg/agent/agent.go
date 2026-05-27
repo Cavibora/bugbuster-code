@@ -31,7 +31,7 @@ type AgentLoop struct {
 	SkillManager      *skills.Manager // skill system
 
 	// LLM request timeouts
-	RequestTimeout  time.Duration // max time for a single LLM request (0 = 20 min)
+	RequestTimeout  time.Duration // max time for a single LLM request (0 = 40 min)
 	ThinkingTimeout time.Duration // max time without tokens from model (0 = 10 min)
 	IdleTimeout     time.Duration // streaming timeout without events (0 = 2 min)
 
@@ -197,7 +197,7 @@ func (a *AgentLoop) effectiveRequestTimeout() time.Duration {
 	if a.RequestTimeout > 0 {
 		return a.RequestTimeout
 	}
-	return 20 * time.Minute
+	return 40 * time.Minute
 }
 
 // effectiveThinkingTimeout returns the effective thinking timeout.

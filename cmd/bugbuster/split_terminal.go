@@ -367,7 +367,7 @@ func (st *SplitTerminal) runStreamingQuery(input string, currentCancel *context.
 	// Use request timeout from config as hard deadline.
 	// This ensures the request is cancelled even if the provider
 	// doesn't send EventDone or EventRequestTimeout.
-	requestTimeout := 20 * time.Minute
+	requestTimeout := 40 * time.Minute
 	if st.cfg != nil && st.cfg.Agent.RequestTimeout > 0 {
 		requestTimeout = time.Duration(st.cfg.Agent.RequestTimeout) * time.Second
 	}

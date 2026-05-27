@@ -211,8 +211,8 @@ func TestEffectiveTimeouts(t *testing.T) {
 	a := NewAgentLoop(nil)
 
 	// Default timeouts (0 = use defaults)
-	if a.effectiveRequestTimeout() != 20*time.Minute {
-		t.Errorf("Expected default RequestTimeout=20m, got %v", a.effectiveRequestTimeout())
+	if a.effectiveRequestTimeout() != 40*time.Minute {
+		t.Errorf("Expected default RequestTimeout=40m, got %v", a.effectiveRequestTimeout())
 	}
 	if a.effectiveThinkingTimeout() != 10*time.Minute {
 		t.Errorf("Expected default ThinkingTimeout=10m, got %v", a.effectiveThinkingTimeout())

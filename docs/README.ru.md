@@ -112,7 +112,7 @@ agent:
   verbose: false               # Подробный вывод
   permission_mode: auto-approve  # auto-approve | ask | deny
   language: ru                 # Язык интерфейса
-  request_timeout: 1200        # Макс. время одного LLM-запроса (секунды, default: 1200 = 20 мин)
+  request_timeout: 2400        # Макс. время одного LLM-запроса (секунды, default: 2400 = 40 мин)
   thinking_timeout: 600       # Макс. время без токенов от модели (секунды, default: 600 = 10 мин)
   idle_timeout: 120            # Таймаут стриминга без событий (секунды, default: 120 = 2 мин)
 
@@ -232,7 +232,7 @@ plugins:
 | `agent.verbose` | bool | Подробный вывод (логирование итераций) | false |
 | `agent.permission_mode` | string | Режим разрешений: `auto-approve`, `ask`, `deny` | auto-approve |
 | `agent.language` | string | Язык интерфейса: `en`, `ru`, `es`, `fr`, `de`, `ja`, `zh`, `pt` | en |
-| `agent.request_timeout` | int | Макс. время одного LLM-запроса (секунды). При превышении — ошибка и прерывание | 1200 (20 мин) |
+| `agent.request_timeout` | int | Макс. время одного LLM-запроса (секунды). При превышении — ошибка и прерывание | 2400 (40 мин) |
 | `agent.thinking_timeout` | int | Макс. время без токенов от модели (секунды). При превышении — предупреждение, продолжает ждать | 600 (10 мин) |
 | `agent.idle_timeout` | int | Таймаут стриминга без событий (секунды). При превышении — ошибка и прерывание | 120 (2 мин) |
 

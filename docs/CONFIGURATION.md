@@ -70,7 +70,7 @@ agent:
   verbose: false                # verbose logging
   permission_mode: auto-approve # auto-approve | ask | deny
   language: en                  # en | ru | es | fr | de | ja | zh | pt
-  request_timeout: 1200         # max time for single LLM request (seconds)
+  request_timeout: 2400         # max time for single LLM request (seconds)
   thinking_timeout: 600         # max time without tokens (seconds)
   idle_timeout: 300             # streaming timeout without events (seconds)
 

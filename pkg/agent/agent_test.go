@@ -634,8 +634,8 @@ func TestTimeoutDefaults(t *testing.T) {
 	}
 
 	// Effective таймауты должны возвращать дефолтные значения
-	if loop.effectiveRequestTimeout() != 20*time.Minute {
-		t.Errorf("Expected effective request timeout 20m, got %v", loop.effectiveRequestTimeout())
+	if loop.effectiveRequestTimeout() != 40*time.Minute {
+		t.Errorf("Expected effective request timeout 40m, got %v", loop.effectiveRequestTimeout())
 	}
 	if loop.effectiveThinkingTimeout() != 10*time.Minute {
 		t.Errorf("Expected effective thinking timeout 10m, got %v", loop.effectiveThinkingTimeout())

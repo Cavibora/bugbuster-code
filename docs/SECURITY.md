@@ -81,7 +81,7 @@ tools:
 
 ```yaml
 agent:
-  request_timeout: 1200    # 20 min — max time for single LLM request
+  request_timeout: 2400    # 40 min — max time for single LLM request
   thinking_timeout: 600    # 10 min — max time without tokens from model
   idle_timeout: 300        # 5 min — streaming timeout without events
 

@@ -81,7 +81,7 @@ providers:
 agent:
   permission_mode: auto-approve
   language: en
-  request_timeout: 1200
+  request_timeout: 2400
   thinking_timeout: 600
   idle_timeout: 120
 ```

@@ -337,7 +337,7 @@ func (m TUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.askUserChannel = askCh
 
 			// Use request timeout from config as hard deadline
-			requestTimeout := 20 * time.Minute
+			requestTimeout := 40 * time.Minute
 			if m.cfg != nil && m.cfg.Agent.RequestTimeout > 0 {
 				requestTimeout = time.Duration(m.cfg.Agent.RequestTimeout) * time.Second
 			}
@@ -754,7 +754,7 @@ func (m TUI) handleSend() (retModel tea.Model, retCmd tea.Cmd) {
 	m.syncViewport()
 
 	// Start streaming with request timeout as hard deadline
-	requestTimeout := 20 * time.Minute
+	requestTimeout := 40 * time.Minute
 	if m.cfg != nil && m.cfg.Agent.RequestTimeout > 0 {
 		requestTimeout = time.Duration(m.cfg.Agent.RequestTimeout) * time.Second
 	}
