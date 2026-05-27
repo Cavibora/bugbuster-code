@@ -336,12 +336,7 @@ func (m TUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.askUserChannel = askCh
 
-			// Use request timeout from config as hard deadline
-			requestTimeout := 40 * time.Minute
-			if m.cfg != nil && m.cfg.Agent.RequestTimeout > 0 {
-				requestTimeout = time.Duration(m.cfg.Agent.RequestTimeout) * time.Second
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), requestTimeout+2*time.Minute)
+			ctx, cancel := context.WithCancel(context.Background())
 			m.ctx = ctx
 			m.cancel = cancel
 
@@ -753,12 +748,7 @@ func (m TUI) handleSend() (retModel tea.Model, retCmd tea.Cmd) {
 	m.streaming = true
 	m.syncViewport()
 
-	// Start streaming with request timeout as hard deadline
-	requestTimeout := 40 * time.Minute
-	if m.cfg != nil && m.cfg.Agent.RequestTimeout > 0 {
-		requestTimeout = time.Duration(m.cfg.Agent.RequestTimeout) * time.Second
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout+2*time.Minute)
+	ctx, cancel := context.WithCancel(context.Background())
 	m.ctx = ctx
 	m.cancel = cancel
 
@@ -935,17 +925,6 @@ func (m TUI) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 			lipgloss.NewStyle().
 				Foreground(lipgloss.Color("11")).
 				Render(fmt.Sprintf("\n  ⚠️  %s", i18n.T("cli.thinking_timeout_warn", fmt.Sprintf("%d", mins)))) + "\n",
-		)
-		m.syncViewport()
-	case provider.EventRequestTimeout:
-		mins := int(msg.event.Duration.Minutes())
-		if mins < 1 {
-			mins = 1
-		}
-		m.output.WriteString(
-			lipgloss.NewStyle().
-				Foreground(lipgloss.Color("9")).
-				Render(fmt.Sprintf("\n  %s", i18n.T("cli.request_timeout_warn", fmt.Sprintf("%d", mins)))) + "\n",
 		)
 		m.syncViewport()
 	case provider.EventUsage:

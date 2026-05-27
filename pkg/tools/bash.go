@@ -127,8 +127,8 @@ func (t *BashTool) Execute(params map[string]string) ToolResult {
 
 	select {
 	case err := <-done:
-		output := stdout.String()
-		if stderrStr := stderr.String(); stderrStr != "" {
+		output := StripANSIAndTrim(stdout.String())
+		if stderrStr := StripANSIAndTrim(stderr.String()); stderrStr != "" {
 			if output != "" {
 				output += "\n"
 			}
@@ -154,7 +154,7 @@ func (t *BashTool) Execute(params map[string]string) ToolResult {
 		if t.BgTool != nil && cmd.Process != nil {
 			bgID, bgErr := t.BgTool.MoveToBackground(cmd, stdout.String(), stderr.String(), time.Now())
 			if bgErr == nil {
-				partialOutput := stdout.String()
+				partialOutput := StripANSIAndTrim(stdout.String())
 				if partialOutput == "" {
 					partialOutput = "(no output before timeout)"
 				}
@@ -180,7 +180,7 @@ func (t *BashTool) Execute(params map[string]string) ToolResult {
 			<-done
 		}
 		killTimer.Stop()
-		partialOutput := stdout.String()
+		partialOutput := StripANSIAndTrim(stdout.String())
 		if partialOutput == "" {
 			partialOutput = "(no output before timeout)"
 		}
@@ -328,7 +328,7 @@ func (t *BashTool) ExecuteAsync(params map[string]string) <-chan AsyncEvent {
 			if t.BgTool != nil && cmd.Process != nil {
 				bgID, bgErr := t.BgTool.MoveToBackground(cmd, stdoutBuf.String(), stderrBuf.String(), time.Now())
 				if bgErr == nil {
-					partialOutput := stdoutBuf.String()
+					partialOutput := StripANSIAndTrim(stdoutBuf.String())
 					if partialOutput == "" {
 						partialOutput = "(no output before timeout)"
 					}
@@ -358,7 +358,7 @@ func (t *BashTool) ExecuteAsync(params map[string]string) <-chan AsyncEvent {
 				<-waitCh
 			}
 			killTimer.Stop()
-			partialOutput := stdoutBuf.String()
+			partialOutput := StripANSIAndTrim(stdoutBuf.String())
 			if partialOutput == "" {
 				partialOutput = "(no output before timeout)"
 			}
@@ -376,8 +376,8 @@ func (t *BashTool) ExecuteAsync(params map[string]string) <-chan AsyncEvent {
 
 		scanWg.Wait()
 
-		output := stdoutBuf.String()
-		if stderrStr := stderrBuf.String(); stderrStr != "" {
+		output := StripANSIAndTrim(stdoutBuf.String())
+		if stderrStr := StripANSIAndTrim(stderrBuf.String()); stderrStr != "" {
 			if output != "" {
 				output += "\n"
 			}

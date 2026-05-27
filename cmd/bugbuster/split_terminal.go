@@ -289,43 +289,10 @@ func (st *SplitTerminal) Run() bool {
 			}
 			continue
 		}
-		// Regular request to model with auto-retry on timeout
-		maxRetries := 2
-		originalTimeout := st.cfg.Agent.RequestTimeout
-		for retry := 0; retry <= maxRetries; retry++ {
-			// Reset interrupted flag before each attempt
-			interrupted = false
-
-			st.runStreamingQuery(input, &currentCancel, &interrupted)
-
-			// Recreate readline ONLY if it was closed (by ask_user via rlClose).
-			// Do NOT close readline here — paste detection was removed,
-			// so there's no stale goroutine stealing Enter keys.
-			// Closing and recreating readline causes old goroutines to
-			// compete with new ones for stdin, breaking input.
-			st.resetReadline()
-			rl = st.rl
-
-			// Check if request was cancelled due to timeout (not user Ctrl+C)
-			// ctx.Err() can be context.DeadlineExceeded (hard timeout)
-			// or context.Canceled (cancel() called from EventRequestTimeout)
-			// User Ctrl+C sets interrupted=true, so we don't retry that.
-			if ctx := st.ctx; ctx != nil && ctx.Err() != nil && !interrupted && retry < maxRetries {
-				// Double timeout for each retry: 20m → 40m → 80m
-				newTimeout := originalTimeout
-				if newTimeout <= 0 {
-					newTimeout = 1200 // 20 min default
-				}
-				newTimeout = newTimeout * (retry + 2) // exponential backoff
-				st.cfg.Agent.RequestTimeout = newTimeout
-				mins := newTimeout / 60
-				color.Yellow("\n  🔄 %s\n", i18n.T("cli.retry_auto", fmt.Sprintf("%d", mins)))
-				continue
-			}
-			// Restore original timeout
-			st.cfg.Agent.RequestTimeout = originalTimeout
-			break
-		}
+	// Regular request to model
+	st.runStreamingQuery(input, &currentCancel, &interrupted)
+	st.resetReadline()
+	rl = st.rl
 
 		// Autopilot: automatically continue after each response,
 		// until plan is completed, iteration limit is reached,
@@ -364,15 +331,11 @@ func (st *SplitTerminal) Run() bool {
 
 // runStreamingQuery starts request to model with all context settings and AskChannel
 func (st *SplitTerminal) runStreamingQuery(input string, currentCancel *context.CancelFunc, interrupted *bool) {
-	// Use request timeout from config as hard deadline.
-	// This ensures the request is cancelled even if the provider
-	// doesn't send EventDone or EventRequestTimeout.
-	requestTimeout := 40 * time.Minute
-	if st.cfg != nil && st.cfg.Agent.RequestTimeout > 0 {
-		requestTimeout = time.Duration(st.cfg.Agent.RequestTimeout) * time.Second
-	}
-	// Add 2 minute buffer to allow provider's own timeout handling
-	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout+2*time.Minute)
+	// Use context with cancel for Ctrl+C support.
+	// No timeout — idle timeout and thinking timeout in agent_stream.go
+	// handle stalled connections. Hard timeout was removed because it
+	// interrupted active streaming, burning provider tokens.
+	ctx, cancel := context.WithCancel(context.Background())
 	*currentCancel = cancel
 	*interrupted = false
 

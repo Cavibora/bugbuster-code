@@ -216,7 +216,6 @@ func runQueryWithLoop(loop *agent.AgentLoop, query string, cfg *config.BugBuster
 		toolInputBuf    strings.Builder
 		currentToolName string
 		mdRenderer      = NewGlamourRenderer()
-		startTime       = time.Now()
 	)
 
 	fmt.Println(FormatSeparator())
@@ -237,15 +236,7 @@ streamLoop:
 		case <-ctx.Done():
 			spinner = stopActiveSpinner(spinner)
 			fmt.Println()
-			if ctx.Err() == context.DeadlineExceeded {
-				mins := int(time.Since(startTime).Minutes())
-				if mins < 1 {
-					mins = 1
-				}
-				color.Red("%s", i18n.T("cli.request_timeout_warn", fmt.Sprintf("%d", mins)))
-			} else {
-				color.Yellow("%s", i18n.T("cli.cancel_request"))
-			}
+			color.Yellow("%s", i18n.T("cli.cancel_request"))
 			if askAnswer != nil {
 				select {
 				case askAnswer <- "":
@@ -442,18 +433,7 @@ streamLoop:
 				}
 				color.Yellow("\n  %s", i18n.T("cli.thinking_timeout_warn", fmt.Sprintf("%d", mins)))
 
-			case provider.EventRequestTimeout:
-				spinner = stopActiveSpinner(spinner)
-				mins := int(event.Duration.Minutes())
-				if mins < 1 {
-					mins = 1
-				}
-				color.Red("\n  %s", i18n.T("cli.request_timeout_warn", fmt.Sprintf("%d", mins)))
-				// Cancel streaming — model has been processing too long
-				if cancel != nil {
-					cancel()
-				}
-				break streamLoop
+
 
 			case provider.EventIterationEnd:
 				// iteration completed

@@ -38,14 +38,7 @@ func (m *TUI) runStream(query string, ctx context.Context, program *tea.Program)
 	for event := range ch {
 		select {
 		case <-ctx.Done():
-			if ctx.Err() == context.DeadlineExceeded {
-				if program != nil {
-					program.Send(streamEventMsg{event: provider.StreamEvent{
-						Type:     provider.EventRequestTimeout,
-						Duration: 22 * time.Minute,
-					}})
-				}
-			}
+			// Context cancelled (Ctrl+C) — stop streaming
 			if program != nil {
 				program.Send(streamDoneMsg{})
 			}
@@ -170,6 +163,7 @@ func (m *TUI) updateTextareaHeight() {
 		m.viewport.SetHeight(viewportHeight)
 	}
 }
+
 // safeViewportView safely renders viewport.View() with panic recovery.
 // Returns the rendered string and any error (including panics).
 func safeViewportView(v viewport.Model) (result string, err error) {

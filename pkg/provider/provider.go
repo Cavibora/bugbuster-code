@@ -25,7 +25,6 @@ const (
 	EventCompaction      = "compaction"       // context compaction started
 	EventCompactionDone  = "compaction_done"  // context compaction completed
 	EventThinkingTimeout = "thinking_timeout" // model thinking too long without tokens
-	EventRequestTimeout  = "request_timeout"  // common timeout LLM-request
 )
 
 // StreamEvent — streaming event from provider
