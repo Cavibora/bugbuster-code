@@ -592,6 +592,8 @@ func TestBashTool_Timeout(t *testing.T) {
 	if result.Error == "" {
 		t.Error("Expected error for timeout")
 	}
+	// Give time for background goroutines to finish (race detector)
+	time.Sleep(500 * time.Millisecond)
 }
 
 // === min() helper тест (из learn.go) ===

@@ -585,7 +585,7 @@ func (m TUI) handleSend() (retModel tea.Model, retCmd tea.Cmd) {
 			m.output.WriteString("  Background Processes:\n")
 			for _, p := range processes {
 				status := "running"
-				if !p.Running {
+				if !p.Running.Load() {
 					status = fmt.Sprintf("exit(%d)", p.ExitCode)
 				}
 				uptime := time.Since(p.StartTime).Truncate(time.Second)

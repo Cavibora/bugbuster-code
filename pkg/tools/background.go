@@ -23,8 +23,8 @@ type BackgroundProcess struct {
 	Dir       string
 	LogFile   string
 	StartTime time.Time
-	Running   bool
-	ExitCode  int
+	Running   atomic.Bool
+	ExitCode  atomic.Int32
 }
 
 // BackgroundTool manages background processes
@@ -33,6 +33,7 @@ type BackgroundTool struct {
 	processes map[int]*BackgroundProcess
 	nextID    atomic.Int64
 	logDir    string
+	wg        sync.WaitGroup
 }
 
 // NewBackgroundTool creates a new background process manager
@@ -56,23 +57,42 @@ func (t *BackgroundTool) Description() string {
 	return i18n.T("tools.background.description")
 }
 
+// monitorProcess polls the process PID to detect when it exits.
+// This avoids calling cmd.Wait() which would race with the caller's goroutine.
+func (t *BackgroundTool) monitorProcess(proc *BackgroundProcess, f *os.File) {
+	t.wg.Add(1)
+	go func() {
+		defer t.wg.Done()
+		defer func() {
+			if f != nil {
+				f.Close()
+			}
+		}()
+		for {
+			if err := syscall.Kill(proc.PID, 0); err != nil {
+				proc.Running.Store(false)
+				proc.ExitCode.Store(-1)
+				return
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+	}()
+}
+
 func (t *BackgroundTool) Execute(params map[string]string) ToolResult {
 	command, ok := params["command"]
 	if !ok || command == "" {
 		return Error("tools.background.param_command")
 	}
 
-	// Working directory
 	workDir := params["dir"]
 	if workDir == "" {
 		workDir, _ = os.Getwd()
 	}
 
-	// Log file
 	id := int(t.nextID.Add(1))
 	logFile := filepath.Join(t.logDir, fmt.Sprintf("bg_%d.log", id))
 
-	// Build command
 	var cmd *exec.Cmd
 	if strings.Contains(command, "&&") || strings.Contains(command, "||") || strings.Contains(command, "|") || strings.Contains(command, ";") {
 		cmd = exec.Command("bash", "-c", command)
@@ -83,17 +103,14 @@ func (t *BackgroundTool) Execute(params map[string]string) ToolResult {
 	cmd.Dir = workDir
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
-	// Redirect output to log file
 	f, err := os.Create(logFile)
 	if err != nil {
 		return Error("tools.background.log_create_error", err)
 	}
 
-	// Also redirect stderr to the same file
 	cmd.Stdout = f
 	cmd.Stderr = f
 
-	// Start process
 	if err := cmd.Start(); err != nil {
 		f.Close()
 		return Error("tools.background.start_error", err)
@@ -106,31 +123,15 @@ func (t *BackgroundTool) Execute(params map[string]string) ToolResult {
 		Dir:       workDir,
 		LogFile:   logFile,
 		StartTime: time.Now(),
-		Running:   true,
 	}
+	proc.Running.Store(true)
 
 	t.mu.Lock()
 	t.processes[id] = proc
 	t.mu.Unlock()
 
-	// Monitor process in background
-	go func() {
-		err := cmd.Wait()
-		f.Close()
-
-		t.mu.Lock()
-		defer t.mu.Unlock()
-		if p, ok := t.processes[id]; ok {
-			p.Running = false
-			if err != nil {
-				if exitErr, ok := err.(*exec.ExitError); ok {
-					p.ExitCode = exitErr.ExitCode()
-				} else {
-					p.ExitCode = -1
-				}
-			}
-		}
-	}()
+	// Monitor process — poll PID instead of cmd.Wait() to avoid race
+	t.monitorProcess(proc, f)
 
 	return Success(i18n.T("tools.background.started", id, cmd.Process.Pid, logFile))
 }
@@ -164,13 +165,12 @@ func (t *BackgroundTool) KillProcess(id int) error {
 		return fmt.Errorf("process %d not found", id)
 	}
 
-	if !p.Running {
+	if !p.Running.Load() {
 		return fmt.Errorf("process %d is not running", id)
 	}
 
 	// Kill entire process group
 	if err := syscall.Kill(-p.PID, syscall.SIGTERM); err != nil {
-		// Try SIGKILL if SIGTERM fails
 		syscall.Kill(-p.PID, syscall.SIGKILL)
 	}
 
@@ -206,6 +206,7 @@ func (t *BackgroundTool) ReadLogs(id int, lines int) (string, error) {
 
 // MoveToBackground moves a running command to background management.
 // Used when bash command times out — the process continues running in background.
+// IMPORTANT: This does NOT call cmd.Wait() — the caller already has a goroutine doing that.
 func (t *BackgroundTool) MoveToBackground(cmd *exec.Cmd, stdout, stderr string, startTime time.Time) (int, error) {
 	if cmd == nil || cmd.Process == nil {
 		return 0, fmt.Errorf("no process to move to background")
@@ -237,13 +238,13 @@ func (t *BackgroundTool) MoveToBackground(cmd *exec.Cmd, stdout, stderr string, 
 		f.Close()
 	}
 
-	// Redirect further output to log file (append mode)
+	// Open log file for appending (further output will be written by the caller's goroutine)
 	f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		return 0, fmt.Errorf("failed to open log file: %w", err)
 	}
 
-	// Replace stdout/stderr pipes with file
+	// Replace stdout/stderr pipes with file — the caller's goroutine will write to this file
 	cmd.Stdout = f
 	cmd.Stderr = f
 
@@ -254,31 +255,15 @@ func (t *BackgroundTool) MoveToBackground(cmd *exec.Cmd, stdout, stderr string, 
 		Dir:       cmd.Dir,
 		LogFile:   logFile,
 		StartTime: startTime,
-		Running:   true,
 	}
+	proc.Running.Store(true)
 
 	t.mu.Lock()
 	t.processes[id] = proc
 	t.mu.Unlock()
 
-	// Monitor process in background
-	go func() {
-		err := cmd.Wait()
-		f.Close()
-
-		t.mu.Lock()
-		defer t.mu.Unlock()
-		if p, ok := t.processes[id]; ok {
-			p.Running = false
-			if err != nil {
-				if exitErr, ok := err.(*exec.ExitError); ok {
-					p.ExitCode = exitErr.ExitCode()
-				} else {
-					p.ExitCode = -1
-				}
-			}
-		}
-	}()
+	// Monitor process — poll PID instead of cmd.Wait() to avoid race with caller's goroutine
+	t.monitorProcess(proc, f)
 
 	return id, nil
 }
@@ -289,11 +274,16 @@ func (t *BackgroundTool) Cleanup() {
 	defer t.mu.Unlock()
 
 	for id, p := range t.processes {
-		if !p.Running {
+		if !p.Running.Load() {
 			os.Remove(p.LogFile)
 			delete(t.processes, id)
 		}
 	}
+}
+
+// WaitAll waits for all monitor goroutines to finish
+func (t *BackgroundTool) WaitAll() {
+	t.wg.Wait()
 }
 
 // --- PS Tool ---
@@ -322,8 +312,8 @@ func (t *PSTool) Execute(params map[string]string) ToolResult {
 	sb.WriteString(fmt.Sprintf("%-4s %-8s %-8s %-10s %s\n", "ID", "PID", "STATUS", "UPTIME", "COMMAND"))
 	for _, p := range processes {
 		status := "running"
-		if !p.Running {
-			status = fmt.Sprintf("exit(%d)", p.ExitCode)
+		if !p.Running.Load() {
+			status = fmt.Sprintf("exit(%d)", p.ExitCode.Load())
 		}
 		uptime := time.Since(p.StartTime).Truncate(time.Second)
 		cmd := p.Command

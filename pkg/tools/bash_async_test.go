@@ -179,6 +179,8 @@ func TestExecuteAsync_TimeoutMovesToBackground(t *testing.T) {
 	for _, p := range processes {
 		bgTool.KillProcess(p.ID)
 	}
+	// Wait for monitor goroutines to finish (race detector)
+	bgTool.WaitAll()
 }
 
 // TestExecuteAsync_StderrProgress проверяет что stderr тоже отправляется как progress

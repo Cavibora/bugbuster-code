@@ -181,7 +181,7 @@ func TestBackgroundToolCleanup(t *testing.T) {
 	processes := bg.ListProcesses()
 	// Only the long-running process should remain
 	for _, p := range processes {
-		if !p.Running {
+		if !p.Running.Load() {
 			t.Errorf("expected only running processes, found stopped process #%d", p.ID)
 		}
 	}

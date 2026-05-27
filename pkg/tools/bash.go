@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -16,15 +17,14 @@ import (
 
 // BashTool is the shell command execution tool
 type BashTool struct {
-	AllowedDirs     []string        // allowed directories for commands
-	DefaultDir      string          // default working directory
+	AllowedDirs     []string
+	DefaultDir      string
 	Timeout         time.Duration
-	BlockedCommands []string        // blocked commands (from config)
-	AllowNetwork    bool            // whether network commands are allowed
-	BgTool          *BackgroundTool // for moving timed-out processes to background
+	BlockedCommands []string
+	AllowNetwork    bool
+	BgTool          *BackgroundTool
 }
 
-// NewBashTool creates a tool for executing bash commands with optional timeout.
 func NewBashTool() *BashTool {
 	return &BashTool{
 		Timeout: 30 * time.Second,
@@ -43,7 +43,6 @@ func (t *BashTool) Execute(params map[string]string) ToolResult {
 		return Error("tools.bash.param_command")
 	}
 
-	// Timeout
 	timeout := t.Timeout
 	if ts, ok := params["timeout"]; ok {
 		if sec, err := strconv.Atoi(ts); err == nil && sec > 0 {
@@ -51,13 +50,12 @@ func (t *BashTool) Execute(params map[string]string) ToolResult {
 		}
 	}
 
-	// Working directory
 	workDir := t.DefaultDir
 	if dir, ok := params["dir"]; ok && dir != "" {
 		workDir = filepath.Clean(dir)
 	}
 
-	// Security: blocked commands (from config + defaults)
+	// Security checks
 	blocked := t.BlockedCommands
 	if len(blocked) == 0 {
 		blocked = []string{"rm -rf /", "mkfs", "dd if=", "> /dev/sd", "format c:"}
@@ -69,7 +67,6 @@ func (t *BashTool) Execute(params map[string]string) ToolResult {
 		}
 	}
 
-	// Security: dangerous constructs
 	dangerousPatterns := []string{
 		"$(rm", "$(rmdir", "$(mkfs", "$(dd ", "$(format",
 		"`rm", "`rmdir", "`mkfs",
@@ -82,7 +79,6 @@ func (t *BashTool) Execute(params map[string]string) ToolResult {
 		}
 	}
 
-	// Security: network commands
 	if !t.AllowNetwork {
 		networkCmds := []string{"curl ", "wget ", "nc ", "ncat ", "ssh ", "scp ", "rsync ", "ftp "}
 		for _, nc := range networkCmds {
@@ -92,7 +88,7 @@ func (t *BashTool) Execute(params map[string]string) ToolResult {
 		}
 	}
 
-	// Auto-detect background commands (&) and redirect to background tool
+	// Auto-detect background commands (&)
 	trimmedCmd := strings.TrimSpace(command)
 	if strings.HasSuffix(trimmedCmd, "&") {
 		bgCmd := strings.TrimSuffix(trimmedCmd, "&")
@@ -102,7 +98,6 @@ func (t *BashTool) Execute(params map[string]string) ToolResult {
 		}
 	}
 
-	// Command execution with timeout
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
@@ -115,7 +110,6 @@ func (t *BashTool) Execute(params map[string]string) ToolResult {
 		cmd = exec.Command(parts[0], parts[1:]...)
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
 	if workDir != "" {
 		cmd.Dir = workDir
 	}
@@ -124,18 +118,15 @@ func (t *BashTool) Execute(params map[string]string) ToolResult {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	// Start command
 	if err := cmd.Start(); err != nil {
 		return Error("tools.bash.exec_error", err, "")
 	}
 
-	// Wait with timeout
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 
 	select {
 	case err := <-done:
-		// Command completed within timeout
 		output := stdout.String()
 		if stderrStr := stderr.String(); stderrStr != "" {
 			if output != "" {
@@ -143,23 +134,19 @@ func (t *BashTool) Execute(params map[string]string) ToolResult {
 			}
 			output += stderrStr
 		}
-
 		if err != nil {
 			if output == "" {
 				output = err.Error()
 			}
 			return Error("tools.bash.exec_error", err, output)
 		}
-
 		if output == "" {
 			output = i18n.T("tools.bash.empty_output")
 		}
-
 		maxOutput := 50000
 		if len(output) > maxOutput {
 			output = output[:maxOutput] + fmt.Sprintf(i18n.T("tools.bash.truncated"), len(output))
 		}
-
 		return Success("%s", output)
 
 	case <-time.After(timeout):
@@ -181,10 +168,18 @@ func (t *BashTool) Execute(params map[string]string) ToolResult {
 		// Fallback: kill process if MoveToBackground failed
 		if cmd.Process != nil {
 			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
-			time.AfterFunc(3*time.Second, func() {
-				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-			})
 		}
+		killTimer := time.NewTimer(5 * time.Second)
+		select {
+		case <-done:
+			// Process exited after SIGTERM
+		case <-killTimer.C:
+			if cmd.Process != nil {
+				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			}
+			<-done
+		}
+		killTimer.Stop()
 		partialOutput := stdout.String()
 		if partialOutput == "" {
 			partialOutput = "(no output before timeout)"
@@ -197,7 +192,6 @@ func (t *BashTool) Execute(params map[string]string) ToolResult {
 	}
 }
 
-// ExecuteAsync executes a bash command asynchronously, returning a channel with progress events
 func (t *BashTool) ExecuteAsync(params map[string]string) <-chan AsyncEvent {
 	ch := make(chan AsyncEvent, 32)
 
@@ -210,7 +204,6 @@ func (t *BashTool) ExecuteAsync(params map[string]string) <-chan AsyncEvent {
 			return
 		}
 
-		// Timeout
 		timeout := t.Timeout
 		if ts, ok := params["timeout"]; ok {
 			if sec, err := strconv.Atoi(ts); err == nil && sec > 0 {
@@ -218,13 +211,12 @@ func (t *BashTool) ExecuteAsync(params map[string]string) <-chan AsyncEvent {
 			}
 		}
 
-		// Working directory
 		workDir := t.DefaultDir
 		if dir, ok := params["dir"]; ok && dir != "" {
 			workDir = filepath.Clean(dir)
 		}
 
-		// Security: blocked commands
+		// Security checks
 		blocked := t.BlockedCommands
 		if len(blocked) == 0 {
 			blocked = []string{"rm -rf /", "mkfs", "dd if=", "> /dev/sd", "format c:"}
@@ -237,7 +229,6 @@ func (t *BashTool) ExecuteAsync(params map[string]string) <-chan AsyncEvent {
 			}
 		}
 
-		// Security: dangerous constructs
 		dangerousPatterns := []string{
 			"$(rm", "$(rmdir", "$(mkfs", "$(dd ", "$(format",
 			"`rm", "`rmdir", "`mkfs",
@@ -251,7 +242,6 @@ func (t *BashTool) ExecuteAsync(params map[string]string) <-chan AsyncEvent {
 			}
 		}
 
-		// Security: network commands
 		if !t.AllowNetwork {
 			networkCmds := []string{"curl ", "wget ", "nc ", "ncat ", "ssh ", "scp ", "rsync ", "ftp "}
 			for _, nc := range networkCmds {
@@ -262,20 +252,19 @@ func (t *BashTool) ExecuteAsync(params map[string]string) <-chan AsyncEvent {
 			}
 		}
 
-		// Auto-detect background commands (&) and redirect to background tool
+		// Auto-detect background commands (&)
 		trimmedCmd := strings.TrimSpace(command)
 		if strings.HasSuffix(trimmedCmd, "&") {
 			bgCmd := strings.TrimSuffix(trimmedCmd, "&")
 			bgCmd = strings.TrimSpace(bgCmd)
 			ch <- AsyncEvent{
-				Type: "result",
+				Type:   "result",
 				Output: fmt.Sprintf("Background command detected. Use the `background` tool instead:\n\nbackground(command=\"%s\")\n\nThe `&` operator is not supported in the `bash` tool. Use `background` to run commands without blocking.", bgCmd),
-				Done: true,
+				Done:   true,
 			}
 			return
 		}
 
-		// Create command with process group for clean kill
 		var cmd *exec.Cmd
 		if strings.Contains(command, "&&") || strings.Contains(command, "||") || strings.Contains(command, "|") || strings.Contains(command, ";") {
 			cmd = exec.Command("bash", "-c", command)
@@ -284,7 +273,6 @@ func (t *BashTool) ExecuteAsync(params map[string]string) <-chan AsyncEvent {
 			cmd = exec.Command(parts[0], parts[1:]...)
 		}
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
 		if workDir != "" {
 			cmd.Dir = workDir
 		}
@@ -305,23 +293,11 @@ func (t *BashTool) ExecuteAsync(params map[string]string) <-chan AsyncEvent {
 			return
 		}
 
-		// Timeout channel
-		timeoutCh := make(chan struct{})
-		if timeout > 0 {
-			go func() {
-				select {
-				case <-time.After(timeout):
-					close(timeoutCh)
-				case <-timeoutCh:
-				}
-			}()
-		}
-
-		// Read stdout and stderr
 		var stdoutBuf, stderrBuf strings.Builder
-		scanDone := make(chan struct{})
+		var scanWg sync.WaitGroup
+		scanWg.Add(1)
 		go func() {
-			defer close(scanDone)
+			defer scanWg.Done()
 			scanner := bufio.NewScanner(stdoutPipe)
 			for scanner.Scan() {
 				line := scanner.Text()
@@ -338,9 +314,10 @@ func (t *BashTool) ExecuteAsync(params map[string]string) <-chan AsyncEvent {
 			}
 		}()
 
-		// Wait for command to finish or timeout
 		waitCh := make(chan error, 1)
 		go func() { waitCh <- cmd.Wait() }()
+
+		timeoutCh := time.After(timeout)
 
 		var cmdErr error
 		select {
@@ -357,21 +334,30 @@ func (t *BashTool) ExecuteAsync(params map[string]string) <-chan AsyncEvent {
 					}
 					ch <- AsyncEvent{
 						Type: "result",
-							Output: i18n.T("tools.bash.timeout_moved_to_bg", fmt.Sprintf("%v", timeout), strconv.Itoa(bgID), strconv.Itoa(cmd.Process.Pid)) +
+						Output: i18n.T("tools.bash.timeout_moved_to_bg", fmt.Sprintf("%v", timeout), strconv.Itoa(bgID), strconv.Itoa(cmd.Process.Pid)) +
 							"\n\nPartial output:\n" + partialOutput +
 							"\n\nUse `ps()` to check status, `logs(id=\"" + strconv.Itoa(bgID) + "\")` to view output, `kill(id=\"" + strconv.Itoa(bgID) + "\")` to stop.",
 						Done: true,
 					}
+					scanWg.Wait()
 					return
 				}
 			}
 			// Fallback: kill process if MoveToBackground failed
 			if cmd.Process != nil {
 				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
-				time.AfterFunc(3*time.Second, func() {
-					_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-				})
 			}
+			killTimer := time.NewTimer(5 * time.Second)
+			select {
+			case <-waitCh:
+				// Process exited after SIGTERM
+			case <-killTimer.C:
+				if cmd.Process != nil {
+					_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+				}
+				<-waitCh
+			}
+			killTimer.Stop()
 			partialOutput := stdoutBuf.String()
 			if partialOutput == "" {
 				partialOutput = "(no output before timeout)"
@@ -384,13 +370,12 @@ func (t *BashTool) ExecuteAsync(params map[string]string) <-chan AsyncEvent {
 					"\n\nTip: Retry with a longer timeout, e.g. timeout=120",
 				Done: true,
 			}
+			scanWg.Wait()
 			return
 		}
 
-		close(timeoutCh) // cancel timeout goroutine
-		<-scanDone        // wait for scanners to finish
+		scanWg.Wait()
 
-		// Form result
 		output := stdoutBuf.String()
 		if stderrStr := stderrBuf.String(); stderrStr != "" {
 			if output != "" {

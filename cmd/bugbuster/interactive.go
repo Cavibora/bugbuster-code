@@ -896,7 +896,7 @@ func printBackgroundProcesses(bgTool *tools.BackgroundTool) {
 	fmt.Println(color.HiBlackString("─────────────────────────────────────────────────────────────"))
 	for _, p := range processes {
 		status := color.GreenString("running")
-		if !p.Running {
+		if !p.Running.Load() {
 			status = color.RedString("exit(%d)", p.ExitCode)
 		}
 		uptime := time.Since(p.StartTime).Truncate(time.Second)
