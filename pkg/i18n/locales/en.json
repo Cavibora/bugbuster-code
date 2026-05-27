@@ -450,5 +450,5 @@
   "tools.kill.invalid_id": "Invalid process ID: %s",
   "tools.kill.error": "Failed to kill process: %s",
   "tools.kill.success": "Process #%d killed",
-  "system_prompt.rule10": "10. BACKGROUND COMMANDS:\n   - NEVER use & at the end of bash commands (e.g. bash(command=\"./server &\")).\n   - The & operator is NOT supported in the bash tool and will block the session.\n   - Instead, use the background tool: background(command=\"./server\")\n   - Use ps() to check running background processes.\n   - Use logs(id=N) to view background process output.\n   - Use kill(id=N) to stop a background process."
+  "system_prompt.rule10": "10. BACKGROUND COMMANDS — CRITICAL RULE:\n   - NEVER use & in bash commands. The bash tool will REJECT it.\n   - WRONG: bash(command=\"./server &\")  ← WILL BE REJECTED\n   - WRONG: bash(command=\"./server &>/tmp/log &\")  ← WILL BE REJECTED\n   - RIGHT: background(command=\"./server\")\n   - RIGHT: background(command=\"./server &>/tmp/log\")\n   - Use ps() to check running background processes.\n   - Use logs(id=N) to view background process output.\n   - Use kill(id=N) to stop a background process.\n   - If a bash command takes too long, it will be automatically moved to background."
 }

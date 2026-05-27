@@ -15,6 +15,33 @@ import (
 	"bugbuster-code/pkg/i18n"
 )
 
+// isBackgroundCommand detects if a command ends with & (background execution).
+// Catches: "command &", "cmd1; cmd2 &", "cmd &;"
+// Does NOT catch: "cmd && cmd", "cmd &>file", "cmd 2>&1"
+func isBackgroundCommand(cmd string) bool {
+	trimmed := strings.TrimSpace(cmd)
+	if len(trimmed) == 0 || trimmed[len(trimmed)-1] != '&' {
+		return false
+	}
+	// Check it's not "&&" (logical AND)
+	if strings.HasSuffix(trimmed, "&&") {
+		return false
+	}
+	// Check it's not "&>" (redirect stderr+stdout)
+	if strings.Contains(trimmed, "&>") {
+		// If the last & is part of &>, it's not background
+		lastAmp := strings.LastIndex(trimmed, "&")
+		if lastAmp > 0 && trimmed[lastAmp-1:lastAmp+1] == "&>" {
+			return false
+		}
+	}
+	// Check it's not "2>&1" (redirect stderr to stdout)
+	if strings.HasSuffix(trimmed, "2>&1") {
+		return false
+	}
+	return true
+}
+
 // BashTool is the shell command execution tool
 type BashTool struct {
 	AllowedDirs     []string
@@ -89,12 +116,14 @@ func (t *BashTool) Execute(params map[string]string) ToolResult {
 	}
 
 	// Auto-detect background commands (&)
+	// Catch: "command &", "command &;", "command1; command2 &"
+	// Don't catch: "command && command", "command &>file", "command 2>&1"
 	trimmedCmd := strings.TrimSpace(command)
-	if strings.HasSuffix(trimmedCmd, "&") {
-		bgCmd := strings.TrimSuffix(trimmedCmd, "&")
+	if isBackgroundCommand(trimmedCmd) {
+		bgCmd := strings.TrimRight(trimmedCmd, "& ;")
 		bgCmd = strings.TrimSpace(bgCmd)
 		return ToolResult{
-			Output: fmt.Sprintf("Background command detected. Use the `background` tool instead:\n\nbackground(command=\"%s\")\n\nThe `&` operator is not supported in the `bash` tool. Use `background` to run commands without blocking.", bgCmd),
+			Output: fmt.Sprintf("⚠️ Background command detected. The `&` operator is NOT supported in the bash tool.\n\nUse the `background` tool instead:\n\nbackground(command=\"%s\")\n\nUse ps() to check status, logs(id=N) to view output, kill(id=N) to stop.", bgCmd),
 		}
 	}
 
@@ -253,13 +282,15 @@ func (t *BashTool) ExecuteAsync(params map[string]string) <-chan AsyncEvent {
 		}
 
 		// Auto-detect background commands (&)
+		// Catch: "command &", "command &;", "command1; command2 &"
+		// Don't catch: "command && command", "command &>file", "command 2>&1"
 		trimmedCmd := strings.TrimSpace(command)
-		if strings.HasSuffix(trimmedCmd, "&") {
-			bgCmd := strings.TrimSuffix(trimmedCmd, "&")
+		if isBackgroundCommand(trimmedCmd) {
+			bgCmd := strings.TrimRight(trimmedCmd, "& ;")
 			bgCmd = strings.TrimSpace(bgCmd)
 			ch <- AsyncEvent{
 				Type:   "result",
-				Output: fmt.Sprintf("Background command detected. Use the `background` tool instead:\n\nbackground(command=\"%s\")\n\nThe `&` operator is not supported in the `bash` tool. Use `background` to run commands without blocking.", bgCmd),
+				Output: fmt.Sprintf("⚠️ Background command detected. The `&` operator is NOT supported in the bash tool.\n\nUse the `background` tool instead:\n\nbackground(command=\"%s\")\n\nUse ps() to check status, logs(id=N) to view output, kill(id=N) to stop.", bgCmd),
 				Done:   true,
 			}
 			return
