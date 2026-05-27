@@ -93,6 +93,17 @@ func (t *BashTool) Execute(params map[string]string) ToolResult {
 		}
 	}
 
+	// Auto-detect background commands (&) and redirect to background tool
+	trimmedCmd := strings.TrimSpace(command)
+	if strings.HasSuffix(trimmedCmd, "&") {
+		// Strip trailing & and redirect to background tool
+		bgCmd := strings.TrimSuffix(trimmedCmd, "&")
+		bgCmd = strings.TrimSpace(bgCmd)
+		return ToolResult{
+			Output: fmt.Sprintf("Background command detected. Use the `background` tool instead:\n\nbackground(command=\"%s\")\n\nThe `&` operator is not supported in the `bash` tool. Use `background` to run commands without blocking.", bgCmd),
+		}
+	}
+
 	// Command execution with timeout via context
 	if timeout <= 0 {
 		timeout = 30 * time.Second
@@ -230,6 +241,19 @@ func (t *BashTool) ExecuteAsync(params map[string]string) <-chan AsyncEvent {
 					return
 				}
 			}
+		}
+
+		// Auto-detect background commands (&) and redirect to background tool
+		trimmedCmd := strings.TrimSpace(command)
+		if strings.HasSuffix(trimmedCmd, "&") {
+			bgCmd := strings.TrimSuffix(trimmedCmd, "&")
+			bgCmd = strings.TrimSpace(bgCmd)
+			ch <- AsyncEvent{
+				Type: "result",
+				Output: fmt.Sprintf("Background command detected. Use the `background` tool instead:\n\nbackground(command=\"%s\")\n\nThe `&` operator is not supported in the `bash` tool. Use `background` to run commands without blocking.", bgCmd),
+				Done: true,
+			}
+			return
 		}
 
 		// Create command with process group for clean kill

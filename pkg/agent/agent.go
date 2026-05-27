@@ -690,6 +690,7 @@ func BuildSystemPrompt(projectDir string, toolList map[string]tools.Tool) string
 	sb.WriteString(i18n.T("system_prompt.rule7"))
 	sb.WriteString(i18n.T("system_prompt.rule8"))
 	sb.WriteString(i18n.T("system_prompt.rule9"))
+	sb.WriteString(i18n.T("system_prompt.rule10"))
 
 	// Load agent instructions from AGENT.md, CLAUDE.md, .cursorrules, etc.
 	if projectDir != "" {

@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"strings"
 	"os"
 	"path/filepath"
 	"testing"
@@ -359,5 +360,38 @@ func TestToolParameters(t *testing.T) {
 		if params["type"] != "object" {
 			t.Errorf("Tool %s: Parameters() type should be 'object', got '%v'", tool.Name(), params["type"])
 		}
+	}
+}
+
+func TestBashTool_BackgroundRedirect(t *testing.T) {
+	tool := NewBashTool()
+	result := tool.Execute(map[string]string{"command": "./server &"})
+	if result.Error != "" {
+		t.Errorf("Expected no error, got: %s", result.Error)
+	}
+	if !strings.Contains(result.Output, "background") {
+		t.Errorf("Expected redirect to background tool, got: %s", result.Output)
+	}
+	if strings.Contains(result.Output, "&") && !strings.Contains(result.Output, "not supported") {
+		t.Error("Should warn that & is not supported")
+	}
+}
+
+func TestBashTool_BackgroundRedirectWithLog(t *testing.T) {
+	tool := NewBashTool()
+	result := tool.Execute(map[string]string{"command": "./server &>/tmp/log.txt &"})
+	if result.Error != "" {
+		t.Errorf("Expected no error, got: %s", result.Error)
+	}
+	if !strings.Contains(result.Output, "background") {
+		t.Errorf("Expected redirect to background tool, got: %s", result.Output)
+	}
+}
+
+func TestBashTool_BackgroundRedirectNoAmpersand(t *testing.T) {
+	tool := NewBashTool()
+	result := tool.Execute(map[string]string{"command": "echo hello"})
+	if strings.Contains(result.Output, "background") {
+		t.Error("Regular commands should not redirect to background")
 	}
 }
