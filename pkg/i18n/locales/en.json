@@ -142,7 +142,7 @@
   "tools.edit.param_path_desc": "Path to file",
   "tools.edit.param_old_desc": "Text to find and replace",
   "tools.edit.param_new_desc": "Replacement text",
-  "tools.bash.description": "bash — execute a shell command. IMPORTANT: Do NOT use & for background processes — use the background tool instead. Commands ending with & will be REJECTED. Use background(command=\"...\") for long-running processes.",
+  "tools.bash.description": "bash — execute a shell command. ⚠️ DO NOT use & for background processes — it will be REJECTED. Use background(command=\"...\") instead. Use ps() to check status, logs(id=N) to view output, kill(id=N) to stop.",
   "tools.bash.param_command": "parameter 'command' is required",
   "tools.bash.exec_error": "error executing command: %s\n%s",
   "tools.bash.timeout": "command timed out after %v",
@@ -451,5 +451,5 @@
   "tools.kill.error": "Failed to kill process: %s",
   "tools.kill.success": "Process #%d killed",
   "system_prompt.rule10": "10. BACKGROUND COMMANDS — CRITICAL RULE:\n   - NEVER use & in bash commands. The bash tool will REJECT it.\n   - WRONG: bash(command=\"./server &\")  ← WILL BE REJECTED\n   - WRONG: bash(command=\"./server &>/tmp/log &\")  ← WILL BE REJECTED\n   - RIGHT: background(command=\"./server\")\n   - RIGHT: background(command=\"./server &>/tmp/log\")\n   - Use ps() to check running background processes.\n   - Use logs(id=N) to view background process output.\n   - Use kill(id=N) to stop a background process.\n   - If a bash command takes too long, it will be automatically moved to background.",
-  "system_prompt.rule0": "CRITICAL — BACKGROUND COMMANDS:\n- NEVER use & in bash commands. The bash tool will REJECT it.\n- WRONG: bash(command=\"./server &\")  ← WILL BE REJECTED\n- WRONG: bash(command=\"./server &>/tmp/log &\")  ← WILL BE REJECTED\n- RIGHT: background(command=\"./server\")\n- RIGHT: background(command=\"./server &>/tmp/log\")\n- Use ps() to check running background processes.\n- Use logs(id=N) to view background process output.\n- Use kill(id=N) to stop a background process.\n- If a bash command takes too long, it will be automatically moved to background."
+  "system_prompt.rule0": "CRITICAL RULE — BACKGROUND COMMANDS:\nThe bash tool CANNOT run background processes. Any command ending with & will be REJECTED.\nYou MUST use the background tool instead. This is not optional.\n\nWRONG: bash(command=\"./server &\")        ← REJECTED BY SYSTEM\nWRONG: bash(command=\"cmd1; cmd2 &\")      ← REJECTED BY SYSTEM  \nWRONG: bash(command=\"./server &>/log &\") ← REJECTED BY SYSTEM\n\nRIGHT: background(command=\"./server\")\nRIGHT: background(command=\"./server &>/tmp/log\")\n\nAfter starting a background process:\n- ps() — check status\n- logs(id=N) — view output  \n- kill(id=N) — stop process\n\nIf a bash command times out, it will be automatically moved to background."
 }
