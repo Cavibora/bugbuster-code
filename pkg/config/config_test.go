@@ -179,8 +179,19 @@ func TestProviderConfigDefaultBaseURL(t *testing.T) {
 func TestFindConfigFile(t *testing.T) {
 	tmpDir := t.TempDir()
 
+	// Create a deep subdirectory to avoid finding config files in parent directories
+	deepDir := filepath.Join(tmpDir, "a", "b", "c", "d", "e", "f", "g", "h", "i", "j")
+	if err := os.MkdirAll(deepDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Override HOME to prevent finding ~/.bugbuster/config.yaml
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", origHome)
+
 	origDir, _ := os.Getwd()
-	if err := os.Chdir(tmpDir); err != nil {
+	if err := os.Chdir(deepDir); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
