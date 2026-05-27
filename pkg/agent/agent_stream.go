@@ -527,5 +527,21 @@ func (a *AgentLoop) handleStreamFinalResponse(
 		Type:     provider.EventDone,
 		Duration: time.Since(totalStart),
 	}
+
+	// Auto-compress memory if it exceeds 10% of context window
+	if memTool, ok := a.Tools["memory"].(*tools.MemoryTool); ok {
+		memTokens := memTool.TokenCount()
+		maxTokens := a.effectiveMaxTokens()
+		if maxTokens > 0 && memTokens > 0 {
+			threshold := maxTokens / 10 // 10% of context window
+			if memTokens > threshold {
+				result := memTool.Compress(threshold)
+				if a.verbose {
+					logger.Debug("memory_auto_compress", "tokens", memTokens, "threshold", threshold, "result", result.Output)
+				}
+			}
+		}
+	}
+
 	return false, nil
 }

@@ -216,18 +216,18 @@ func handleCommand(input string, loop *agent.AgentLoop, cfg *config.BugBusterCon
 	case strings.HasPrefix(input, "/rename "):
 		name := strings.TrimSpace(strings.TrimPrefix(input, "/rename"))
 		if name == "" {
-			color.Red("Usage: /rename <name>")
+			fmt.Println(color.RedString("Usage: /rename <name>"))
 			return true
 		}
 		if currentSession == nil {
-			color.Red("No active session")
+			fmt.Println(color.RedString("No active session"))
 			return true
 		}
 		if err := sessionMgr.RenameSession(currentSession.ID, name); err != nil {
-			color.Red("Error renaming session: %v", err)
+			fmt.Println(color.RedString("Error renaming session: %v", err))
 		} else {
 			currentSession.Name = name
-			color.Green("Session renamed to: %s", name)
+			fmt.Println(color.GreenString("Session renamed to: %s", name))
 		}
 		return true
 	case input == "/help":

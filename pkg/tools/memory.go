@@ -96,6 +96,8 @@ func (t *MemoryTool) Execute(params map[string]string) ToolResult {
 		return t.list()
 	case "delete":
 		return t.delete(params)
+	case "compress":
+		return t.compress(params)
 	default:
 		return Error("tools.memory.unknown_action", action)
 	}
@@ -107,7 +109,7 @@ func (t *MemoryTool) Parameters() map[string]any {
 		"properties": map[string]any{
 			"action": map[string]any{
 				"type":        "string",
-				"enum":        []string{"save", "load", "list", "delete"},
+				"enum":        []string{"save", "load", "list", "delete", "compress"},
 				"description": i18n.T("tools.memory.param_action_desc"),
 			},
 			"key": map[string]any{
@@ -121,6 +123,10 @@ func (t *MemoryTool) Parameters() map[string]any {
 			"category": map[string]any{
 				"type":        "string",
 				"description": i18n.T("tools.memory.param_category_desc"),
+			},
+			"max_tokens": map[string]any{
+				"type":        "integer",
+				"description": "Maximum tokens to keep after compression (for compress action)",
 			},
 		},
 		"required": []string{"action"},
@@ -252,6 +258,116 @@ func (t *MemoryTool) delete(params map[string]string) ToolResult {
 	}
 
 	return ToolResult{Output: fmt.Sprintf("✓ Deleted %d fact(s) with key '%s'", deleted, key)}
+}
+
+func (t *MemoryTool) compress(params map[string]string) ToolResult {
+	maxTokens := 0
+	if mt := strings.TrimSpace(params["max_tokens"]); mt != "" {
+		if n, err := fmt.Sscanf(mt, "%d", &maxTokens); n != 1 || err != nil {
+			maxTokens = 0
+		}
+	}
+	return t.Compress(maxTokens)
+}
+
+// TokenCount estimates the number of tokens in the memory file.
+// Uses a rough estimate: 1 token ≈ 4 characters.
+func (t *MemoryTool) TokenCount() int {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	if err := t.loadFromFile(); err != nil {
+		return 0
+	}
+
+	content := renderMemoryMD(t.facts)
+	return len(content) / 4
+}
+
+// Compress removes duplicate and outdated facts.
+// Called automatically when memory exceeds maxTokens% of the model's context window.
+func (t *MemoryTool) Compress(maxTokens int) ToolResult {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if err := t.loadFromFile(); err != nil && !os.IsNotExist(err) {
+		return Error("tools.memory.read_error", err)
+	}
+
+	if len(t.facts) == 0 {
+		return ToolResult{Output: "Memory is empty, nothing to compress."}
+	}
+
+	originalCount := len(t.facts)
+	originalTokens := len(renderMemoryMD(t.facts)) / 4
+
+	// Step 1: Remove exact duplicates (same key, same value)
+	seen := make(map[string]bool)
+	deduped := make([]MemoryFact, 0, len(t.facts))
+	for _, f := range t.facts {
+		key := strings.ToLower(f.Key + "|" + f.Value)
+		if !seen[key] {
+			seen[key] = true
+			deduped = append(deduped, f)
+		}
+	}
+
+	// Step 2: Merge facts with same key (keep latest)
+	merged := make(map[string]MemoryFact)
+	var order []string
+	for _, f := range deduped {
+		key := strings.ToLower(f.Key)
+		if existing, ok := merged[key]; ok {
+			// Keep the one with more recent SavedAt, or longer value
+			if f.SavedAt.After(existing.SavedAt) || len(f.Value) > len(existing.Value) {
+				merged[key] = f
+			}
+		} else {
+			merged[key] = f
+			order = append(order, key)
+		}
+	}
+
+	// Step 3: Remove outdated facts (older than 30 days, unless in "permanent" category)
+	cutoff := time.Now().AddDate(0, 0, -30)
+	var result []MemoryFact
+	for _, key := range order {
+		f := merged[key]
+		if f.Category == "permanent" || f.Category == "project" || f.SavedAt.After(cutoff) {
+			result = append(result, f)
+		}
+	}
+
+	// Step 4: If still over limit, keep only the most recent facts
+	newTokens := len(renderMemoryMD(result)) / 4
+	if maxTokens > 0 && newTokens > maxTokens {
+		// Sort by SavedAt (most recent first)
+		sort.Slice(result, func(i, j int) bool {
+			return result[i].SavedAt.After(result[j].SavedAt)
+		})
+		// Keep only facts that fit within maxTokens
+		var kept []MemoryFact
+		currentTokens := 0
+		for _, f := range result {
+			factTokens := (len(f.Key) + len(f.Value) + len(f.Category) + 10) / 4
+			if currentTokens+factTokens <= maxTokens {
+				kept = append(kept, f)
+				currentTokens += factTokens
+			}
+		}
+		result = kept
+	}
+
+	t.facts = result
+	if err := t.saveToFile(); err != nil {
+		return Error("tools.memory.write_error", err)
+	}
+
+	newTokens = len(renderMemoryMD(t.facts)) / 4
+	removed := originalCount - len(t.facts)
+
+	return ToolResult{Output: fmt.Sprintf("✓ Memory compressed: %d → %d facts, %d → %d tokens (removed %d duplicates/outdated)",
+		originalCount, len(t.facts), originalTokens, newTokens, removed)}
 }
 
 // LoadAllFacts returns all stored facts as formatted text (for system prompt injection)

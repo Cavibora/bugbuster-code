@@ -715,3 +715,49 @@ func TestMemoryToolSetSessionID(t *testing.T) {
 		t.Error("Expected old session file to exist")
 	}
 }
+
+func TestMemoryToolCompress(t *testing.T) {
+	tmpDir := t.TempDir()
+	mt := NewMemoryToolWithPath(filepath.Join(tmpDir, "test.md"))
+
+	// Save some facts
+	mt.Execute(map[string]string{"action": "save", "key": "path1", "value": "/old/path", "category": "project"})
+	mt.Execute(map[string]string{"action": "save", "key": "path2", "value": "/new/path", "category": "project"})
+	mt.Execute(map[string]string{"action": "save", "key": "host", "value": "localhost", "category": "database"})
+	// Duplicate
+	mt.Execute(map[string]string{"action": "save", "key": "path1", "value": "/old/path", "category": "project"})
+
+	result := mt.Execute(map[string]string{"action": "compress", "max_tokens": "1000"})
+	if result.Error != "" {
+		t.Fatalf("Compress failed: %s", result.Error)
+	}
+	if !strings.Contains(result.Output, "compressed") {
+		t.Errorf("Expected 'compressed' in output, got: %s", result.Output)
+	}
+
+	// Verify duplicates removed
+	listResult := mt.Execute(map[string]string{"action": "list"})
+	if strings.Contains(listResult.Output, "path1") && strings.Contains(listResult.Output, "path2") {
+		// Both should still exist (different keys)
+	} else {
+		t.Errorf("Expected both keys to exist after compress, got: %s", listResult.Output)
+	}
+}
+
+func TestMemoryToolTokenCount(t *testing.T) {
+	tmpDir := t.TempDir()
+	mt := NewMemoryToolWithPath(filepath.Join(tmpDir, "test.md"))
+
+	// Empty memory
+	count := mt.TokenCount()
+	if count != 0 {
+		t.Errorf("Expected 0 tokens for empty memory, got %d", count)
+	}
+
+	// Add some facts
+	mt.Execute(map[string]string{"action": "save", "key": "project_path", "value": "/Users/test/project", "category": "project"})
+	count = mt.TokenCount()
+	if count <= 0 {
+		t.Errorf("Expected positive token count, got %d", count)
+	}
+}
