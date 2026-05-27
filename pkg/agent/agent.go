@@ -681,6 +681,7 @@ func BuildSystemPrompt(projectDir string, toolList map[string]tools.Tool) string
 	sb.WriteString("\n")
 
 	sb.WriteString(i18n.T("system_prompt.rules"))
+	sb.WriteString(i18n.T("system_prompt.rule0"))
 	sb.WriteString(i18n.T("system_prompt.rule1"))
 	sb.WriteString(i18n.T("system_prompt.rule2"))
 	sb.WriteString(i18n.T("system_prompt.rule3"))
