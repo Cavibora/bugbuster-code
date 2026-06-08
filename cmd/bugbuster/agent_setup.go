@@ -55,6 +55,10 @@ func getProviderNames(providers map[string]provider.ProviderConfig) []string {
 func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTracker *ChangeTracker, sessionID string) *agent.AgentLoop {
 	loop := agent.NewAgentLoop(p)
 
+	// Auto-continue: when model responds with text only (no tool calls),
+	// send a hint to continue working instead of ending the session
+	loop.SetAutoContinue(cfg.Agent.AutoContinue)
+
 	loop.SetVerbose(verbose || cfg.Agent.Verbose)
 	loop.SetDebug(debug)
 
@@ -253,10 +257,37 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 	// Subagents (task delegation)
 	subagentConfig := agent.DefaultSubagentConfig()
 	subagentConfig.Compactor = loop.Context.Compactor
+	// Inherit context window from parent agent
+	subagentConfig.ContextTokens = loop.Context.MaxTokens
+	subagentConfig.ContextKeepRecent = loop.Context.KeepRecent
 	// Inherit request timeout from parent if larger than default
 	if loop.RequestTimeout > 0 && loop.RequestTimeout > subagentConfig.Timeout {
 		subagentConfig.Timeout = loop.RequestTimeout
 	}
+	// Apply subagent config from YAML
+	if cfg.Agent.Subagent.Provider != "" {
+		subagentConfig.ProviderName = cfg.Agent.Subagent.Provider
+	}
+	if cfg.Agent.Subagent.Model != "" {
+		subagentConfig.ModelName = cfg.Agent.Subagent.Model
+	}
+	if cfg.Agent.Subagent.MaxConcurrent > 0 {
+		subagentConfig.MaxConcurrent = cfg.Agent.Subagent.MaxConcurrent
+	}
+	if cfg.Agent.Subagent.MaxIterations > 0 {
+		subagentConfig.MaxIterations = cfg.Agent.Subagent.MaxIterations
+	}
+	if cfg.Agent.Subagent.Timeout > 0 {
+		subagentConfig.Timeout = time.Duration(cfg.Agent.Subagent.Timeout) * time.Second
+	}
+	if cfg.Agent.Subagent.ContextTokens > 0 {
+		subagentConfig.ContextTokens = cfg.Agent.Subagent.ContextTokens
+	}
+	if cfg.Agent.Subagent.ContextKeepRecent > 0 {
+		subagentConfig.ContextKeepRecent = cfg.Agent.Subagent.ContextKeepRecent
+	}
+	// Pass providers map so subagent can create its own provider
+	subagentConfig.Providers = cfg.Providers
 	loop.EnableSubagents(subagentConfig)
 
 	// LSP-tool (code intelligence)

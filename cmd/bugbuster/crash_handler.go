@@ -37,6 +37,15 @@ var (
 // crashCleanup is called on normal exit to restore stderr and close crash log
 var crashCleanup func() = func() {}
 
+// tuiActive indicates whether TUI mode is currently running.
+// When true, crash handler goroutine should NOT write stderr to terminal
+// because TUI manages its own output and raw stack traces would corrupt the display.
+var tuiActive bool
+
+func isTUIActive() bool {
+	return tuiActive
+}
+
 // setupCrashHandler creates the crash directory, checks for previous crashes,
 // and redirects stderr to a crash log file. Returns a cleanup function.
 func setupCrashHandler() (cleanup func(), prevCrashPath string) {
@@ -91,7 +100,8 @@ func setupCrashHandler() (cleanup func(), prevCrashPath string) {
 					n, err := reader.Read(buf)
 					if n > 0 {
 						f.Write(buf[:n])
-						if origStderrFd >= 0 {
+						// Write to terminal only if NOT in TUI mode
+						if origStderrFd >= 0 && !isTUIActive() {
 							syscall.Write(origStderrFd, buf[:n])
 						}
 					}
@@ -104,7 +114,9 @@ func setupCrashHandler() (cleanup func(), prevCrashPath string) {
 				n, err := reader.Read(buf)
 				if n > 0 {
 					f.Write(buf[:n])
-					if origStderrFd >= 0 {
+					// Write to terminal only if NOT in TUI mode
+					// TUI manages its own output — raw stderr would corrupt the display
+					if origStderrFd >= 0 && !isTUIActive() {
 						syscall.Write(origStderrFd, buf[:n])
 					}
 				}
@@ -132,9 +144,9 @@ func setupCrashHandler() (cleanup func(), prevCrashPath string) {
 		// Close crash log file
 		f.Close()
 
-		// If crash log is small (no crash), delete it
+		// If crash log is small (no crash or only header), delete it
 		info, err := os.Stat(crashPath)
-		if err == nil && info.Size() < 500 {
+		if err == nil && info.Size() < 200 {
 			os.Remove(crashPath)
 		}
 	}
@@ -170,10 +182,11 @@ func writeCrashLog(r interface{}) {
 	sb.WriteString(fmt.Sprintf("\nPanic: %v\n", r))
 	sb.WriteString(fmt.Sprintf("\nStack Trace:\n%s\n", stack))
 
-	// Write crash log
+	// Write crash log BEFORE restoring stderr
+	// This ensures the stack trace goes to the file, not the terminal
 	if err := os.WriteFile(crashPath, []byte(sb.String()), 0644); err != nil {
-		fmt.Fprintf(os.Stdout, "CRASH: %v\n%s\n", r, stack)
-		fmt.Fprintf(os.Stdout, "Failed to write crash log: %v\n", err)
+		// Can't write crash log — just print short message
+		fmt.Fprintf(os.Stdout, "\n  ⚠ BugBuster crashed: %v\n", r)
 		exitFunc(1)
 	}
 
@@ -194,13 +207,26 @@ func writeCrashLog(r interface{}) {
 		}
 	}
 
-	// Print user-friendly message to stdout (stderr is redirected)
+	// Restore terminal to normal mode (in case TUI left it in raw mode)
+	restoreTerminalToNormal()
+
+	// Restore stderr before printing message so it's visible
+	crashCleanup()
+
+	// Print user-friendly message (NOT the stack trace)
+	// Stack trace is only in the crash log file
 	fmt.Fprintf(os.Stdout, "\n")
 	fmt.Fprintf(os.Stdout, "╔══════════════════════════════════════════╗\n")
 	fmt.Fprintf(os.Stdout, "║  %s          ║\n", i18n.T("cli.crash_title"))
 	fmt.Fprintf(os.Stdout, "╚══════════════════════════════════════════╝\n")
 	fmt.Fprintf(os.Stdout, "\n")
-	fmt.Fprintf(os.Stdout, "%s: %s\n", i18n.T("cli.crash_log_saved"), crashPath)
+	// Show short panic message (not full stack trace)
+	panicShort := fmt.Sprintf("%v", r)
+	if len(panicShort) > 100 {
+		panicShort = panicShort[:97] + "..."
+	}
+	fmt.Fprintf(os.Stdout, "  %s: %s\n", i18n.T("cli.crash_error"), panicShort)
+	fmt.Fprintf(os.Stdout, "  %s: %s\n", i18n.T("cli.crash_log_saved"), crashPath)
 	fmt.Fprintf(os.Stdout, "\n")
 	fmt.Fprintf(os.Stdout, "%s\n", i18n.T("cli.crash_report"))
 	fmt.Fprintf(os.Stdout, "  https://github.com/bugbuster-code/bugbuster/issues\n")
@@ -208,9 +234,6 @@ func writeCrashLog(r interface{}) {
 	fmt.Fprintf(os.Stdout, "%s\n", i18n.T("cli.crash_restore"))
 	fmt.Fprintf(os.Stdout, "  bugbuster --session <session-id>\n")
 	fmt.Fprintf(os.Stdout, "\n")
-
-	// Restore stderr before exit so the friendly message is visible
-	crashCleanup()
 
 	exitFunc(1)
 }

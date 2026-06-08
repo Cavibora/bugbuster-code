@@ -36,15 +36,20 @@ var appTheme *theme.ResolvedTheme
 // While spinner is active, use spinner.Println/Printf to buffer output.
 // Do NOT use fmt.Println/fmt.Printf directly — they will corrupt the display.
 type Spinner struct {
-	frames    []rune
-	stopCh    chan struct{}
-	doneCh    chan struct{}
-	message   string
-	mu        sync.Mutex
-	active    bool
-	startTime time.Time
-	tokensIn  int
-	tokensOut int
+	frames       []rune
+	stopCh       chan struct{}
+	doneCh       chan struct{}
+	message      string
+	mu           sync.Mutex
+	active       bool
+	startTime    time.Time
+	tokensIn     int
+	tokensOut    int
+	providerName string
+	modelName    string
+	genStart     time.Time // when first output token was received
+	genEnd       time.Time // when last output token was received
+	totalGenDur  time.Duration // accumulated generation time
 
 	// Buffered output: accumulated while spinner is active.
 	// Printed atomically when spinner stops.
@@ -123,6 +128,40 @@ func (s *Spinner) Start() {
 				if tokensIn > 0 || tokensOut > 0 {
 					parts = append(parts, FormatTokens(tokensIn, tokensOut))
 				}
+			// Speed: tokens per second (based on generation time, not total time)
+			if elapsed > 0 && tokensOut > 0 {
+				var speed float64
+				s.mu.Lock()
+				gs := s.genStart
+				ge := s.genEnd
+				totalGD := s.totalGenDur
+				s.mu.Unlock()
+				if totalGD.Seconds() > 0.1 {
+					// Use accumulated generation time for accurate speed
+					speed = float64(tokensOut) / totalGD.Seconds()
+				} else if !gs.IsZero() && ge.After(gs) {
+					genDur := ge.Sub(gs).Seconds()
+					if genDur > 0.1 {
+						speed = float64(tokensOut) / genDur
+					} else {
+						speed = float64(tokensOut) / elapsed.Seconds()
+					}
+				} else {
+					speed = float64(tokensOut) / elapsed.Seconds()
+				}
+				parts = append(parts, fmt.Sprintf("%s⚡%s %s%s%s", appTheme.Success.ANSICode(), ansiReset, appTheme.Info.ANSICode(), formatSpeed(speed), ansiReset))
+				}
+				// Provider and model
+				if s.providerName != "" || s.modelName != "" {
+					var info []string
+					if s.providerName != "" {
+						info = append(info, s.providerName)
+					}
+					if s.modelName != "" {
+						info = append(info, s.modelName)
+					}
+					parts = append(parts, fmt.Sprintf("%s%s%s", appTheme.Dim.ANSICode(), strings.Join(info, " · "), ansiReset))
+				}
 				display := strings.Join(parts, appTheme.Dim.ANSICode()+" · "+ansiReset)
 
 				// Clear current line and write spinner frame
@@ -182,9 +221,62 @@ func (s *Spinner) UpdateMessage(msg string) {
 
 func (s *Spinner) UpdateTokens(tokensIn, tokensOut int) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.tokensIn = tokensIn
 	s.tokensOut = tokensOut
+	// Track generation time for accurate speed calculation
+	if tokensOut > 0 {
+		if s.genStart.IsZero() {
+			s.genStart = time.Now()
+		}
+		s.genEnd = time.Now()
+	}
+}
+
+func (s *Spinner) UpdateProvider(providerName, modelName string) {
+	s.mu.Lock()
+	s.providerName = providerName
+	s.modelName = modelName
 	s.mu.Unlock()
+}
+
+func (s *Spinner) UpdateGenTime() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.genStart.IsZero() {
+		s.genStart = time.Now()
+	} else {
+		// Accumulate generation time between tokens
+		s.totalGenDur += time.Since(s.genEnd)
+	}
+	s.genEnd = time.Now()
+}
+
+// CopyStatsTo copies tokens and gen time to another spinner.
+// Used when creating a new spinner to preserve stats.
+func (s *Spinner) CopyStatsTo(dst *Spinner) {
+	if s == nil || dst == nil {
+		return
+	}
+	s.mu.Lock()
+	srcIn := s.tokensIn
+	srcOut := s.tokensOut
+	srcGenStart := s.genStart
+	srcGenEnd := s.genEnd
+	srcTotalGenDur := s.totalGenDur
+	s.mu.Unlock()
+
+	dst.mu.Lock()
+	dst.tokensIn = srcIn
+	dst.tokensOut = srcOut
+	dst.totalGenDur = srcTotalGenDur
+	if !srcGenStart.IsZero() {
+		dst.genStart = srcGenStart
+	}
+	if !srcGenEnd.IsZero() {
+		dst.genEnd = srcGenEnd
+	}
+	dst.mu.Unlock()
 }
 
 func (s *Spinner) IsActive() bool {
@@ -254,14 +346,35 @@ func FormatContextBar(used, max int) string {
 
 // ─── Status line ────────────────────────────────────────────────────────────
 
-func FormatStatusLine(tokensIn, tokensOut int, dur time.Duration, ctxUsed, ctxMax int, providerName, modelName string) string {
+func FormatStatusLine(tokensIn, tokensOut int, dur time.Duration, ctxUsed, ctxMax int, providerName, modelName string, taskType ...string) string {
+	return FormatStatusLineEx(tokensIn, tokensOut, dur, 0, ctxUsed, ctxMax, providerName, modelName, taskType...)
+}
+
+func FormatStatusLineEx(tokensIn, tokensOut int, dur, genDur time.Duration, ctxUsed, ctxMax int, providerName, modelName string, taskType ...string) string {
 	var parts []string
 
+	// Task type badge (first)
+	if len(taskType) > 0 && taskType[0] != "" {
+		parts = append(parts, fmt.Sprintf("%s%s%s", appTheme.Primary.ANSICode(), taskType[0], ansiReset))
+	}
 	if dur > 0 {
 		parts = append(parts, fmt.Sprintf("%s⏱%s %s", appTheme.StatusTime.ANSICode(), ansiReset, FormatDuration(dur)))
 	}
 	if tokensIn > 0 || tokensOut > 0 {
 		parts = append(parts, FormatTokens(tokensIn, tokensOut))
+	}
+	// Speed: tokens per second (based on generation time if available)
+	if tokensOut > 0 {
+		var speed float64
+		if genDur > 0 && genDur.Seconds() > 0.1 {
+			speed = float64(tokensOut) / genDur.Seconds()
+		} else if dur > 0 {
+			speed = float64(tokensOut) / dur.Seconds()
+		}
+		if speed > 0 {
+			speedStr := fmt.Sprintf("%s⚡%s %s%s%s", appTheme.Success.ANSICode(), ansiReset, appTheme.Info.ANSICode(), formatSpeed(speed), ansiReset)
+			parts = append(parts, speedStr)
+		}
 	}
 	if providerName != "" || modelName != "" {
 		var info []string
@@ -285,6 +398,14 @@ func FormatStatusLine(tokensIn, tokensOut int, dur time.Duration, ctxUsed, ctxMa
 		line += "\n  " + FormatContextBar(ctxUsed, ctxMax)
 	}
 	return line
+}
+
+// formatSpeed formats tokens per second in human-readable form
+func formatSpeed(speed float64) string {
+	if speed < 10 {
+		return fmt.Sprintf("%.1ftok/s", speed)
+	}
+	return fmt.Sprintf("%.0ftok/s", speed)
 }
 
 func FormatContextInfo(msgCount, tokensUsed, maxTokens int) string {

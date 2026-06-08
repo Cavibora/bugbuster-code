@@ -66,6 +66,8 @@ func printHelpString() string {
 		    /sessions — List sessions
 			    /model    — Switch model
 			    /provider — Switch provider
+			    /task     — Switch provider by task type (code/analyze/debug...)
+			    /rename   — Rename session
 			    /lang     — Change language
 			    /auto     — Autopilot: auto-continue after each response
 			    /auto N   — Autopilot with N iterations limit

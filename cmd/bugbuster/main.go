@@ -6,6 +6,7 @@ import (
 
 	"bugbuster-code/pkg/i18n"
 
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
 
@@ -72,11 +73,20 @@ func main() {
 	rootCmd.PersistentFlags().StringVarP(&langFlag, "lang", "l", "", i18n.T("cli_flag.lang"))
 	rootCmd.PersistentFlags().StringVarP(&tuiMode, "tui", "t", "", "TUI mode: auto (AltScreen) or inline")
 	rootCmd.PersistentFlags().BoolVar(&clearCrash, "clear-crash", false, "Clear crash logs and dismiss notification")
+	rootCmd.Flags().Bool("version", false, "Show version")
 
 	// Handle --clear-crash before anything else
 	if clearCrash {
 		clearCrashLogs()
 		fmt.Println("Crash logs cleared.")
+		os.Exit(0)
+	}
+
+	// Handle --version flag
+	if v, _ := rootCmd.Flags().GetBool("version"); v {
+		color.Cyan("BugBuster Code %s", Version)
+		color.Yellow("  Commit: %s", GitCommit)
+		color.Yellow("  Built:  %s", BuildDate)
 		os.Exit(0)
 	}
 

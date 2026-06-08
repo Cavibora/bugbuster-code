@@ -139,6 +139,7 @@ func runExecStream(ctx context.Context, loop *agent.AgentLoop, cfg *config.BugBu
 	var lastText strings.Builder
 	var toolCalls int
 	var errorSeen bool
+	var genStart, genEnd time.Time
 
 	for event := range eventCh {
 		switch event.Type {
@@ -148,6 +149,11 @@ func runExecStream(ctx context.Context, loop *agent.AgentLoop, cfg *config.BugBu
 				if !execJSON {
 					fmt.Print(event.Text)
 				}
+				// Track generation time for accurate speed calculation
+				if genStart.IsZero() {
+					genStart = time.Now()
+				}
+				genEnd = time.Now()
 			}
 		case provider.EventThinking:
 			if execJSON {
@@ -194,9 +200,13 @@ func runExecStream(ctx context.Context, loop *agent.AgentLoop, cfg *config.BugBu
 				})
 			} else {
 				// Status line to stderr
-				fmt.Fprintf(os.Stderr, "%s\n", FormatStatusLine(
+				var genDur time.Duration
+				if !genStart.IsZero() && !genEnd.IsZero() {
+					genDur = genEnd.Sub(genStart)
+				}
+				fmt.Fprintf(os.Stderr, "%s\n", FormatStatusLineEx(
 					event.InputTokens, event.OutputTokens,
-					event.Duration, 0, 0, providerName, "",
+					event.Duration, genDur, 0, 0, providerName, "",
 				))
 			}
 
