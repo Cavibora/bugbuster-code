@@ -269,3 +269,207 @@ func TestParseOpenTag(t *testing.T) {
 		}
 	}
 }
+
+func TestAutoDetectTodoWrite(t *testing.T) {
+	// Model outputs: output:[{"id": "1", "status": "in_progress", "subject": "Reading files"}]
+	response := `output:[{"id": "1", "status": "in_progress", "subject": "Читаю текущий план и todo."}]`
+	calls := ParseToolCalls(response)
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d: %+v", len(calls), calls)
+	}
+	if calls[0].Name != "todo_write" {
+		t.Errorf("expected name todo_write, got %s", calls[0].Name)
+	}
+}
+
+func TestAutoDetectBash(t *testing.T) {
+	response := `{"command": "ls -la"}`
+	calls := ParseToolCalls(response)
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	if calls[0].Name != "bash" {
+		t.Errorf("expected name bash, got %s", calls[0].Name)
+	}
+	if calls[0].Params["command"] != "ls -la" {
+		t.Errorf("expected command=ls -la, got %v", calls[0].Params)
+	}
+}
+
+func TestAutoDetectRead(t *testing.T) {
+	response := `{"path": "main.go"}`
+	calls := ParseToolCalls(response)
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	if calls[0].Name != "read" {
+		t.Errorf("expected name read, got %s", calls[0].Name)
+	}
+	if calls[0].Params["path"] != "main.go" {
+		t.Errorf("expected path=main.go, got %v", calls[0].Params)
+	}
+}
+
+func TestAutoDetectWrite(t *testing.T) {
+	response := `{"path": "main.go", "content": "package main\nfunc main() {}"}`
+	calls := ParseToolCalls(response)
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	if calls[0].Name != "write" {
+		t.Errorf("expected name write, got %s", calls[0].Name)
+	}
+}
+
+func TestAutoDetectEdit(t *testing.T) {
+	response := `{"path": "main.go", "old": "hello", "new": "world"}`
+	calls := ParseToolCalls(response)
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	if calls[0].Name != "edit" {
+		t.Errorf("expected name edit, got %s", calls[0].Name)
+	}
+}
+
+func TestAutoDetectGrep(t *testing.T) {
+	response := `{"pattern": "TODO", "path": "src/"}`
+	calls := ParseToolCalls(response)
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	if calls[0].Name != "grep" {
+		t.Errorf("expected name grep, got %s", calls[0].Name)
+	}
+}
+
+func TestAutoDetectWebFetch(t *testing.T) {
+	response := `{"url": "https://example.com"}`
+	calls := ParseToolCalls(response)
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	if calls[0].Name != "web_fetch" {
+		t.Errorf("expected name web_fetch, got %s", calls[0].Name)
+	}
+}
+
+func TestAutoDetectWithPrefix(t *testing.T) {
+	response := `result:{"command": "go test ./..."}`
+	calls := ParseToolCalls(response)
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	if calls[0].Name != "bash" {
+		t.Errorf("expected name bash, got %s", calls[0].Name)
+	}
+}
+
+func TestAutoDetectTodoArray(t *testing.T) {
+	response := `[{"id": "1", "subject": "Read files", "status": "in_progress"}, {"id": "2", "subject": "Write code", "status": "pending"}]`
+	calls := ParseToolCalls(response)
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 calls, got %d", len(calls))
+	}
+	if calls[0].Name != "todo_write" {
+		t.Errorf("expected name todo_write, got %s", calls[0].Name)
+	}
+	if calls[1].Name != "todo_write" {
+		t.Errorf("expected name todo_write, got %s", calls[1].Name)
+	}
+}
+
+func TestAutoDetectRealExample(t *testing.T) {
+	// Real example from user: model outputs raw JSON without "tool" key
+	input := `output:[{"id": "1", "status": "in_progress", "subject": "Читаю текущий план и todo."}]`
+	calls := ParseToolCalls(input)
+	if len(calls) == 0 {
+		t.Fatalf("Expected tool call from: %s", input)
+	}
+	if calls[0].Name != "todo_write" {
+		t.Errorf("Expected todo_write, got %s", calls[0].Name)
+	}
+	t.Logf("✅ Parsed: tool=%s, params=%v", calls[0].Name, calls[0].Params)
+}
+
+func TestParseAngleBracketKVToolCalls(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []ToolCall
+	}{
+		{
+			name:  "tool_name=bash with parameter=command",
+			input: `<tool_name=bash> <parameter=command> ls /Users/ss/ai-test/`,
+			expected: []ToolCall{
+				{Name: "bash", Params: map[string]string{"command": "ls /Users/ss/ai-test/"}},
+			},
+		},
+		{
+			name:  "tool_name=read with parameter=path",
+			input: `<tool_name=read> <parameter=path> /tmp/main.go`,
+			expected: []ToolCall{
+				{Name: "read", Params: map[string]string{"path": "/tmp/main.go"}},
+			},
+		},
+		{
+			name:  "tool_name=bash with closing tags",
+			input: `<tool_name=bash><parameter=command>ls -la /tmp/</parameter></tool_name>`,
+			expected: []ToolCall{
+				{Name: "bash", Params: map[string]string{"command": "ls -la /tmp/"}},
+			},
+		},
+		{
+			name:  "tool_name=write with multiple parameters",
+			input: `<tool_name=write> <parameter=path> /tmp/test.go <parameter=content> package main`,
+			expected: []ToolCall{
+				{Name: "write", Params: map[string]string{"path": "/tmp/test.go", "content": "package main"}},
+			},
+		},
+		{
+			name:  "tool_name with quotes",
+			input: `<tool_name="bash"> <parameter="command"> ls -la`,
+			expected: []ToolCall{
+				{Name: "bash", Params: map[string]string{"command": "ls -la"}},
+			},
+		},
+		{
+			name:  "Bash tag with command attribute",
+			input: `<bash command="ls -la /tmp/">run</bash>`,
+			expected: []ToolCall{
+				{Name: "bash", Params: map[string]string{"command": "ls -la /tmp/"}},
+			},
+		},
+		{
+			name:  "Read tag with path attribute",
+			input: `<read path="/tmp/main.go">read file</read>`,
+			expected: []ToolCall{
+				{Name: "read", Params: map[string]string{"path": "/tmp/main.go"}},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ParseToolCalls(tt.input)
+			if len(result) != len(tt.expected) {
+				t.Errorf("expected %d calls, got %d", len(tt.expected), len(result))
+				t.Logf("input: %s", tt.input)
+				for _, call := range result {
+					t.Logf("  got: %s %v", call.Name, call.Params)
+				}
+				return
+			}
+			for i, call := range result {
+				if call.Name != tt.expected[i].Name {
+					t.Errorf("expected name %q, got %q", tt.expected[i].Name, call.Name)
+				}
+				for k, v := range tt.expected[i].Params {
+					if got, ok := call.Params[k]; !ok || got != v {
+						t.Errorf("expected param %q=%q, got %q=%q", k, v, k, got)
+					}
+				}
+			}
+		})
+	}
+}
