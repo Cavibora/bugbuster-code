@@ -39,3 +39,7 @@ crashes/
 # Internal files (not for public)
 ROADMAP.md
 AGENT.md
+
+# Keyword data files (root level - configs/ is canonical)
+/keywords.json
+/thinking_keywords.json
