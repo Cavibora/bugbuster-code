@@ -92,7 +92,7 @@ func TestToolDescriptions(t *testing.T) {
 	}
 }
 
-func TestLSPTool_SetRootDir(t *testing.T) {
+func TestLSPTool_SetRootDir_InToolsExtra(t *testing.T) {
 	tool := NewLSPTool()
 	tool.SetRootDir("/tmp/test")
 	// Should not panic

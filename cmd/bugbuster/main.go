@@ -28,6 +28,16 @@ func main() {
 	// Initialize i18n with default language (will be updated in runInteractive)
 	i18n.Init("en")
 
+	// Handle --version flag early, before crash handler
+	for _, arg := range os.Args[1:] {
+		if arg == "--version" || arg == "-v" {
+			color.Cyan("BugBuster Code %s", Version)
+			color.Yellow("  Commit: %s", GitCommit)
+			color.Yellow("  Built:  %s", BuildDate)
+			os.Exit(0)
+		}
+	}
+
 	// Setup crash handler — redirect stderr to crash log file
 	// This ensures that any panic or runtime.throw output goes to the file
 	// instead of the terminal, and we can show a friendly message
@@ -73,20 +83,11 @@ func main() {
 	rootCmd.PersistentFlags().StringVarP(&langFlag, "lang", "l", "", i18n.T("cli_flag.lang"))
 	rootCmd.PersistentFlags().StringVarP(&tuiMode, "tui", "t", "", "TUI mode: auto (AltScreen) or inline")
 	rootCmd.PersistentFlags().BoolVar(&clearCrash, "clear-crash", false, "Clear crash logs and dismiss notification")
-	rootCmd.Flags().Bool("version", false, "Show version")
 
 	// Handle --clear-crash before anything else
 	if clearCrash {
 		clearCrashLogs()
 		fmt.Println("Crash logs cleared.")
-		os.Exit(0)
-	}
-
-	// Handle --version flag
-	if v, _ := rootCmd.Flags().GetBool("version"); v {
-		color.Cyan("BugBuster Code %s", Version)
-		color.Yellow("  Commit: %s", GitCommit)
-		color.Yellow("  Built:  %s", BuildDate)
 		os.Exit(0)
 	}
 
