@@ -14,8 +14,8 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.DefaultProvider != "ollama" {
 		t.Errorf("Expected DefaultProvider='ollama', got '%s'", cfg.DefaultProvider)
 	}
-	if cfg.Agent.MaxTokens != 8000 {
-		t.Errorf("Expected MaxTokens=8000, got %d", cfg.Agent.MaxTokens)
+	if cfg.Agent.MaxTokens != 32768 {
+		t.Errorf("Expected MaxTokens=32768, got %d", cfg.Agent.MaxTokens)
 	}
 	if cfg.Agent.KeepRecent != 20 {
 		t.Errorf("Expected KeepRecent=20, got %d", cfg.Agent.KeepRecent)
@@ -119,7 +119,7 @@ func TestMergeConfigs(t *testing.T) {
 	if merged.Agent.MaxTokens != 16000 {
 		t.Errorf("Expected MaxTokens=16000, got %d", merged.Agent.MaxTokens)
 	}
-	if merged.Providers["ollama"].Model != "llama3" {
+	if merged.Providers["ollama"].Model != "qwen-fast-27b" {
 		t.Error("Expected ollama provider to be preserved from base")
 	}
 	if merged.Providers["openai"].Model != "gpt-4o" {
@@ -369,13 +369,13 @@ func TestEffectiveSecurity(t *testing.T) {
 
 func TestEffectiveContextWindow(t *testing.T) {
 	cfg := DefaultConfig()
-	// По умолчанию Agent.MaxTokens = 8000
+	// По умолчанию Agent.MaxTokens = 32768
 
 	// Провайдер без context_window — используем agent.max_tokens
 	provCfg := provider.ProviderConfig{Type: "anthropic"}
 	ctx := cfg.EffectiveContextWindow(&provCfg)
-	if ctx != 8000 {
-		t.Errorf("Expected context_window=8000 from agent fallback, got %d", ctx)
+	if ctx != 32768 {
+		t.Errorf("Expected context_window=32768 from agent fallback, got %d", ctx)
 	}
 
 	// Провайдер с context_window — побеждает

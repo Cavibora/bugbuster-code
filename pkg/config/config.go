@@ -13,6 +13,7 @@ import (
 // BugBusterConfig — configuration BugBuster Code
 type BugBusterConfig struct {
 	DefaultProvider string                             `yaml:"default_provider"`
+	AgentProviders  map[string]string                  `yaml:"agent_providers"`
 	Agent           AgentConfig                        `yaml:"agent"`
 	Providers       map[string]provider.ProviderConfig `yaml:"providers"`
 	Tools           ToolsConfig                        `yaml:"tools"`
@@ -125,7 +126,20 @@ type AgentConfig struct {
 	RequestTimeout  int                 `yaml:"request_timeout"`  // max time for a single LLM request in seconds (0 = default 2400 = 40 min)
 	ThinkingTimeout int                 `yaml:"thinking_timeout"` // max time without tokens from model in seconds (0 = default 600 = 10 min)
 	IdleTimeout     int                 `yaml:"idle_timeout"`     // streaming timeout without events in seconds (0 = default 120 = 2 min)
+	AutoContinue    bool                `yaml:"auto_continue"`    // auto-continue when model responds with text only (default: true)
 	LoopDetection   LoopDetectionConfig `yaml:"loop_detection"`   // loop detection settings
+	Subagent        SubagentYAMLConfig  `yaml:"subagent"`         // subagent configuration
+}
+
+// SubagentYAMLConfig — subagent configuration in YAML
+type SubagentYAMLConfig struct {
+	Provider       string `yaml:"provider"`         // provider name for subagent (empty = inherit from parent)
+	Model          string `yaml:"model"`            // model name override (empty = use provider default)
+	MaxConcurrent  int    `yaml:"max_concurrent"`   // max concurrent subagents (default: 3)
+	MaxIterations  int    `yaml:"max_iterations"`   // max loop iterations for subagent (default: 15)
+	Timeout        int    `yaml:"timeout"`           // timeout for subagent in seconds (default: 600 = 10m)
+	ContextTokens  int    `yaml:"context_tokens"`   // context window size (0 = inherit from parent)
+	ContextKeepRecent int `yaml:"context_keep_recent"` // keep recent messages on compaction (0 = auto)
 }
 
 // LoopDetectionConfig — loop detection settings
@@ -170,7 +184,7 @@ func DefaultConfig() *BugBusterConfig {
 	return &BugBusterConfig{
 		DefaultProvider: "ollama",
 		Agent: AgentConfig{
-			MaxTokens:       8000,
+			MaxTokens:       32768,
 			KeepRecent:      20,
 			Verbose:         false,
 			PermissionMode:  "auto-approve",
@@ -178,6 +192,12 @@ func DefaultConfig() *BugBusterConfig {
 			RequestTimeout:  2400, // 40 minutes
 			ThinkingTimeout: 600,  // 10 minutes
 			IdleTimeout:     300,  // 5 minutes
+			AutoContinue:    true,
+			Subagent: SubagentYAMLConfig{
+				MaxConcurrent:  3,
+				MaxIterations:  15,
+				Timeout:        600,
+			},
 			LoopDetection: LoopDetectionConfig{
 				RepeatThreshold:         6,
 				ToolRepeatThreshold:     8,
@@ -190,7 +210,7 @@ func DefaultConfig() *BugBusterConfig {
 			"ollama": {
 				Type:    "ollama",
 				BaseURL: "http://localhost:11434",
-				Model:   "llama3",
+				Model:   "qwen-fast-27b",
 			},
 		},
 		Tools: ToolsConfig{
@@ -345,6 +365,32 @@ func MergeConfigs(configs ...*BugBusterConfig) *BugBusterConfig {
 		}
 		if cfg.Agent.IdleTimeout > 0 {
 			result.Agent.IdleTimeout = cfg.Agent.IdleTimeout
+		}
+		// AutoContinue
+		if cfg.Agent.AutoContinue {
+			result.Agent.AutoContinue = cfg.Agent.AutoContinue
+		}
+		// Subagent
+		if cfg.Agent.Subagent.Provider != "" {
+			result.Agent.Subagent.Provider = cfg.Agent.Subagent.Provider
+		}
+		if cfg.Agent.Subagent.Model != "" {
+			result.Agent.Subagent.Model = cfg.Agent.Subagent.Model
+		}
+		if cfg.Agent.Subagent.MaxConcurrent > 0 {
+			result.Agent.Subagent.MaxConcurrent = cfg.Agent.Subagent.MaxConcurrent
+		}
+		if cfg.Agent.Subagent.MaxIterations > 0 {
+			result.Agent.Subagent.MaxIterations = cfg.Agent.Subagent.MaxIterations
+		}
+		if cfg.Agent.Subagent.Timeout > 0 {
+			result.Agent.Subagent.Timeout = cfg.Agent.Subagent.Timeout
+		}
+		if cfg.Agent.Subagent.ContextTokens > 0 {
+			result.Agent.Subagent.ContextTokens = cfg.Agent.Subagent.ContextTokens
+		}
+		if cfg.Agent.Subagent.ContextKeepRecent > 0 {
+			result.Agent.Subagent.ContextKeepRecent = cfg.Agent.Subagent.ContextKeepRecent
 		}
 		// LoopDetection
 		if cfg.Agent.LoopDetection.RepeatThreshold > 0 {
@@ -584,4 +630,42 @@ func resolveEnvVars(s string) string {
 	}
 
 	return s
+}
+
+// GetProviderForTask returns the provider name for a given task type.
+// If agent_providers is configured and the task type matches, returns the mapped provider.
+// Otherwise returns the default provider.
+func (c *BugBusterConfig) GetProviderForTask(taskType string) string {
+	if c.AgentProviders != nil {
+		if provider, ok := c.AgentProviders[taskType]; ok {
+			return provider
+		}
+	}
+	return c.DefaultProvider
+}
+
+// GetTaskTypeForProvider returns the task type for a given provider name.
+// If the provider is mapped in agent_providers, returns the task type.
+// Otherwise returns empty string.
+func (c *BugBusterConfig) GetTaskTypeForProvider(providerName string) string {
+	if c.AgentProviders != nil {
+		for taskType, prov := range c.AgentProviders {
+			if prov == providerName {
+				return taskType
+			}
+		}
+	}
+	return ""
+}
+
+// TaskTypes returns all configured task types
+func (c *BugBusterConfig) TaskTypes() []string {
+	if c.AgentProviders == nil {
+		return nil
+	}
+	types := make([]string, 0, len(c.AgentProviders))
+	for k := range c.AgentProviders {
+		types = append(types, k)
+	}
+	return types
 }
