@@ -35,7 +35,7 @@ func NewOllamaProvider(name string, cfg ProviderConfig) (*OllamaProvider, error)
 	baseURL = strings.TrimRight(baseURL, "/")
 
 	if cfg.Model == "" {
-		cfg.Model = "llama3"
+		cfg.Model = "qwen-fast-27b"
 	}
 
 	// Ollama uses OpenAI-compatible API at /v1
@@ -177,7 +177,7 @@ func (p *OllamaProvider) buildNativeRequest(messages []Message, tools []ToolDef,
 
 	numPredict := p.maxTokens
 	if numPredict <= 0 {
-		numPredict = 16384
+		numPredict = 32768
 	}
 
 	options := map[string]any{

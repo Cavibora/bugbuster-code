@@ -41,8 +41,8 @@ func TestOllamaProvider_DefaultModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewOllamaProvider: %v", err)
 	}
-	if p.model != "llama3" {
-		t.Errorf("model = %q, want %q", p.model, "llama3")
+	if p.model != "qwen-fast-27b" {
+		t.Errorf("model = %q, want %q", p.model, "qwen-fast-27b")
 	}
 }
 
@@ -362,8 +362,8 @@ func TestOllamaProvider_buildNativeRequest_DefaultNumPredict(t *testing.T) {
 	if !ok {
 		t.Fatal("options should be a map")
 	}
-	if options["num_predict"] != 16384 {
-		t.Errorf("num_predict = %v, want 16384 (default)", options["num_predict"])
+	if options["num_predict"] != 32768 {
+		t.Errorf("num_predict = %v, want 32768 (default)", options["num_predict"])
 	}
 }
 

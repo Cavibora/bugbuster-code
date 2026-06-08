@@ -409,12 +409,17 @@ func (p *OpenAIProvider) convertMessage(msg Message) []map[string]any {
 				"text": block.Text,
 			})
 		case "tool_use":
+			// Serialize Input to JSON string for OpenAI/Ollama compatibility
+			argsJSON, err := json.Marshal(block.Input)
+			if err != nil {
+				argsJSON = []byte("{}")
+			}
 			toolCalls = append(toolCalls, map[string]any{
 				"id":   block.ToolUseID,
 				"type": "function",
 				"function": map[string]any{
 					"name":      block.ToolName,
-					"arguments": block.Input,
+					"arguments": string(argsJSON),
 				},
 			})
 		case "tool_result":
@@ -462,8 +467,8 @@ func (p *OpenAIProvider) parseResponse(body []byte) (*CompletionResult, error) {
 					ID       string `json:"id"`
 					Type     string `json:"type"`
 					Function struct {
-						Name      string         `json:"name"`
-						Arguments map[string]any `json:"arguments"`
+						Name      string          `json:"name"`
+						Arguments json.RawMessage `json:"arguments"`
 					} `json:"function"`
 				} `json:"tool_calls"`
 			} `json:"message"`
@@ -497,7 +502,18 @@ func (p *OpenAIProvider) parseResponse(body []byte) (*CompletionResult, error) {
 	}
 
 	for _, tc := range msg.ToolCalls {
-		input := tc.Function.Arguments
+		// Arguments can be either a JSON object or a JSON string
+		var input map[string]any
+		if len(tc.Function.Arguments) > 0 {
+			// Try parsing as JSON object first
+			if err := json.Unmarshal(tc.Function.Arguments, &input); err != nil {
+				// Try parsing as JSON string (Ollama/Qwen format)
+				var argsStr string
+				if err2 := json.Unmarshal(tc.Function.Arguments, &argsStr); err2 == nil {
+					json.Unmarshal([]byte(argsStr), &input)
+				}
+			}
+		}
 		if input == nil {
 			input = make(map[string]any)
 		}
