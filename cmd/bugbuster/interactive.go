@@ -328,6 +328,12 @@ func handleCommand(input string, loop *agent.AgentLoop, cfg *config.BugBusterCon
 		newProvider := strings.TrimPrefix(input, "/provider ")
 		switchProvider(loop, cfg, newProvider)
 		return true
+	case input == "/subagent":
+		printSubagentConfig(cfg)
+		return true
+	case strings.HasPrefix(input, "/subagent "):
+		handleSubagentCommand(strings.TrimPrefix(input, "/subagent "), loop, cfg)
+		return true
 	case strings.HasPrefix(input, "/lang "):
 		newLang := strings.TrimPrefix(input, "/lang ")
 		if i18n.HasLanguage(newLang) {
@@ -879,6 +885,143 @@ func activateSkill(loop *agent.AgentLoop, name string) {
 	color.HiBlack("  Instructions injected into system prompt")
 }
 
+// printSubagentConfig shows current subagent configuration
+func printSubagentConfig(cfg *config.BugBusterConfig) {
+	color.Cyan("🤖 Subagent Configuration:")
+	sa := cfg.Agent.Subagent
+	fmt.Fprintf(cmdOutput, "  %-25s %s\n", "Provider:", func() string {
+		if sa.Provider != "" {
+			return sa.Provider
+		}
+		return color.HiBlackString("(inherit from parent)")
+	}())
+	fmt.Fprintf(cmdOutput, "  %-25s %s\n", "Model:", func() string {
+		if sa.Model != "" {
+			return sa.Model
+		}
+		return color.HiBlackString("(use provider default)")
+	}())
+	fmt.Fprintf(cmdOutput, "  %-25s %d\n", "Max concurrent:", func() int {
+		if sa.MaxConcurrent > 0 {
+			return sa.MaxConcurrent
+		}
+		return 3
+	}())
+	fmt.Fprintf(cmdOutput, "  %-25s %d\n", "Max iterations:", func() int {
+		if sa.MaxIterations > 0 {
+			return sa.MaxIterations
+		}
+		return 15
+	}())
+	fmt.Fprintf(cmdOutput, "  %-25s %ds\n", "Timeout:", func() int {
+		if sa.Timeout > 0 {
+			return sa.Timeout
+		}
+		return 600
+	}())
+	fmt.Fprintf(cmdOutput, "  %-25s %s\n", "Context tokens:", func() string {
+		if sa.ContextTokens > 0 {
+			return fmt.Sprintf("%d", sa.ContextTokens)
+		}
+		return color.HiBlackString("(inherit from parent)")
+	}())
+	fmt.Fprintf(cmdOutput, "  %-25s %s\n", "Context keep recent:", func() string {
+		if sa.ContextKeepRecent > 0 {
+			return fmt.Sprintf("%d", sa.ContextKeepRecent)
+		}
+		return color.HiBlackString("(auto)")
+	}())
+	fmt.Fprintln(cmdOutput)
+	color.HiBlack("Usage: /subagent provider <name>  — set subagent provider")
+	color.HiBlack("       /subagent model <name>     — set subagent model")
+	color.HiBlack("       /subagent reset             — reset to defaults (inherit from parent)")
+}
+
+// handleSubagentCommand handles /subagent subcommands
+func handleSubagentCommand(args string, loop *agent.AgentLoop, cfg *config.BugBusterConfig) {
+	parts := strings.Fields(args)
+	if len(parts) == 0 {
+		printSubagentConfig(cfg)
+		return
+	}
+
+	switch parts[0] {
+	case "provider":
+		if len(parts) < 2 {
+			color.Red("Usage: /subagent provider <name>")
+			return
+		}
+		providerName := parts[1]
+		// Verify provider exists
+		if _, ok := cfg.Providers[providerName]; !ok {
+			color.Red("Provider '%s' not found. Available:", providerName)
+			for name := range cfg.Providers {
+				color.Yellow("  - %s (%s)", name, cfg.Providers[name].Model)
+			}
+			return
+		}
+		cfg.Agent.Subagent.Provider = providerName
+		// Re-enable subagents with new config
+		updateSubagentConfig(loop, cfg)
+		color.Green("✓ Subagent provider set to: %s (%s)", providerName, cfg.Providers[providerName].Model)
+
+	case "model":
+		if len(parts) < 2 {
+			color.Red("Usage: /subagent model <name>")
+			return
+		}
+		modelName := parts[1]
+		cfg.Agent.Subagent.Model = modelName
+		// Re-enable subagents with new config
+		updateSubagentConfig(loop, cfg)
+		color.Green("✓ Subagent model set to: %s", modelName)
+
+	case "reset":
+		cfg.Agent.Subagent = config.SubagentYAMLConfig{}
+		updateSubagentConfig(loop, cfg)
+		color.Green("✓ Subagent config reset to defaults (inherit from parent)")
+
+	default:
+		color.Red("Unknown subcommand: %s", parts[0])
+		color.Yellow("Available: provider, model, reset")
+	}
+}
+
+// updateSubagentConfig reconfigures subagent with new settings
+func updateSubagentConfig(loop *agent.AgentLoop, cfg *config.BugBusterConfig) {
+	subagentConfig := agent.DefaultSubagentConfig()
+	subagentConfig.Compactor = loop.Context.Compactor
+	subagentConfig.ContextTokens = loop.Context.MaxTokens
+	subagentConfig.ContextKeepRecent = loop.Context.KeepRecent
+	if loop.RequestTimeout > 0 && loop.RequestTimeout > subagentConfig.Timeout {
+		subagentConfig.Timeout = loop.RequestTimeout
+	}
+	// Apply subagent config from YAML
+	if cfg.Agent.Subagent.Provider != "" {
+		subagentConfig.ProviderName = cfg.Agent.Subagent.Provider
+	}
+	if cfg.Agent.Subagent.Model != "" {
+		subagentConfig.ModelName = cfg.Agent.Subagent.Model
+	}
+	if cfg.Agent.Subagent.MaxConcurrent > 0 {
+		subagentConfig.MaxConcurrent = cfg.Agent.Subagent.MaxConcurrent
+	}
+	if cfg.Agent.Subagent.MaxIterations > 0 {
+		subagentConfig.MaxIterations = cfg.Agent.Subagent.MaxIterations
+	}
+	if cfg.Agent.Subagent.Timeout > 0 {
+		subagentConfig.Timeout = time.Duration(cfg.Agent.Subagent.Timeout) * time.Second
+	}
+	if cfg.Agent.Subagent.ContextTokens > 0 {
+		subagentConfig.ContextTokens = cfg.Agent.Subagent.ContextTokens
+	}
+	if cfg.Agent.Subagent.ContextKeepRecent > 0 {
+		subagentConfig.ContextKeepRecent = cfg.Agent.Subagent.ContextKeepRecent
+	}
+	subagentConfig.Providers = cfg.Providers
+	loop.EnableSubagents(subagentConfig)
+}
+
 func printBackgroundProcesses(bgTool *tools.BackgroundTool) {
 	if bgTool == nil {
 		color.Yellow("Background process manager not available")
@@ -897,7 +1040,7 @@ func printBackgroundProcesses(bgTool *tools.BackgroundTool) {
 	for _, p := range processes {
 		status := color.GreenString("running")
 		if !p.Running.Load() {
-			status = color.RedString("exit(%d)", p.ExitCode)
+			status = color.RedString("exit(%d)", p.ExitCode.Load())
 		}
 		uptime := time.Since(p.StartTime).Truncate(time.Second)
 		cmd := p.Command

@@ -18,6 +18,8 @@ import (
 
 	"github.com/fatih/color"
 
+	"encoding/json"
+
 	"charm.land/bubbles/v2/progress"
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/viewport"
@@ -73,6 +75,9 @@ type TUI struct {
 	totalInTokens  int
 	totalOutTokens int
 	totalDuration  time.Duration
+	genStart       time.Time // when first output token was received
+	genEnd         time.Time // when last output token was received
+	totalGenDur    time.Duration // accumulated generation time
 
 	// Context tokens cache (updated in Update, used in View)
 	// Do NOT read directly from m.loop.Context during streaming — data race!
@@ -121,6 +126,9 @@ type TUI struct {
 
 	// Background process manager
 	bgTool *tools.BackgroundTool
+
+	// Task type for status line
+	taskType string
 }
 
 // streamEventMsg — streaming event sent via tea.Program.Send
@@ -581,7 +589,7 @@ func (m TUI) handleSend() (retModel tea.Model, retCmd tea.Cmd) {
 			for _, p := range processes {
 				status := "running"
 				if !p.Running.Load() {
-					status = fmt.Sprintf("exit(%d)", p.ExitCode)
+					status = fmt.Sprintf("exit(%d)", p.ExitCode.Load())
 				}
 				uptime := time.Since(p.StartTime).Truncate(time.Second)
 				m.output.WriteString(fmt.Sprintf("  #%d PID:%d %s %s %s\n", p.ID, p.PID, status, uptime, p.Command))
@@ -698,6 +706,17 @@ func (m TUI) handleSend() (retModel tea.Model, retCmd tea.Cmd) {
 		m.syncViewport()
 		m.textarea.Reset()
 		return m, nil
+	case "/provider":
+		// List available providers
+		m.output.WriteString(listProvidersTUI(m.cfg, m.providerName) + "\n")
+		m.syncViewport()
+		m.textarea.Reset()
+		return m, nil
+	case "/rename":
+		m.output.WriteString(errorStyle.Render("  ✗ Usage: /rename <new_name>") + "\n")
+		m.syncViewport()
+		m.textarea.Reset()
+		return m, nil
 	default:
 		// Check /auto N
 		if strings.HasPrefix(input, "/auto ") {
@@ -712,6 +731,93 @@ func (m TUI) handleSend() (retModel tea.Model, retCmd tea.Cmd) {
 			m.output.WriteString(color.HiCyanString("🤖 %s", i18n.T("cli.auto_enabled")) + "\n")
 			if m.autoState.MaxIterations != autoMaxIterations {
 				m.output.WriteString(color.HiCyanString("   Max iterations: %d", m.autoState.MaxIterations) + "\n")
+			}
+			m.syncViewport()
+			m.textarea.Reset()
+			return m, nil
+		}
+		// Check /provider <name>
+		if strings.HasPrefix(input, "/provider ") {
+			provName := strings.TrimSpace(strings.TrimPrefix(input, "/provider "))
+			if provName == "" {
+				m.output.WriteString(listProvidersTUI(m.cfg, m.providerName) + "\n")
+			} else {
+				newProvider, err := switchProviderTUI(m.cfg, provName, m.loop, m.providerName)
+				if err != nil {
+					m.output.WriteString(errorStyle.Render(fmt.Sprintf("  ✗ %v", err)) + "\n")
+				} else {
+					m.providerName = provName
+					// Save provider to session
+					if m.session != nil {
+						m.session.ProviderName = provName
+						if m.sessionMgr != nil {
+							m.sessionMgr.SaveSession(m.session)
+						}
+					}
+					m.output.WriteString(color.GreenString("  ✓ Provider switched to: %s", provName) + "\n")
+					_ = newProvider
+				}
+			}
+			m.syncViewport()
+			m.textarea.Reset()
+			return m, nil
+		}
+		// Check /rename <name>
+		if strings.HasPrefix(input, "/rename ") {
+			newName := strings.TrimSpace(strings.TrimPrefix(input, "/rename "))
+			if newName == "" {
+				m.output.WriteString(errorStyle.Render("  ✗ Usage: /rename <new_name>") + "\n")
+			} else if m.session != nil && m.sessionMgr != nil {
+				if err := m.sessionMgr.RenameSession(m.session.ID, newName); err != nil {
+					m.output.WriteString(errorStyle.Render(fmt.Sprintf("  ✗ %v", err)) + "\n")
+				} else {
+					m.session.Name = newName
+					m.output.WriteString(color.GreenString("  ✓ Session renamed to: %s", newName) + "\n")
+				}
+			} else {
+				m.output.WriteString(errorStyle.Render("  ✗ No active session") + "\n")
+			}
+			m.syncViewport()
+			m.textarea.Reset()
+			return m, nil
+		}
+		// Check /task <type> — auto-switch provider based on task type
+		if strings.HasPrefix(input, "/task ") {
+			taskType := strings.TrimSpace(strings.TrimPrefix(input, "/task "))
+			if taskType == "" {
+				// List available task types
+				m.output.WriteString(color.CyanString("🎯 Available task types:\n"))
+				for _, t := range m.cfg.TaskTypes() {
+					provName := m.cfg.GetProviderForTask(t)
+					prefix := "  "
+					if provName == m.providerName {
+						prefix = "→ "
+					}
+					m.output.WriteString(fmt.Sprintf("%s%s → %s\n", prefix, color.HiYellowString(t), provName))
+				}
+				m.output.WriteString(fmt.Sprintf("\n%s /task <type>\n", color.HiBlackString("Switch:")))
+			} else {
+				provName := m.cfg.GetProviderForTask(taskType)
+				if provName == m.providerName {
+					m.output.WriteString(color.HiYellowString("  ⚠ Already using %s for task '%s'\n", provName, taskType))
+				} else {
+					newProvider, err := switchProviderTUI(m.cfg, provName, m.loop, m.providerName)
+					if err != nil {
+						m.output.WriteString(errorStyle.Render(fmt.Sprintf("  ✗ %v", err)) + "\n")
+					} else {
+						m.providerName = provName
+						// Save provider to session
+						if m.session != nil {
+							m.session.ProviderName = provName
+							if m.sessionMgr != nil {
+								m.sessionMgr.SaveSession(m.session)
+							}
+						}
+						m.taskType = taskType
+						m.output.WriteString(color.GreenString("  ✓ Task '%s' → provider %s\n", taskType, provName))
+						_ = newProvider
+					}
+				}
 			}
 			m.syncViewport()
 			m.textarea.Reset()
@@ -742,7 +848,31 @@ func (m TUI) handleSend() (retModel tea.Model, retCmd tea.Cmd) {
 	m.totalInTokens = 0
 	m.totalOutTokens = 0
 	m.totalDuration = 0
-		m.pendingAction = ""
+	m.pendingAction = ""
+
+	// Auto-switch provider based on task content
+	if m.cfg.AgentProviders != nil && m.taskType == "" {
+		detectedTask := detectTaskType(input)
+		if detectedTask != "" {
+			provName := m.cfg.GetProviderForTask(detectedTask)
+			if provName != "" && provName != m.providerName {
+				newProvider, err := switchProviderTUI(m.cfg, provName, m.loop, m.providerName)
+				if err == nil {
+					m.providerName = provName
+					m.taskType = detectedTask
+					if m.session != nil {
+						m.session.ProviderName = provName
+						if m.sessionMgr != nil {
+							m.sessionMgr.SaveSession(m.session)
+						}
+					}
+					m.output.WriteString(color.HiCyanString("  🔄 Auto-switched to %s (task: %s)\n", provName, detectedTask))
+					_ = newProvider
+				}
+			}
+		}
+	}
+
 	m.output.WriteString(userMsgStyle.Render("  ❯ "+input) + "\n")
 	m.output.WriteString(separatorStyle.Render("  ──────────────────────────────────────────────────") + "\n")
 	m.streaming = true
@@ -799,12 +929,16 @@ func (m TUI) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.event.Type {
 	case provider.EventTextDelta:
-		if m.compacting {
-			m.compacting = false
+		// Track generation time for accurate speed calculation
+		m.totalOutTokens++
+		if m.genStart.IsZero() {
+			m.genStart = time.Now()
+		} else {
+			// Accumulate generation time between tokens
+			m.totalGenDur += time.Since(m.genEnd)
 		}
-		m.flushThinking()
-		// Buffer text — it will be rendered via glamour on Flush()
-		m.mdRenderer.Render(msg.event.Text)
+		m.genEnd = time.Now()
+
 		// Track last line as pending action
 		text := msg.event.Text
 		if len(text) > 0 {
@@ -930,6 +1064,13 @@ func (m TUI) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 	case provider.EventUsage:
 		m.totalInTokens = msg.event.InputTokens
 		m.totalOutTokens = msg.event.OutputTokens
+		// Track generation time for accurate speed calculation
+		if msg.event.OutputTokens > 0 {
+			if m.genStart.IsZero() {
+				m.genStart = time.Now()
+			}
+			m.genEnd = time.Now()
+		}
 		// Update ctxTokens from Usage data (safely, no data race)
 		if msg.event.InputTokens > 0 {
 			m.ctxTokens = msg.event.InputTokens + msg.event.OutputTokens
@@ -1048,11 +1189,17 @@ func (m TUI) View() tea.View {
 
 
 	// Status bar with tokens, time, context bar
-	statusBar := FormatStatusLine(
+	genDur := m.totalGenDur
+	if genDur == 0 && !m.genStart.IsZero() && m.genEnd.After(m.genStart) {
+		// Fallback: use time between first and last token
+		genDur = m.genEnd.Sub(m.genStart)
+	}
+	statusBar := FormatStatusLineEx(
 		m.totalInTokens, m.totalOutTokens,
-		m.totalDuration,
+		m.totalDuration, genDur,
 		m.ctxTokens, m.ctxMaxTokens,
 		m.providerName, provCfg.Model,
+		m.taskType,
 	)
 
 	// Input field — change placeholder if waiting for ask_user response
@@ -1095,6 +1242,10 @@ func (m TUI) View() tea.View {
 
 // runTUI starts TUI mode. Returns true if need to switch to CLI.
 func runTUI(cfg *config.BugBusterConfig, loop *agent.AgentLoop, ct *ChangeTracker, providerName string, mode string) (retBool bool) {
+	// Set TUI active flag — crash handler should not write stderr to terminal
+	tuiActive = true
+	defer func() { tuiActive = false }()
+
 	// Recover from panic — write crash log to file instead of terminal
 	defer func() {
 		if r := recover(); r != nil {
@@ -1129,6 +1280,20 @@ func runTUI(cfg *config.BugBusterConfig, loop *agent.AgentLoop, ct *ChangeTracke
 	m.session = currentSession
 	m.sessionMgr = sessionMgr
 	loop.Context.SessionID = currentSession.ID
+
+	// Restore provider from session if available
+	if currentSession.ProviderName != "" {
+		if provCfg, ok := cfg.Providers[currentSession.ProviderName]; ok {
+			p, err := provider.NewFromConfig(currentSession.ProviderName, provCfg)
+			if err == nil {
+				loop.SetProvider(p)
+				providerName = currentSession.ProviderName
+			m.taskType = cfg.GetTaskTypeForProvider(currentSession.ProviderName)
+			}
+		}
+	}
+
+	m.providerName = providerName
 
 	// Set global session references for crash recovery
 	globalSession = currentSession
@@ -1239,6 +1404,37 @@ func handleEmotionsCommandTUI(loop *agent.AgentLoop) string {
 	return fmt.Sprintf("💭 %s %s %s\n  %s", result.Emoji, result.Emotion, result.Bar, result.Detail)
 }
 
+// listProvidersTUI lists available providers in TUI mode
+func listProvidersTUI(cfg *config.BugBusterConfig, currentProvider string) string {
+	var sb strings.Builder
+	sb.WriteString(color.CyanString("📡 Available providers:\n"))
+	for name, prov := range cfg.Providers {
+		prefix := "  "
+		if name == currentProvider {
+			prefix = "→ "
+		}
+		sb.WriteString(fmt.Sprintf("%s%s (%s, %s)\n", prefix, color.HiYellowString(name), prov.Type, prov.Model))
+	}
+	sb.WriteString(fmt.Sprintf("\n%s /provider <name>\n", color.HiBlackString("Switch:")))
+	return sb.String()
+}
+
+// switchProviderTUI switches provider in TUI mode
+func switchProviderTUI(cfg *config.BugBusterConfig, providerName string, loop *agent.AgentLoop, currentProvider string) (provider.Provider, error) {
+	provCfg, ok := cfg.Providers[providerName]
+	if !ok {
+		return nil, fmt.Errorf("provider not found: %s\nAvailable: %s", providerName, strings.Join(getProviderNames(cfg.Providers), ", "))
+	}
+
+	p, err := provider.NewFromConfig(providerName, provCfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create provider: %v", err)
+	}
+
+	loop.SetProvider(p)
+	return p, nil
+}
+
 // handleMeshStatsCommandTUI handles /mesh-stats command in TUI mode
 func handleMeshStatsCommandTUI(loop *agent.AgentLoop) string {
 	cavibora, ok := loop.GetProvider().(*provider.CaviboraProvider)
@@ -1254,4 +1450,184 @@ func handleMeshStatsCommandTUI(loop *agent.AgentLoop) string {
 	return color.GreenString("🧠 %s", i18n.T("cli.mesh_stats_result",
 		result.Cells, result.Bindings, result.Learnings,
 		result.ModelName, result.Version, result.Uptime, result.Temperature))
+}
+// taskKeywordsCache caches loaded keywords from JSON
+var taskKeywordsCache struct {
+	once      sync.Once
+	keywords  map[string]string // keyword -> task type
+	typos     map[string]string // typo -> correction
+	loadErr   error
+}
+
+// loadTaskKeywords loads keywords from JSON file with fallback to hardcoded defaults
+func loadTaskKeywords() (map[string]string, map[string]string, error) {
+	taskKeywordsCache.once.Do(func() {
+		// Try to find keywords file in multiple locations
+		locations := []string{
+			filepath.Join(".", "configs", "task_keywords.json"),
+			filepath.Join(".", "task_keywords.json"),
+			filepath.Join("/etc/bugbuster", "task_keywords.json"),
+		}
+
+		// Also check executable directory
+		if exe, err := os.Executable(); err == nil {
+			exeDir := filepath.Dir(exe)
+			locations = append(locations,
+				filepath.Join(exeDir, "configs", "task_keywords.json"),
+				filepath.Join(exeDir, "task_keywords.json"),
+			)
+		}
+
+		// Also check home directory
+		if home, err := os.UserHomeDir(); err == nil {
+			locations = append(locations,
+				filepath.Join(home, ".bugbuster", "task_keywords.json"),
+			)
+		}
+
+		var data []byte
+		var foundPath string
+		for _, loc := range locations {
+			if d, err := os.ReadFile(loc); err == nil {
+				data = d
+				foundPath = loc
+				break
+			}
+		}
+
+		if data == nil {
+			// Fallback to hardcoded defaults
+			taskKeywordsCache.keywords = getDefaultTaskKeywords()
+			taskKeywordsCache.typos = getDefaultTypos()
+			return
+		}
+
+		// Parse JSON
+		var cfg struct {
+			Thinking map[string]struct {
+				Keywords []string `json:"keywords"`
+				Task     string   `json:"task"`
+			} `json:"thinking"`
+			Fast map[string]struct {
+				Keywords []string `json:"keywords"`
+				Task     string   `json:"task"`
+			} `json:"fast"`
+			Typos map[string]string `json:"typos"`
+		}
+
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			taskKeywordsCache.keywords = getDefaultTaskKeywords()
+			taskKeywordsCache.typos = getDefaultTypos()
+			taskKeywordsCache.loadErr = fmt.Errorf("failed to parse %s: %v", foundPath, err)
+			return
+		}
+
+		keywords := make(map[string]string)
+		for _, cat := range cfg.Thinking {
+			for _, kw := range cat.Keywords {
+				keywords[kw] = cat.Task
+			}
+		}
+		for _, cat := range cfg.Fast {
+			for _, kw := range cat.Keywords {
+				keywords[kw] = cat.Task
+			}
+		}
+
+		taskKeywordsCache.keywords = keywords
+		taskKeywordsCache.typos = cfg.Typos
+	})
+
+	return taskKeywordsCache.keywords, taskKeywordsCache.typos, taskKeywordsCache.loadErr
+}
+
+// normalizeInput normalizes user input: lowercase, fix typos, transliterate
+func normalizeInput(input string) string {
+	lower := strings.ToLower(input)
+
+	// Load typos map
+	_, typos, _ := loadTaskKeywords()
+
+	// Fix common typos
+	for typo, correction := range typos {
+		if strings.Contains(lower, typo) {
+			lower = strings.ReplaceAll(lower, typo, correction)
+		}
+	}
+
+	// Transliterate common patterns: z -> ж, zh -> ж, sh -> ш, ch -> ч, etc.
+	translit := map[string]string{
+		"zhit": "жить", "zh": "ж", "sh": "ш", "ch": "ч", "sch": "щ",
+		"ya": "я", "yu": "ю", "ts": "ц",
+	}
+	for from, to := range translit {
+		lower = strings.ReplaceAll(lower, from, to)
+	}
+
+	return lower
+}
+
+// detectTaskType analyzes user input and returns the matching task type
+// for auto-switching to the appropriate provider (thinking vs fast)
+// Loads keywords from JSON file with fallback to hardcoded defaults
+func detectTaskType(input string) string {
+	lower := normalizeInput(input)
+
+	keywords, _, _ := loadTaskKeywords()
+
+	// Check keywords (thinking first, then fast — thinking has higher priority)
+	// Keywords are already ordered by priority in the JSON file
+	for kw, taskType := range keywords {
+		if strings.Contains(lower, kw) {
+			return taskType
+		}
+	}
+
+	return "" // No auto-switch — use current provider
+}
+
+// getDefaultTaskKeywords returns hardcoded fallback keywords
+func getDefaultTaskKeywords() map[string]string {
+	return map[string]string{
+		// Thinking keywords (analysis, architecture, debugging)
+		"analyz": "analyze", "анализ": "analyze", "analiza": "analyze", "analyse": "analyze",
+		"оцени": "review", "review": "review", "аудит": "review", "audit": "review",
+		"архитект": "architect", "architect": "architect", "план": "architect", "plan": "architect",
+		"дизайн": "design", "design": "design", "проектиров": "design",
+		"дебаг": "debug", "debug": "debug", "баг": "debug", "bug": "debug", "ошибк": "debug", "error": "debug",
+		"исследуй": "analyze", "investigat": "analyze", "изучи": "analyze",
+		"оптимизи": "analyze", "optimiz": "analyze", "улучш": "analyze", "improv": "analyze",
+		"рефактор": "analyze", "refactor": "analyze", "перепиши": "analyze", "rewrit": "analyze",
+		"сравни": "analyze", "compar": "analyze",
+		"уязвим": "review", "vulnerabilit": "review", "security": "review", "безопасн": "review",
+		"сложн": "analyze", "complex": "analyze", "deep": "analyze", "глубок": "analyze",
+		"подробн": "analyze", "detail": "analyze", "thorough": "analyze", "детальн": "analyze",
+		"почему": "analyze", "why": "analyze", "как работает": "analyze", "how does": "analyze",
+		"объясни": "analyze", "explain": "analyze", "расскажи": "analyze",
+		"стратег": "architect", "strateg": "architect", "roadmap": "architect",
+		"паттерн": "architect", "pattern": "architect", "микросервис": "architect",
+		"производительн": "analyze", "performance": "analyze", "benchmark": "analyze",
+		"миграц": "architect", "migrat": "architect",
+		// Fast keywords (coding, writing, simple tasks)
+		"напиши": "code", "write": "code", "создай": "code", "creat": "code", "добавь": "code", "add": "code",
+		"исправь": "code", "fix": "code", "поменяй": "code", "chang": "code", "обнов": "code", "updat": "code",
+		"удали": "code", "delet": "code", "remove": "code", "переименуй": "code", "renam": "code",
+		"запусти": "code", "run": "code", "тест": "code", "test": "code",
+		"покажи": "code", "show": "code", "выведи": "code", "print": "code", "список": "code", "list": "code",
+		"коммент": "code", "comment": "code", "документ": "code", "doc": "code",
+		"implement": "code", "реализуй": "code", "код": "code", "code": "code", "функци": "code", "function": "code",
+		"метод": "code", "method": "code", "класс": "code", "class": "code", "module": "code", "модуль": "code",
+		"переведи": "code", "translat": "code", "скопируй": "code", "copy": "code", "вставь": "code", "paste": "code",
+		"форматируй": "code", "format": "code", "отступ": "code", "indent": "code",
+	}
+}
+
+// getDefaultTypos returns hardcoded fallback typos
+func getDefaultTypos() map[string]string {
+	return map[string]string{
+		"аналз": "анализ", "бэг": "баг", "дебуг": "дебаг",
+		"оптимизац": "оптимизи", "рефакторинг": "рефактор",
+		"архитектур": "архитект", "обясни": "объясни",
+		"напишиь": "напиши", "исправть": "исправь",
+	}
 }
