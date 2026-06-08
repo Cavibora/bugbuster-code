@@ -16,20 +16,27 @@ const DelegateTaskToolName = "delegate_task"
 
 // SubagentConfig configures behavior subagents.
 type SubagentConfig struct {
-	MaxConcurrent int           // max concurrent subagents (default: 3)
-	Timeout       time.Duration // timeout for subagent (default: 10m)
-	MaxIterations int           // max loop iterations for subagent (default: 30)
-	MaxResultLen  int           // max result length in characters (default: 8000)
-	Compactor     Compactor     // LLM compactor from parent (can be nil)
+	MaxConcurrent      int                          // max concurrent subagents (default: 3)
+	Timeout            time.Duration                // timeout for subagent (default: 10m)
+	MaxIterations      int                          // max loop iterations for subagent (default: 15)
+	MaxResultLen       int                          // max result length in characters (default: 8000)
+	Compactor          Compactor                    // LLM compactor from parent (can be nil)
+	ContextTokens      int                          // context window size (0 = inherit from parent)
+	ContextKeepRecent  int                          // keep recent messages on compaction (0 = auto)
+	ProviderName       string                       // provider name for subagent (empty = inherit from parent)
+	ModelName          string                       // model name override (empty = use provider default)
+	Providers          map[string]provider.ProviderConfig // available providers for creating subagent provider
 }
 
 // DefaultSubagentConfig returns configuration default.
 func DefaultSubagentConfig() SubagentConfig {
 	return SubagentConfig{
-		MaxConcurrent: 3,
-		Timeout:       10 * time.Minute,
-		MaxIterations: 30,
-		MaxResultLen:  8000,
+		MaxConcurrent:     3,
+		Timeout:          10 * time.Minute,
+		MaxIterations:    15,
+		MaxResultLen:     8000,
+		ContextTokens:    0, // 0 = inherit from parent
+		ContextKeepRecent: 0,
 	}
 }
 
@@ -186,6 +193,7 @@ func (t *SubagentTool) runSubagent(ctx context.Context, loop *AgentLoop, taskDes
 
 	var result strings.Builder
 	var toolResults []string // collect tool results for summary
+	var compactionCount int  // count compactions to detect infinite loops
 	iteration := 0
 
 	for event := range eventCh {
@@ -267,6 +275,22 @@ func (t *SubagentTool) runSubagent(ctx context.Context, loop *AgentLoop, taskDes
 				}
 			}
 		case provider.EventCompaction:
+			compactionCount++
+			if compactionCount >= 3 {
+				// Too many compactions — subagent is stuck in a loop
+				// Return what we have so far with a warning
+				result.WriteString(fmt.Sprintf("\n\n⚠️ %s", i18n.T("errors.subagent_compaction_loop")))
+				return result.String(), nil
+			}
+			if compactionCount == 2 {
+				// Second compaction — subagent is likely stuck, force finish on next iteration
+				if progressCh != nil {
+					progressCh <- tools.AsyncEvent{
+						Type:   "progress",
+						Output: "⚠️ Context compacted twice, finishing up...",
+					}
+				}
+			}
 			if progressCh != nil {
 				progressCh <- tools.AsyncEvent{
 					Type:   "progress",
@@ -363,14 +387,58 @@ func newSubagentLoop(
 		}
 	}
 
+	// Determine provider for subagent
+	subProvider := prov // default: inherit from parent
+	if config.ProviderName != "" && config.Providers != nil {
+		if provCfg, ok := config.Providers[config.ProviderName]; ok {
+			// Override model if specified
+			if config.ModelName != "" {
+				provCfg.Model = config.ModelName
+			}
+			if p, err := provider.NewFromConfig(config.ProviderName, provCfg); err == nil {
+				subProvider = p
+			}
+		}
+	} else if config.ModelName != "" && config.Providers != nil {
+		// No provider specified, but model specified — find provider with this model
+		for provName, provCfg := range config.Providers {
+			if provCfg.Model == config.ModelName {
+				if p, err := provider.NewFromConfig(provName, provCfg); err == nil {
+					subProvider = p
+				}
+				break
+			}
+		}
+	}
+
+	// Subagents have stricter loop detection than main agent
+	loopDetector := NewLoopDetector()
+	loopDetector.SetToolRepeatThreshold(3)       // 3 repeats of same tool = loop (vs 8 for main)
+	loopDetector.SetRepeatThreshold(2)           // 2 identical iterations = loop (vs 6 for main)
+	loopDetector.SetTextSimilarityThreshold(0.5)  // More aggressive text similarity detection
+
+	// Context window: inherit from parent if ContextTokens is 0
+	contextTokens := config.ContextTokens
+	if contextTokens == 0 {
+		contextTokens = 24000 // default fallback
+	}
+	contextKeepRecent := config.ContextKeepRecent
+	if contextKeepRecent == 0 {
+		// Keep 2/3 of context as recent messages
+		contextKeepRecent = contextTokens * 2 / 3 / 500 // ~2/3 of context in messages
+		if contextKeepRecent < 8 {
+			contextKeepRecent = 8
+		}
+	}
+
 	loop := &AgentLoop{
-		Tools:          filteredTools,
-		Context:        NewConversationContextWithTokens(16000, 12),
-		provider:       prov,
-		LoopDetector:   NewLoopDetector(),
-		maxIterations:  config.MaxIterations,
-		nonInteractive: true,
-		userInject:     make(chan string, 16),
+		Tools:           filteredTools,
+		Context:         NewConversationContextWithTokens(contextTokens, contextKeepRecent),
+		provider:        subProvider,
+		LoopDetector:   loopDetector,
+		maxIterations:   config.MaxIterations,
+		nonInteractive:  true,
+		userInject:      make(chan string, 16),
 		RequestTimeout:  10 * time.Minute,
 		ThinkingTimeout: 5 * time.Minute,
 		IdleTimeout:     3 * time.Minute,

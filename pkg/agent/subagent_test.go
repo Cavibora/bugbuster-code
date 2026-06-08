@@ -374,8 +374,8 @@ func TestDefaultSubagentConfig(t *testing.T) {
 	if cfg.Timeout.Seconds() != 600 {
 		t.Errorf("expected Timeout=10m, got %v", cfg.Timeout)
 	}
-	if cfg.MaxIterations != 30 {
-		t.Errorf("expected MaxIterations=30, got %d", cfg.MaxIterations)
+	if cfg.MaxIterations != 15 {
+		t.Errorf("expected MaxIterations=15, got %d", cfg.MaxIterations)
 	}
 	if cfg.MaxResultLen != 8000 {
 		t.Errorf("expected MaxResultLen=8000, got %d", cfg.MaxResultLen)

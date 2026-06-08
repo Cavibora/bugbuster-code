@@ -326,15 +326,40 @@ func (a *AgentLoop) handleStreamToolCalls(
 	eventCh chan<- provider.StreamEvent,
 ) (continueLoop bool) {
 	for _, tc := range toolCalls {
-		tool, ok := a.Tools[tc.ToolName]
+		// Normalize tool name (handles PascalCase, aliases, typos)
+		normalizedToolName := normalizeToolName(tc.ToolName)
+		tool, ok := a.Tools[normalizedToolName]
 		if !ok {
+			// Try fuzzy match using Levenshtein distance
+			availableTools := make(map[string]bool)
+			for name := range a.Tools {
+				availableTools[name] = true
+			}
+			if closest, found := findClosestToolName(tc.ToolName, availableTools); found {
+				normalizedToolName = closest
+				tool = a.Tools[closest]
+				ok = true
+			}
+		}
+		if !ok {
+			// List available tools for helpful error message
+			availableTools := make([]string, 0, len(a.Tools))
+			for name := range a.Tools {
+				availableTools = append(availableTools, name)
+			}
 			errMsg := i18n.T("errors.unknown_tool", tc.ToolName)
-			eventCh <- provider.StreamEvent{Type: provider.EventTextDelta, Text: "\n[ERROR: " + errMsg + "]\n"}
+			hint := fmt.Sprintf("\n\nAvailable tools: %s\nCorrect format: %s",
+				strings.Join(availableTools, ", "),
+				getToolCallHint("read"))
+			eventCh <- provider.StreamEvent{Type: provider.EventTextDelta, Text: "\n[ERROR: " + errMsg + hint + "]\n"}
 			a.Context.Messages = append(a.Context.Messages, provider.ToolResultMsg(
-				tc.ToolUseID, tc.ToolName, "ERROR: "+errMsg, true,
+				tc.ToolUseID, tc.ToolName, "ERROR: "+errMsg+hint, true,
 			))
 			continue
 		}
+
+		// Use normalized name for tool execution
+		tc.ToolName = normalizedToolName
 
 		// Check error parsing parameters
 		if parseErr, hasErr := tc.Input["_parse_error"]; hasErr {
@@ -434,8 +459,14 @@ func (a *AgentLoop) handleStreamToolCalls(
 		}
 
 		if toolResult.Error != "" {
+			// Auto-repair: if missing parameters, add hint with correct format
+			errorMsg := toolResult.Error
+			if strings.Contains(errorMsg, "param_required") || strings.Contains(errorMsg, "param_path") || strings.Contains(errorMsg, "param_content") || strings.Contains(errorMsg, "param_query") || strings.Contains(errorMsg, "param_pattern") || strings.Contains(errorMsg, "param_url") {
+				hint := getToolCallHint(tc.ToolName)
+				errorMsg = fmt.Sprintf("%s\n\nCorrect format: %s", errorMsg, hint)
+			}
 			a.Context.Messages = append(a.Context.Messages, provider.ToolResultMsg(
-				tc.ToolUseID, tc.ToolName, "ERROR: "+toolResult.Error, true,
+				tc.ToolUseID, tc.ToolName, "ERROR: "+errorMsg, true,
 			))
 		} else {
 			a.Context.Messages = append(a.Context.Messages, provider.ToolResultMsg(
@@ -506,7 +537,25 @@ func (a *AgentLoop) handleStreamFinalResponse(
 		OutputTokens: EstimateTokens(text),
 	}
 
-	// Final event
+	// Auto-continue: if model responds with text only (no tool calls),
+	// prompt it to continue working with tools (max 3 times)
+	// Only when auto-continue is enabled (TUI mode)
+	// NOTE: Check auto-continue BEFORE sending EventDone,
+	// because TUI will close the session on EventDone.
+	if a.autoContinue && a.autoContinueCount < 3 && a.Context != nil && len(a.Context.Messages) > 0 {
+		lastMsg := a.Context.Messages[len(a.Context.Messages)-1]
+		if lastMsg.Role == "assistant" && len(text) > 0 {
+			// Model responded with text only, no tool calls
+			// Add a hint to continue with tools
+			a.autoContinueCount++
+			continueHint := "Continue working. Use tools to read files, run commands, or search code. Do not just describe what to do — actually do it using tools."
+			a.Context.Add(provider.UserMsg(continueHint))
+			eventCh <- provider.StreamEvent{Type: provider.EventTextDelta, Text: "\n[Auto-continue: prompting model to use tools]\n"}
+			return true, nil // continue loop — don't send EventDone
+		}
+	}
+
+	// Final event — only sent when session is truly done
 	eventCh <- provider.StreamEvent{
 		Type:     provider.EventDone,
 		Duration: time.Since(totalStart),
@@ -528,4 +577,29 @@ func (a *AgentLoop) handleStreamFinalResponse(
 	}
 
 	return false, nil
+}
+
+// getToolCallHint returns a hint with the correct format for a tool call.
+func getToolCallHint(toolName string) string {
+	hints := map[string]string{
+		"read":    `<tool name="read"><path>/path/to/file</path></tool>`,
+		"write":   `<tool name="write"><path>/path/to/file</path><content>file content here</content></tool>`,
+		"edit":    `<tool name="edit"><path>/path/to/file</path><old>old text</old><new>new text</new></tool>`,
+		"bash":    `<tool name="bash"><command>ls -la</command></tool>`,
+		"grep":    `<tool name="grep"><pattern>search_pattern</pattern><path>/path/to/dir</path></tool>`,
+		"glob":    `<tool name="glob"><pattern>**/*.go</pattern><path>/path/to/dir</path></tool>`,
+		"memory":  `<tool name="memory"><action>save</action><key>my_key</key><value>my value</value></tool>`,
+		"lsp":     `<tool name="lsp"><operation>document_symbols</operation><file_path>/path/to/file.go</file_path></tool>`,
+		"browse":  `<tool name="browse"><action>search</action><query>search query</query></tool>`,
+		"web_fetch": `<tool name="web_fetch"><url>https://example.com</url></tool>`,
+		"ask_user": `<tool name="ask_user"><question>Your question here</question></tool>`,
+		"todo_write": `<tool name="todo_write"><todos>[{"id":"1","subject":"Task","status":"pending"}]</todos></tool>`,
+		"todo_read": `<tool name="todo_read"></tool>`,
+		"learn":   `<tool name="learn"><input>input text</input><output>expected output</output></tool>`,
+		"delegate_task": `<tool name="delegate_task"><task>Task description</task></tool>`,
+	}
+	if hint, ok := hints[toolName]; ok {
+		return hint
+	}
+	return fmt.Sprintf(`<tool name="%s"><param1>value1</param1></tool>`, toolName)
 }

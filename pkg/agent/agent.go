@@ -46,6 +46,13 @@ type AgentLoop struct {
 
 	// maxIterations limits loop iterations (0 = unlimited, for subagents)
 	maxIterations int
+
+	// autoContinueCount limits auto-continues (max 3)
+	autoContinueCount int
+
+	// autoContinue enables auto-continuation when model responds with text only
+	// Only enabled in TUI mode, not in sync mode (Run)
+	autoContinue bool
 }
 
 // NewAgentLoop creates a new agent loop
@@ -224,6 +231,12 @@ func (a *AgentLoop) effectiveMaxTokens() int {
 	return 16384
 }
 
+// SetAutoContinue enables auto-continuation when model responds with text only.
+// Only enabled in TUI mode, not in sync mode (Run).
+func (a *AgentLoop) SetAutoContinue(v bool) {
+	a.autoContinue = v
+}
+
 // EnableSubagents registers the delegate_task tool and configures
 // subagent infrastructure for this AgentLoop.
 func (a *AgentLoop) EnableSubagents(config SubagentConfig) {
@@ -356,6 +369,15 @@ func (a *AgentLoop) runLoop() (string, error) {
 							return text, errors.New(msg)
 						}
 					}
+					// Auto-continue: model responded without tool calls (max 3 times)
+					// Only when auto-continue is enabled (TUI mode)
+					if a.autoContinue && a.autoContinueCount < 3 && a.Context != nil {
+						a.autoContinueCount++
+						a.Context.Add(provider.UserMsg(
+							"Continue working. Use tools to read files, run commands, or search code. Do not just describe what to do — actually do it using tools.",
+						))
+						continue
+					}
 					return text, nil
 				}
 				// toolCalls exist but with empty parameters — and no XML fallback
@@ -368,15 +390,40 @@ func (a *AgentLoop) runLoop() (string, error) {
 
 		// Execute all tool calls
 		for _, tc := range toolCalls {
-			tool, ok := a.Tools[tc.ToolName]
+			// Normalize tool name (handles PascalCase, aliases, typos)
+			normalizedToolName := normalizeToolName(tc.ToolName)
+			tool, ok := a.Tools[normalizedToolName]
+			if !ok {
+				// Try fuzzy match using Levenshtein distance
+				availableTools := make(map[string]bool)
+				for name := range a.Tools {
+					availableTools[name] = true
+				}
+				if closest, found := findClosestToolName(tc.ToolName, availableTools); found {
+					normalizedToolName = closest
+					tool = a.Tools[closest]
+					ok = true
+				}
+			}
 			if !ok {
 				errMsg := i18n.T("errors.unknown_tool", tc.ToolName)
 				logger.Error("unknown tool requested", "tool", tc.ToolName)
+				// List available tools for helpful error message
+				availableTools := make([]string, 0, len(a.Tools))
+				for name := range a.Tools {
+					availableTools = append(availableTools, name)
+				}
+				hint := fmt.Sprintf("\n\nAvailable tools: %s\nCorrect format: %s",
+					strings.Join(availableTools, ", "),
+					getToolCallHint("read"))
 				a.Context.Messages = append(a.Context.Messages, provider.ToolResultMsg(
-					tc.ToolUseID, tc.ToolName, "ERROR: "+errMsg, true,
+					tc.ToolUseID, tc.ToolName, "ERROR: "+errMsg+hint, true,
 				))
 				continue
 			}
+
+			// Use normalized name for tool execution
+			tc.ToolName = normalizedToolName
 
 			// Check parameter parsing error (from providers like Anthropic/z.ai)
 			if parseErr, hasErr := tc.Input["_parse_error"]; hasErr {
@@ -692,6 +739,7 @@ func BuildSystemPrompt(projectDir string, toolList map[string]tools.Tool) string
 	sb.WriteString(i18n.T("system_prompt.rule8"))
 	sb.WriteString(i18n.T("system_prompt.rule9"))
 	sb.WriteString(i18n.T("system_prompt.rule10"))
+	sb.WriteString(i18n.T("system_prompt.rule11"))
 
 	// Load agent instructions from AGENT.md, CLAUDE.md, .cursorrules, etc.
 	if projectDir != "" {
