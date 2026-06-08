@@ -18,11 +18,12 @@ import (
 
 // Session — serializable session state
 type Session struct {
-	ID        string             `json:"id"`
-	Name      string             `json:"name,omitempty"`
-	CreatedAt time.Time          `json:"created_at"`
-	UpdatedAt time.Time          `json:"updated_at"`
-	Messages  []provider.Message `json:"messages"`
+	ID           string             `json:"id"`
+	Name         string             `json:"name,omitempty"`
+	ProviderName string             `json:"provider_name,omitempty"`
+	CreatedAt    time.Time          `json:"created_at"`
+	UpdatedAt    time.Time          `json:"updated_at"`
+	Messages     []provider.Message `json:"messages"`
 }
 
 // SessionManager is the session manager (save/load)
