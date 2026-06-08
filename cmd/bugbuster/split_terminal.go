@@ -208,21 +208,44 @@ func (st *SplitTerminal) Run() bool {
 	// Ctrl+C processing
 	var currentCancel context.CancelFunc
 	var interrupted bool
+	var ctrlCCount int
+	var lastCtrlC time.Time
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT)
 	go func() {
 		for range sigCh {
+			now := time.Now()
 			st.mu.Lock()
 			if st.streaming && currentCancel != nil {
+				// Cancel streaming request
 				color.Yellow("\n" + i18n.T("cli.cancel_request"))
 				currentCancel()
 				interrupted = true
+				ctrlCCount = 0
 				if st.askCh != nil {
 					select {
 					case st.askCh.Answer <- "":
 					default:
 					}
+				}
+			} else {
+				// Not streaming — count Ctrl+C presses
+				if now.Sub(lastCtrlC) < 2*time.Second {
+					ctrlCCount++
+				} else {
+					ctrlCCount = 1
+				}
+				lastCtrlC = now
+				if ctrlCCount >= 2 {
+					// Double Ctrl+C — exit
+					st.mu.Unlock()
+					st.saveAndExit()
+					color.Cyan("\n%s", i18n.T("cli.goodbye"))
+					os.Exit(0)
+				} else {
+					// Single Ctrl+C — show hint
+					color.Yellow("\n%s", i18n.T("cli.ctrl_c_hint"))
 				}
 			}
 			st.mu.Unlock()
@@ -385,8 +408,9 @@ func (st *SplitTerminal) runStreamingQuery(input string, currentCancel *context.
 // Uses a simple approach: read lines one at a time.
 // Lines ending with \ are continuation lines.
 // Empty lines are ignored (unless in multiline mode).
-// Paste detection is handled by checking if stdin has more data
-// available after each line — if so, keep reading.
+// Paste detection: after reading a line, wait up to 50ms for more data.
+// If more data arrives within 50ms, it's a paste — keep reading.
+// If no data arrives within 50ms, it's a single line — process it.
 func (st *SplitTerminal) readMultilineInput(rl *readline.Instance) string {
 	prompt := color.HiGreenString("❯ ")
 	continuation := color.HiGreenString("... ")
@@ -394,6 +418,7 @@ func (st *SplitTerminal) readMultilineInput(rl *readline.Instance) string {
 	rl.SetPrompt(prompt)
 
 	var lines []string
+	var isPaste bool
 
 	// Check if we have a pending line from previous paste detection
 	if st.pendingLine != nil {
@@ -414,33 +439,6 @@ func (st *SplitTerminal) readMultilineInput(rl *readline.Instance) string {
 	}
 
 	for {
-		// If we already have lines from paste detection, check if more
-		// data is available on stdin before reading the next line.
-		// This prevents pasted text from being split into separate requests.
-		if len(lines) > 0 && stdinHasData() {
-			// More data available — this is a paste, read next line immediately
-			line, err := rl.Readline()
-			if err != nil {
-				if err == readline.ErrInterrupt {
-					if len(lines) > 0 {
-						lines = nil
-						fmt.Println()
-						continue
-					}
-					return ""
-				}
-				// EOF — return what we have
-				result := strings.Join(lines, "\n")
-				rl.SetPrompt(prompt)
-				return result
-			}
-			line = strings.TrimSpace(line)
-			if line != "" {
-				lines = append(lines, line)
-			}
-			continue
-		}
-
 		line, err := rl.Readline()
 		if err != nil {
 			if err == readline.ErrInterrupt {
@@ -451,7 +449,10 @@ func (st *SplitTerminal) readMultilineInput(rl *readline.Instance) string {
 				}
 				return ""
 			}
-			return ""
+			// EOF — return what we have
+			result := strings.Join(lines, "\n")
+			rl.SetPrompt(prompt)
+			return result
 		}
 
 		line = strings.TrimSpace(line)
@@ -460,6 +461,48 @@ func (st *SplitTerminal) readMultilineInput(rl *readline.Instance) string {
 		}
 
 		lines = append(lines, line)
+
+		// Check if this is a paste by waiting for more data
+		// Wait up to 100ms — if more data arrives, it's a paste
+		if len(lines) == 1 {
+			// First line — check if more data is coming (paste detection)
+			time.Sleep(50 * time.Millisecond)
+			isPaste = stdinHasData()
+		}
+
+		// If pasting, keep reading until no more data
+		if isPaste {
+			for stdinHasData() {
+				nextLine, nextErr := rl.Readline()
+				if nextErr != nil {
+					if nextErr == readline.ErrInterrupt {
+						lines = nil
+						fmt.Println()
+						break
+					}
+					// EOF or other error — return what we have
+					result := strings.Join(lines, "\n")
+					rl.SetPrompt(prompt)
+					return result
+				}
+				nextLine = strings.TrimSpace(nextLine)
+				if nextLine != "" {
+					lines = append(lines, nextLine)
+				}
+			}
+			// Paste complete — wait a bit more for any remaining data
+			time.Sleep(50 * time.Millisecond)
+			for stdinHasData() {
+				nextLine, nextErr := rl.Readline()
+				if nextErr != nil {
+					break
+				}
+				nextLine = strings.TrimSpace(nextLine)
+				if nextLine != "" {
+					lines = append(lines, nextLine)
+				}
+			}
+		}
 
 		if strings.HasSuffix(line, "\\") {
 			lines[len(lines)-1] = strings.TrimSuffix(line, "\\")

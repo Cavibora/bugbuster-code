@@ -207,6 +207,9 @@ func runQueryWithLoop(loop *agent.AgentLoop, query string, cfg *config.BugBuster
 		totalInTokens   int
 		totalOutTokens  int
 		totalDuration   time.Duration
+		genStart        time.Time // when first output token was received
+		genEnd          time.Time // when last output token was received
+		totalGenDur     time.Duration // accumulated generation time
 		spinner         *Spinner
 		textReceived    bool
 		thinkingStarted bool
@@ -221,6 +224,10 @@ func runQueryWithLoop(loop *agent.AgentLoop, query string, cfg *config.BugBuster
 	fmt.Println(FormatSeparator())
 
 	spinner = NewSpinner(i18n.T("cli.spinner_thinking"))
+	provCfg := cfg.Providers[providerName]
+	if provCfg.Model != "" {
+		spinner.UpdateProvider(providerName, provCfg.Model)
+	}
 	spinner.Start()
 
 	var askQuestion chan string
@@ -246,31 +253,25 @@ streamLoop:
 			break streamLoop
 
 		case question := <-askQuestion:
+			oldSpinner := spinner
 			spinner = stopActiveSpinner(spinner)
 			fmt.Print(mdRenderer.Flush())
 			fmt.Printf("\n❓ %s\n> ", question)
-			// Close readline BEFORE reading answer.
-			// readLineFromStdin() puts terminal in cooked mode via stty sane,
-			// but /dev/tty and os.Stdin point to the SAME terminal device.
-			// If readline goroutines are active, they expect raw mode and
-			// get confused by cooked mode — causing text corruption and hangs.
-			// Closing readline kills all its goroutines first.
 			if rlClose != nil {
 				rlClose()
 			}
 			answer := readLineFromStdin()
 			answer = strings.TrimSpace(answer)
-			// Non-blocking send: if tool is no longer waiting, don't hang
 			select {
 			case askAnswer <- answer:
 			default:
 			}
-			// Recreate readline AFTER reading answer.
-			// This ensures fresh goroutines and correct terminal state.
 			if rlRecreate != nil {
 				rlRecreate()
 			}
 			spinner = NewSpinner(i18n.T("cli.spinner_thinking"))
+			oldSpinner.CopyStatsTo(spinner)
+			spinner.UpdateProvider(providerName, provCfg.Model)
 			spinner.Start()
 
 		case event, ok := <-ch:
@@ -287,10 +288,13 @@ streamLoop:
 
 			case provider.EventThinking:
 				if !thinkingStarted {
+					oldSpinner := spinner
 					spinner = stopActiveSpinner(spinner)
 					fmt.Printf("\n  %s∴ %s%s\n", appTheme.Dim.ANSICode(), i18n.T("cli.thinking"), ansiReset)
 					thinkingStarted = true
 					spinner = NewSpinner(i18n.T("cli.thinking"))
+					oldSpinner.CopyStatsTo(spinner)
+					spinner.UpdateProvider(providerName, provCfg.Model)
 					spinner.Start()
 				}
 				thinkingActive = true
@@ -301,6 +305,21 @@ streamLoop:
 				}
 
 			case provider.EventTextDelta:
+				// Track generation time for accurate speed calculation
+				if genStart.IsZero() {
+					genStart = time.Now()
+				} else {
+					// Accumulate generation time between tokens
+					totalGenDur += time.Since(genEnd)
+				}
+				genEnd = time.Now()
+				if spinner != nil {
+					spinner.UpdateGenTime()
+					// Increment token count for accurate speed display
+					// EventUsage may come infrequently, so we count text deltas
+					totalOutTokens++
+					spinner.UpdateTokens(totalInTokens, totalOutTokens)
+				}
 				if thinkingActive {
 					spinner = stopActiveSpinner(spinner)
 					thinkingText := thinkingBuf.String()
@@ -317,6 +336,7 @@ streamLoop:
 				mdRenderer.Render(event.Text)
 
 			case provider.EventToolCallStart:
+				oldSpinner := spinner
 				spinner = stopActiveSpinner(spinner)
 				if thinkingActive {
 					thinkingText := thinkingBuf.String()
@@ -333,6 +353,8 @@ streamLoop:
 				toolInputBuf.Reset()
 				currentToolName = event.ToolName
 				spinner = NewSpinner(fmt.Sprintf("⏺ %s", event.ToolName))
+				oldSpinner.CopyStatsTo(spinner)
+				spinner.UpdateProvider(providerName, provCfg.Model)
 				spinner.Start()
 
 			case provider.EventToolCallDelta:
@@ -381,7 +403,10 @@ streamLoop:
 				toolInputBuf.Reset()
 				currentToolName = ""
 				textReceived = false
+				oldSpinner := spinner
 				spinner = NewSpinner(fmt.Sprintf(i18n.T("cli.spinner_step"), event.Iteration))
+				oldSpinner.CopyStatsTo(spinner)
+				spinner.UpdateProvider(providerName, provCfg.Model)
 				spinner.Start()
 
 			case provider.EventUsage:
@@ -390,8 +415,6 @@ streamLoop:
 				if spinner != nil && spinner.IsActive() {
 					spinner.UpdateTokens(totalInTokens, totalOutTokens)
 				}
-
-			case provider.EventToolProgress:
 				if event.ToolMessage != "" {
 					msg := event.ToolMessage
 					if idx := strings.Index(msg, "\n"); idx >= 0 {
@@ -416,13 +439,19 @@ streamLoop:
 				color.Yellow("  ↳ comment added to context")
 
 			case provider.EventCompaction:
+				oldSpinner := spinner
 				spinner = stopActiveSpinner(spinner)
 				spinner = NewSpinner(i18n.T("cli.compacting"))
+				oldSpinner.CopyStatsTo(spinner)
+				spinner.UpdateProvider(providerName, provCfg.Model)
 				spinner.Start()
 
 			case provider.EventCompactionDone:
+				oldSpinner := spinner
 				spinner = stopActiveSpinner(spinner)
 				spinner = NewSpinner(i18n.T("cli.spinner_thinking"))
+				oldSpinner.CopyStatsTo(spinner)
+				spinner.UpdateProvider(providerName, provCfg.Model)
 				spinner.Start()
 
 			case provider.EventThinkingTimeout:
@@ -457,9 +486,14 @@ streamLoop:
 				fmt.Println()
 				totalDuration = event.Duration
 				provCfg := cfg.Providers[cfg.DefaultProvider]
-				statusLine := FormatStatusLine(
+				genDur := totalGenDur
+				if genDur == 0 && !genStart.IsZero() && genEnd.After(genStart) {
+					// Fallback: use time between first and last token
+					genDur = genEnd.Sub(genStart)
+				}
+				statusLine := FormatStatusLineEx(
 					totalInTokens, totalOutTokens,
-					totalDuration,
+					totalDuration, genDur,
 					loop.Context.TokenCount(), loop.Context.MaxTokens,
 					providerName, provCfg.Model,
 				)
