@@ -416,6 +416,16 @@ func MergeConfigs(configs ...*BugBusterConfig) *BugBusterConfig {
 			result.Providers[name] = cfg.Providers[name]
 		}
 
+		// AgentProviders (merge)
+		if cfg.AgentProviders != nil {
+			if result.AgentProviders == nil {
+				result.AgentProviders = make(map[string]string)
+			}
+			for k, v := range cfg.AgentProviders {
+				result.AgentProviders[k] = v
+			}
+		}
+
 		// Tools
 		if len(cfg.Tools.AllowedDirs) > 0 {
 			result.Tools.AllowedDirs = cfg.Tools.AllowedDirs
