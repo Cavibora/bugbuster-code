@@ -3,6 +3,7 @@
   "cli.unknown_command": "Commande inconnue : %s. Tapez /help pour l'aide.",
   "cli.prompt": "Entrez une requête ou /help pour l'aide. /exit pour quitter.\n",
   "cli.cancel_request": "\nAnnulation de la requête en cours...",
+  "cli.ctrl_c_hint": "Appuyez à nouveau sur Ctrl+C pour quitter",
   "cli.no_sessions": "Aucune session sauvegardée",
   "cli.saved_sessions": "Sessions sauvegardées :",
   "cli.session_entry": "  %s — %s (%d messages)",

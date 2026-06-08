@@ -3,6 +3,7 @@
   "cli.unknown_command": "Comando desconhecido: %s. Digite /help para ajuda.",
   "cli.prompt": "Digite uma consulta ou /help para ajuda. /exit para sair.\n",
   "cli.cancel_request": "\nCancelando solicitação atual...",
+  "cli.ctrl_c_hint": "Pressione Ctrl+C novamente para sair",
   "cli.no_sessions": "Nenhuma sessão salva",
   "cli.saved_sessions": "Sessões salvas:",
   "cli.session_entry": "  %s — %s (%d mensagens)",

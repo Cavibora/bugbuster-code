@@ -3,6 +3,7 @@
   "cli.unknown_command": "Unbekannter Befehl: %s. Geben Sie /help für Hilfe ein.",
   "cli.prompt": "Geben Sie eine Anfrage ein oder /help für Hilfe. /exit zum Beenden.\n",
   "cli.cancel_request": "\nAktuelle Anfrage wird abgebrochen...",
+  "cli.ctrl_c_hint": "Drücken Sie erneut Strg+C zum Beenden",
   "cli.no_sessions": "Keine gespeicherten Sitzungen",
   "cli.saved_sessions": "Gespeicherte Sitzungen:",
   "cli.session_entry": "  %s — %s (%d Nachrichten)",

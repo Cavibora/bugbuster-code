@@ -3,6 +3,7 @@
   "cli.unknown_command": "不明なコマンド: %s。ヘルプは /help を入力してください。",
   "cli.prompt": "クエリを入力するか /help でヘルプを表示。/exit で終了。\n",
   "cli.cancel_request": "\n現在のリクエストをキャンセル中...",
+  "cli.ctrl_c_hint": "もう一度Ctrl+Cで終了します",
   "cli.no_sessions": "保存されたセッションはありません",
   "cli.saved_sessions": "保存されたセッション：",
   "cli.session_entry": "  %s — %s (%d メッセージ)",
