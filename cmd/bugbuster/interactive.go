@@ -198,30 +198,30 @@ func runInteractive(cmd *cobra.Command, args []string) {
 // When readline is active (rl != nil), output is written through rl.Stdout()
 // so readline can properly manage cursor position and refresh the prompt (❯).
 // When rl is nil (readline closed for command output), output goes to os.Stdout.
-func handleCommand(input string, loop *agent.AgentLoop, cfg *config.BugBusterConfig, p provider.Provider, ct *ChangeTracker, rl *readline.Instance, sessionMgr *agent.SessionManager, currentSession *agent.Session, bgTool *tools.BackgroundTool) bool {
+func handleCommand(input string, loop *agent.AgentLoop, cfg *config.BugBusterConfig, p provider.Provider, ct *ChangeTracker, rl *readline.Instance, sessionMgr *agent.SessionManager, currentSession *agent.Session, bgTool *tools.BackgroundTool) (bool, string, string) {
 	switch {
 	case input == "/exit", input == "/quit":
 		// exit is handled in calling code — return false to exit main
-		return false
+		return false, "", ""
 	case input == "/sessions":
 		printSessions(sessionMgr, currentSession)
-		return true
+		return true, "", ""
 	case input == "/skills":
 		printSkills(loop)
-		return true
+		return true, "", ""
 	case strings.HasPrefix(input, "/skill "):
 		name := strings.TrimSpace(strings.TrimPrefix(input, "/skill"))
 		activateSkill(loop, name)
-		return true
+		return true, "", ""
 	case strings.HasPrefix(input, "/rename "):
 		name := strings.TrimSpace(strings.TrimPrefix(input, "/rename"))
 		if name == "" {
 			fmt.Println(color.RedString("Usage: /rename <name>"))
-			return true
+			return true, "", ""
 		}
 		if currentSession == nil {
 			fmt.Println(color.RedString("No active session"))
-			return true
+			return true, "", ""
 		}
 		if err := sessionMgr.RenameSession(currentSession.ID, name); err != nil {
 			fmt.Println(color.RedString("Error renaming session: %v", err))
@@ -229,23 +229,23 @@ func handleCommand(input string, loop *agent.AgentLoop, cfg *config.BugBusterCon
 			currentSession.Name = name
 			fmt.Println(color.GreenString("Session renamed to: %s", name))
 		}
-		return true
+		return true, "", ""
 	case input == "/help":
 		printHelp()
-		return true
+		return true, "", ""
 	case input == "/reset":
 		loop.Context.Reset()
 		if loop.LoopDetector != nil {
 			loop.LoopDetector.Reset()
 		}
 		color.Yellow("%s", i18n.T("cli.context_reset"))
-		return true
+		return true, "", ""
 	case input == "/context":
 		tokensUsed := loop.Context.TokenCount()
 		maxTokens := loop.Context.MaxTokens
 		msgCount := len(loop.Context.GetMessages())
 		fmt.Fprintln(cmdOutput, FormatContextInfo(msgCount, tokensUsed, maxTokens))
-		return true
+		return true, "", ""
 	case input == "/compact":
 		tokensBefore := loop.Context.TokenCount()
 		maxTokens := loop.Context.MaxTokens
@@ -258,35 +258,35 @@ func handleCommand(input string, loop *agent.AgentLoop, cfg *config.BugBusterCon
 			saved := tokensBefore - tokensAfter
 			color.Green("%s %d → %d (%s: %d)", i18n.T("cli.compaction_done"), tokensBefore, tokensAfter, i18n.T("cli.compaction_saved"), saved)
 		}
-		return true
+		return true, "", ""
 	case input == "/tools":
 		printTools(loop)
-		return true
+		return true, "", ""
 	case input == "/ps":
 		printBackgroundProcesses(bgTool)
-		return true
+		return true, "", ""
 	case strings.HasPrefix(input, "/logs "):
 		idStr := strings.TrimSpace(strings.TrimPrefix(input, "/logs"))
 		showBackgroundLogs(bgTool, idStr)
-		return true
+		return true, "", ""
 	case strings.HasPrefix(input, "/kill "):
 		idStr := strings.TrimSpace(strings.TrimPrefix(input, "/kill"))
 		killBackgroundProcess(bgTool, idStr)
-		return true
+		return true, "", ""
 	case input == "/mcp":
 		printMCPServers(cfg)
-		return true
+		return true, "", ""
 	case input == "/dream", strings.HasPrefix(input, "/dream "):
 		seed := strings.TrimPrefix(input, "/dream ")
 		seed = strings.TrimSpace(seed)
 		handleDreamCommand(loop, seed)
-		return true
+		return true, "", ""
 	case input == "/emotions":
 		handleEmotionsCommand(loop)
-		return true
+		return true, "", ""
 	case input == "/mesh-stats":
 		handleMeshStatsCommand(loop)
-		return true
+		return true, "", ""
 	case input == "/undo":
 		undoResult, err := ct.Undo()
 		if err != nil {
@@ -294,7 +294,7 @@ func handleCommand(input string, loop *agent.AgentLoop, cfg *config.BugBusterCon
 		} else {
 			color.Green("%s", i18n.T("cli.undo_success", undoResult))
 		}
-		return true
+		return true, "", ""
 	case input == "/undoall":
 		count := ct.Count()
 		if count == 0 {
@@ -315,25 +315,25 @@ func handleCommand(input string, loop *agent.AgentLoop, cfg *config.BugBusterCon
 				color.Green("%s", i18n.T("cli.undo_all_done", n))
 			}
 		}
-		return true
+		return true, "", ""
 	case input == "/diff":
 		changes := ct.Diff()
 		fmt.Fprintln(cmdOutput, FormatDiff(changes))
-		return true
+		return true, "", ""
 	case strings.HasPrefix(input, "/model "):
 		newModel := strings.TrimPrefix(input, "/model ")
-		switchModel(loop, cfg, newModel)
-		return true
+		newProvName := switchModel(loop, cfg, newModel)
+		return true, "", newProvName
 	case strings.HasPrefix(input, "/provider "):
 		newProvider := strings.TrimPrefix(input, "/provider ")
-		switchProvider(loop, cfg, newProvider)
-		return true
+		newProvName := switchProvider(loop, cfg, newProvider)
+		return true, "", newProvName
 	case input == "/subagent":
 		printSubagentConfig(cfg)
-		return true
+		return true, "", ""
 	case strings.HasPrefix(input, "/subagent "):
 		handleSubagentCommand(strings.TrimPrefix(input, "/subagent "), loop, cfg)
-		return true
+		return true, "", ""
 	case strings.HasPrefix(input, "/lang "):
 		newLang := strings.TrimPrefix(input, "/lang ")
 		if i18n.HasLanguage(newLang) {
@@ -343,7 +343,7 @@ func handleCommand(input string, loop *agent.AgentLoop, cfg *config.BugBusterCon
 			available := i18n.AvailableLanguages()
 			color.Red("Language '%s' not available. Available: %v", newLang, available)
 		}
-		return true
+		return true, "", ""
 	case input == "/debug":
 		debug = !debug
 		if debug {
@@ -353,33 +353,33 @@ func handleCommand(input string, loop *agent.AgentLoop, cfg *config.BugBusterCon
 			logger.Init("info", false, "")
 			color.Yellow("Debug logging: OFF")
 		}
-		return true
+		return true, "", ""
 	case input == "/tui":
 		// Do not handle here — handled in main Run() loop
-		return false
+		return false, "", ""
 	case input == "/cli":
 		color.Yellow("%s", i18n.T("cli.already_in_cli"))
-		return true
+		return true, "", ""
 	case input == "/auto", strings.HasPrefix(input, "/auto "):
 		// /auto is handled in SplitTerminal.Run() and TUI — return false to pass through
-		return false
+		return false, "", ""
 	case input == "/plugin", input == "/plugins":
 		printPlugins(cfg)
-		return true
+		return true, "", ""
 	case strings.HasPrefix(input, "/plugin install "):
 		pluginName := strings.TrimPrefix(input, "/plugin install ")
 		installPlugin(cfg, pluginName)
-		return true
+		return true, "", ""
 	case strings.HasPrefix(input, "/plugin remove "):
 		pluginName := strings.TrimPrefix(input, "/plugin remove ")
 		removePlugin(cfg, pluginName)
-		return true
+		return true, "", ""
 	default:
 		if strings.HasPrefix(input, "/") {
 			color.Red("%s", i18n.T("cli.unknown_command", input))
-			return true
+			return true, "", ""
 		}
-		return false
+		return false, "", ""
 	}
 }
 

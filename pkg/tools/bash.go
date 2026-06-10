@@ -163,18 +163,25 @@ func (t *BashTool) Execute(params map[string]string) ToolResult {
 
 	select {
 	case err := <-done:
+		if err != nil {
+			// On error: show only stderr (compilation errors, etc), not stdout
+			stderrStr := StripANSIAndTrim(stderr.String())
+			errMsg := fmt.Sprintf("command failed: %s", err.Error())
+			if stderrStr != "" {
+				// Show stderr but limit to 2000 chars
+				if len(stderrStr) > 2000 {
+					stderrStr = stderrStr[:2000] + "\n... (truncated)"
+				}
+				errMsg += "\n\n" + stderrStr
+			}
+			return ToolResult{Error: errMsg}
+		}
 		output := StripANSIAndTrim(stdout.String())
 		if stderrStr := StripANSIAndTrim(stderr.String()); stderrStr != "" {
 			if output != "" {
 				output += "\n"
 			}
 			output += stderrStr
-		}
-		if err != nil {
-			if output == "" {
-				output = err.Error()
-			}
-			return Error("tools.bash.exec_error", err, output)
 		}
 		if output == "" {
 			output = i18n.T("tools.bash.empty_output")
@@ -423,16 +430,22 @@ func (t *BashTool) ExecuteAsync(params map[string]string) <-chan AsyncEvent {
 		}
 
 		if cmdErr != nil {
+			// On error: show only stderr (compilation errors, etc), not stdout
 			var errDetail string
 			if exitErr, ok := cmdErr.(*exec.ExitError); ok {
 				errDetail = exitErr.ProcessState.String()
 			} else {
 				errDetail = cmdErr.Error()
 			}
-			if output == "" {
-				output = errDetail
+			errMsg := fmt.Sprintf("command failed: %s", errDetail)
+			stderrStr := StripANSIAndTrim(stderrBuf.String())
+			if stderrStr != "" {
+				if len(stderrStr) > 2000 {
+					stderrStr = stderrStr[:2000] + "\n... (truncated)"
+				}
+				errMsg += "\n\n" + stderrStr
 			}
-			ch <- AsyncEvent{Type: "result", Output: output, Error: fmt.Sprintf("command failed: %s", errDetail), Done: true}
+			ch <- AsyncEvent{Type: "result", Error: errMsg, Done: true}
 			return
 		}
 

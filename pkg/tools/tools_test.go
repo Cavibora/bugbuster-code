@@ -1,9 +1,10 @@
 package tools
 
 import (
-	"strings"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -360,6 +361,149 @@ func TestToolParameters(t *testing.T) {
 		if params["type"] != "object" {
 			t.Errorf("Tool %s: Parameters() type should be 'object', got '%v'", tool.Name(), params["type"])
 		}
+	}
+}
+
+func TestEditTool_FuzzyMatch_Tabs(t *testing.T) {
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "tabs.txt")
+	// File has tabs
+	os.WriteFile(tmpFile, []byte("func main() {\n\tfmt.Println(\"hello\")\n}"), 0644)
+
+	tool := NewEditTool()
+	// Model sends spaces instead of tabs
+	result := tool.Execute(map[string]string{
+		"path": tmpFile,
+		"old":  "func main() {\n    fmt.Println(\"hello\")\n}",
+		"new":  "func main() {\n    fmt.Println(\"world\")\n}",
+	})
+	if result.Error != "" {
+		t.Errorf("Fuzzy match should work with tab/space differences: %s", result.Error)
+	}
+
+	data, _ := os.ReadFile(tmpFile)
+	if !strings.Contains(string(data), "world") {
+		t.Errorf("Expected 'world' in file, got: %s", string(data))
+	}
+}
+
+func TestEditTool_FuzzyMatch_TrailingSpaces(t *testing.T) {
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "spaces.txt")
+	// File has trailing spaces
+	os.WriteFile(tmpFile, []byte("line1  \nline2  \nline3"), 0644)
+
+	tool := NewEditTool()
+	// Model sends without trailing spaces
+	result := tool.Execute(map[string]string{
+		"path": tmpFile,
+		"old":  "line1\nline2",
+		"new":  "replaced",
+	})
+	if result.Error != "" {
+		t.Errorf("Fuzzy match should work with trailing space differences: %s", result.Error)
+	}
+}
+
+func TestEditTool_Backup(t *testing.T) {
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "backup.txt")
+	os.WriteFile(tmpFile, []byte("original content"), 0644)
+
+	tool := NewEditTool()
+	result := tool.Execute(map[string]string{
+		"path": tmpFile,
+		"old":  "original",
+		"new":  "modified",
+	})
+	if result.Error != "" {
+		t.Errorf("Unexpected error: %s", result.Error)
+	}
+
+	// Check backup exists
+	bakData, err := os.ReadFile(tmpFile + ".bak.1")
+	if err != nil {
+		t.Errorf("Backup file should exist: %s", err)
+	}
+	if string(bakData) != "original content" {
+		t.Errorf("Backup should contain original content, got: %s", string(bakData))
+	}
+}
+
+func TestEditTool_SafetyEmptyFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "safety.txt")
+	os.WriteFile(tmpFile, []byte("some content"), 0644)
+
+	tool := NewEditTool()
+	result := tool.Execute(map[string]string{
+		"path": tmpFile,
+		"old":  "some content",
+		"new":  "",
+	})
+	// Should not make file empty
+	if result.Error == "" {
+		t.Error("Should refuse to make file empty")
+	}
+}
+
+func TestEditTool_SafetyDuplicateBlocks(t *testing.T) {
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "dupes.txt")
+	content := "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8"
+	os.WriteFile(tmpFile, []byte(content), 0644)
+
+	tool := NewEditTool()
+	// Replace that would create duplicate blocks
+	result := tool.Execute(map[string]string{
+		"path": tmpFile,
+		"old":  "line4\nline5",
+		"new":  "line1\nline2\nline3",
+	})
+	// Should detect duplicate blocks
+	if result.Error == "" {
+		t.Error("Should detect duplicate blocks")
+	}
+}
+
+func TestEditTool_SafetyLargeDeletion(t *testing.T) {
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "large.txt")
+	// Create file with 20 lines
+	lines := make([]string, 20)
+	for i := 0; i < 20; i++ {
+		lines[i] = fmt.Sprintf("line %d", i)
+	}
+	os.WriteFile(tmpFile, []byte(strings.Join(lines, "\n")), 0644)
+
+	tool := NewEditTool()
+	// Try to delete 15 lines (>50% of file)
+	result := tool.Execute(map[string]string{
+		"path": tmpFile,
+		"old":  strings.Join(lines[:15], "\n"),
+		"new":  "replaced",
+	})
+	if result.Error == "" {
+		t.Error("Should refuse to delete >50% of file")
+	}
+}
+
+func TestEditTool_HelpfulError(t *testing.T) {
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "help.txt")
+	os.WriteFile(tmpFile, []byte("hello world"), 0644)
+
+	tool := NewEditTool()
+	result := tool.Execute(map[string]string{
+		"path": tmpFile,
+		"old":  "nonexistent text",
+		"new":  "replacement",
+	})
+	if result.Error == "" {
+		t.Error("Expected error for text not found")
+	}
+	if !strings.Contains(result.Output, "Hint:") {
+		t.Errorf("Error should contain helpful hint, got: %s", result.Output)
 	}
 }
 

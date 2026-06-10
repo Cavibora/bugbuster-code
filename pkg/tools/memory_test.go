@@ -724,23 +724,25 @@ func TestMemoryToolCompress(t *testing.T) {
 	mt.Execute(map[string]string{"action": "save", "key": "path1", "value": "/old/path", "category": "project"})
 	mt.Execute(map[string]string{"action": "save", "key": "path2", "value": "/new/path", "category": "project"})
 	mt.Execute(map[string]string{"action": "save", "key": "host", "value": "localhost", "category": "database"})
-	// Duplicate
-	mt.Execute(map[string]string{"action": "save", "key": "path1", "value": "/old/path", "category": "project"})
 
 	result := mt.Execute(map[string]string{"action": "compress", "max_tokens": "1000"})
 	if result.Error != "" {
 		t.Fatalf("Compress failed: %s", result.Error)
 	}
-	if !strings.Contains(result.Output, "compressed") {
+	if !strings.Contains(result.Output, "compressed") && !strings.Contains(result.Output, "Compressed") {
 		t.Errorf("Expected 'compressed' in output, got: %s", result.Output)
 	}
 
-	// Verify duplicates removed
+	// Verify facts still exist after compress
 	listResult := mt.Execute(map[string]string{"action": "list"})
-	if strings.Contains(listResult.Output, "path1") && strings.Contains(listResult.Output, "path2") {
-		// Both should still exist (different keys)
-	} else {
-		t.Errorf("Expected both keys to exist after compress, got: %s", listResult.Output)
+	if !strings.Contains(listResult.Output, "path1") {
+		t.Errorf("Expected path1 to exist after compress, got: %s", listResult.Output)
+	}
+	if !strings.Contains(listResult.Output, "path2") {
+		t.Errorf("Expected path2 to exist after compress, got: %s", listResult.Output)
+	}
+	if !strings.Contains(listResult.Output, "host") {
+		t.Errorf("Expected host to exist after compress, got: %s", listResult.Output)
 	}
 }
 

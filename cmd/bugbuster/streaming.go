@@ -34,6 +34,25 @@ var codePrefixes = []string{
 	"std::", "fmt::", "io::", "string::", "vec<", "option<", "result<",
 }
 
+// providerDisplayName returns a human-readable provider name.
+// Shows "local" for providers running on localhost/LAN, "cloud" for remote providers.
+func providerDisplayName(providerName string, provCfg provider.ProviderConfig) string {
+	baseURL := provCfg.GetBaseURL()
+	isLocal := strings.Contains(baseURL, "localhost") ||
+		strings.Contains(baseURL, "127.0.0.1") ||
+		strings.Contains(baseURL, "0.0.0.0") ||
+		strings.HasPrefix(baseURL, "http://192.168.") ||
+		strings.HasPrefix(baseURL, "http://10.") ||
+		strings.HasPrefix(baseURL, "https://192.168.") ||
+		strings.HasPrefix(baseURL, "https://10.")
+
+	if isLocal {
+		return "local"
+	}
+	// For cloud providers, show "cloud" instead of protocol type (anthropic, openai)
+	return "cloud"
+}
+
 // readLineFromStdin reads a line from stdin for ask_user responses.
 //
 // The problem: readline leaves background goroutines (CancelableStdin.ioloop,
@@ -225,9 +244,7 @@ func runQueryWithLoop(loop *agent.AgentLoop, query string, cfg *config.BugBuster
 
 	spinner = NewSpinner(i18n.T("cli.spinner_thinking"))
 	provCfg := cfg.Providers[providerName]
-	if provCfg.Model != "" {
-		spinner.UpdateProvider(providerName, provCfg.Model)
-	}
+	spinner.UpdateProvider(providerDisplayName(providerName, provCfg), provCfg.Model)
 	spinner.Start()
 
 	var askQuestion chan string
@@ -236,6 +253,23 @@ func runQueryWithLoop(loop *agent.AgentLoop, query string, cfg *config.BugBuster
 		askQuestion = askCh.Question
 		askAnswer = askCh.Answer
 	}
+
+	// Auto-save session every 30 seconds
+	autoSaveTicker := time.NewTicker(30 * time.Second)
+	defer autoSaveTicker.Stop()
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-autoSaveTicker.C:
+				if session != nil && sessionMgr != nil {
+					session.Messages = loop.Context.GetMessages()
+					sessionMgr.SaveSessionMessages(session)
+				}
+			}
+		}
+	}()
 
 streamLoop:
 	for {
@@ -271,7 +305,7 @@ streamLoop:
 			}
 			spinner = NewSpinner(i18n.T("cli.spinner_thinking"))
 			oldSpinner.CopyStatsTo(spinner)
-			spinner.UpdateProvider(providerName, provCfg.Model)
+			spinner.UpdateProvider(providerDisplayName(providerName, provCfg), provCfg.Model)
 			spinner.Start()
 
 		case event, ok := <-ch:
@@ -282,11 +316,22 @@ streamLoop:
 			switch event.Type {
 
 			case provider.EventIterationStart:
+				// Reset genEnd so gap between iterations is not counted as generation time
+				genEnd = time.Time{}
+				if spinner != nil {
+					spinner.PauseGenTime()
+				}
 				if !textReceived && spinner != nil && spinner.IsActive() {
 					spinner.UpdateMessage(fmt.Sprintf(i18n.T("cli.spinner_step"), event.Iteration))
 				}
 
 			case provider.EventThinking:
+				// Reset genEnd so thinking time is not counted as generation time
+				// Thinking tokens are separate from output tokens
+				genEnd = time.Time{}
+				if spinner != nil {
+					spinner.PauseGenTime()
+				}
 				if !thinkingStarted {
 					oldSpinner := spinner
 					spinner = stopActiveSpinner(spinner)
@@ -294,7 +339,7 @@ streamLoop:
 					thinkingStarted = true
 					spinner = NewSpinner(i18n.T("cli.thinking"))
 					oldSpinner.CopyStatsTo(spinner)
-					spinner.UpdateProvider(providerName, provCfg.Model)
+					spinner.UpdateProvider(providerDisplayName(providerName, provCfg), provCfg.Model)
 					spinner.Start()
 				}
 				thinkingActive = true
@@ -308,8 +353,9 @@ streamLoop:
 				// Track generation time for accurate speed calculation
 				if genStart.IsZero() {
 					genStart = time.Now()
-				} else {
+				} else if !genEnd.IsZero() {
 					// Accumulate generation time between tokens
+					// Skip if genEnd was reset (after tool execution)
 					totalGenDur += time.Since(genEnd)
 				}
 				genEnd = time.Now()
@@ -336,6 +382,12 @@ streamLoop:
 				mdRenderer.Render(event.Text)
 
 			case provider.EventToolCallStart:
+				// Reset genEnd so gap before tool call is not counted as generation time
+				// (model may have been thinking, which is not output generation)
+				genEnd = time.Time{}
+				if spinner != nil {
+					spinner.PauseGenTime() // don't count tool execution time as generation time
+				}
 				oldSpinner := spinner
 				spinner = stopActiveSpinner(spinner)
 				if thinkingActive {
@@ -354,10 +406,23 @@ streamLoop:
 				currentToolName = event.ToolName
 				spinner = NewSpinner(fmt.Sprintf("⏺ %s", event.ToolName))
 				oldSpinner.CopyStatsTo(spinner)
-				spinner.UpdateProvider(providerName, provCfg.Model)
+				spinner.UpdateProvider(providerDisplayName(providerName, provCfg), provCfg.Model)
 				spinner.Start()
 
 			case provider.EventToolCallDelta:
+				// Tool call tokens are also generation — count them and track time
+				if genStart.IsZero() {
+					genStart = time.Now()
+				}
+				if !genEnd.IsZero() {
+					totalGenDur += time.Since(genEnd)
+				}
+				genEnd = time.Now()
+				totalOutTokens++
+				if spinner != nil {
+					spinner.UpdateGenTime()
+					spinner.UpdateTokens(totalInTokens, totalOutTokens)
+				}
 				toolInputBuf.WriteString(event.ToolDelta)
 				if spinner != nil && spinner.IsActive() {
 					params := parsePartialToolInput(toolInputBuf.String())
@@ -377,6 +442,12 @@ streamLoop:
 				}
 
 			case provider.EventToolCallEnd:
+				// Reset genEnd so tool execution time is not counted
+				genEnd = time.Time{}
+				if spinner != nil {
+					spinner.PauseGenTime() // don't count tool execution time as generation time
+				}
+				oldSpinner := spinner
 				spinner = stopActiveSpinner(spinner)
 				fmt.Printf("\r%s\r", ansiClear)
 				if thinkingActive {
@@ -403,15 +474,23 @@ streamLoop:
 				toolInputBuf.Reset()
 				currentToolName = ""
 				textReceived = false
-				oldSpinner := spinner
 				spinner = NewSpinner(fmt.Sprintf(i18n.T("cli.spinner_step"), event.Iteration))
 				oldSpinner.CopyStatsTo(spinner)
-				spinner.UpdateProvider(providerName, provCfg.Model)
+				spinner.UpdateProvider(providerDisplayName(providerName, provCfg), provCfg.Model)
 				spinner.Start()
+				// Auto-save session after each tool call
+				if session != nil && sessionMgr != nil {
+					session.Messages = loop.Context.GetMessages()
+					sessionMgr.SaveSessionMessages(session)
+				}
 
 			case provider.EventUsage:
-				totalInTokens = event.InputTokens
-				totalOutTokens = event.OutputTokens
+				if event.InputTokens > totalInTokens {
+					totalInTokens = event.InputTokens
+				}
+				if event.OutputTokens > totalOutTokens {
+					totalOutTokens = event.OutputTokens
+				}
 				if spinner != nil && spinner.IsActive() {
 					spinner.UpdateTokens(totalInTokens, totalOutTokens)
 				}
@@ -443,7 +522,7 @@ streamLoop:
 				spinner = stopActiveSpinner(spinner)
 				spinner = NewSpinner(i18n.T("cli.compacting"))
 				oldSpinner.CopyStatsTo(spinner)
-				spinner.UpdateProvider(providerName, provCfg.Model)
+				spinner.UpdateProvider(providerDisplayName(providerName, provCfg), provCfg.Model)
 				spinner.Start()
 
 			case provider.EventCompactionDone:
@@ -451,8 +530,13 @@ streamLoop:
 				spinner = stopActiveSpinner(spinner)
 				spinner = NewSpinner(i18n.T("cli.spinner_thinking"))
 				oldSpinner.CopyStatsTo(spinner)
-				spinner.UpdateProvider(providerName, provCfg.Model)
+				spinner.UpdateProvider(providerDisplayName(providerName, provCfg), provCfg.Model)
 				spinner.Start()
+				// Auto-save session after compaction
+				if session != nil && sessionMgr != nil {
+					session.Messages = loop.Context.GetMessages()
+					sessionMgr.SaveSessionMessages(session)
+				}
 
 			case provider.EventThinkingTimeout:
 				spinner = stopActiveSpinner(spinner)
@@ -485,17 +569,13 @@ streamLoop:
 				fmt.Println()
 				fmt.Println()
 				totalDuration = event.Duration
-				provCfg := cfg.Providers[cfg.DefaultProvider]
+				provCfg := cfg.Providers[providerName]
 				genDur := totalGenDur
-				if genDur == 0 && !genStart.IsZero() && genEnd.After(genStart) {
-					// Fallback: use time between first and last token
-					genDur = genEnd.Sub(genStart)
-				}
 				statusLine := FormatStatusLineEx(
 					totalInTokens, totalOutTokens,
 					totalDuration, genDur,
 					loop.Context.TokenCount(), loop.Context.MaxTokens,
-					providerName, provCfg.Model,
+					providerDisplayName(providerName, provCfg), provCfg.Model,
 				)
 				if statusLine != "" {
 					fmt.Println(statusLine)

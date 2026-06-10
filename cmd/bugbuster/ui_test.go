@@ -245,6 +245,11 @@ func TestFormatToolCallEndError(t *testing.T) {
 	if !strings.Contains(result, "command failed") {
 		t.Errorf("Expected error message, got: %q", result)
 	}
+	// Error results should NOT show extra output lines
+	lines := strings.Split(result, "\n")
+	if len(lines) > 1 {
+		t.Errorf("Error result should not have extra lines, got %d lines: %s", len(lines), result)
+	}
 }
 
 func TestFormatToolCallEndReadSummary(t *testing.T) {

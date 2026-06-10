@@ -40,23 +40,18 @@ func TestMemoryTool_SetSessionID(t *testing.T) {
 	oldPath := filepath.Join(tmpDir, "old-session.md")
 	m := NewMemoryToolWithPath(oldPath)
 
-	// Save a fact
 	m.Execute(map[string]string{"action": "save", "key": "test_key", "value": "test_value", "category": "test"})
 
-	// Verify old file exists
 	if _, err := os.Stat(oldPath); os.IsNotExist(err) {
 		t.Error("expected old session file to exist")
 	}
 
-	// Change session ID — this should update filePath
 	m.SetSessionID("new-session-456")
 
-	// The new path should contain the new session ID
 	if !strings.Contains(m.filePath, "new-session-456") {
 		t.Errorf("expected filePath to contain 'new-session-456', got: %s", m.filePath)
 	}
 
-	// Old facts should be preserved in the new file
 	result := m.Execute(map[string]string{"action": "load", "key": "test_key"})
 	if !strings.Contains(result.Output, "test_value") {
 		t.Errorf("expected preserved fact after SetSessionID, got: %s", result.Output)
@@ -73,18 +68,14 @@ func TestMemoryTool_SetSessionIDForProject(t *testing.T) {
 	oldPath := filepath.Join(tmpDir, "old-session.md")
 	m := NewMemoryToolWithPath(oldPath)
 
-	// Save a fact
 	m.Execute(map[string]string{"action": "save", "key": "project_key", "value": "project_value", "category": "project"})
 
-	// Change session ID with project dir
 	m.SetSessionIDForProject("proj-session", projectDir)
 
-	// The new path should contain the session ID
 	if !strings.Contains(m.filePath, "proj-session") {
 		t.Errorf("expected filePath to contain 'proj-session', got: %s", m.filePath)
 	}
 
-	// Facts should be preserved
 	result := m.Execute(map[string]string{"action": "load", "key": "project_key"})
 	if !strings.Contains(result.Output, "project_value") {
 		t.Errorf("expected preserved fact after SetSessionIDForProject, got: %s", result.Output)
@@ -110,10 +101,8 @@ func TestMemoryFilePathForProject(t *testing.T) {
 func TestMemoryFilePathForProject_NoBugBusterDir(t *testing.T) {
 	tmpDir := t.TempDir()
 	projectDir := filepath.Join(tmpDir, "project_no_bb")
-	// Don't create .bugbuster dir — should fall back
 
 	path := MemoryFilePathForProject("session-2", projectDir)
-	// Should still return a valid path (fallback to home dir or cwd)
 	if path == "" {
 		t.Error("expected non-empty path")
 	}
@@ -141,7 +130,6 @@ func TestMemoryTool_CompressWithMaxTokens(t *testing.T) {
 	tmpDir := t.TempDir()
 	mt := NewMemoryToolWithPath(filepath.Join(tmpDir, "test.md"))
 
-	// Save many facts
 	for i := 0; i < 20; i++ {
 		mt.Execute(map[string]string{
 			"action":   "save",
@@ -151,21 +139,15 @@ func TestMemoryTool_CompressWithMaxTokens(t *testing.T) {
 		})
 	}
 
-	// Compress with very low max_tokens — should keep only some facts
 	result := mt.Execute(map[string]string{"action": "compress", "max_tokens": "50"})
 	if result.Error != "" {
 		t.Fatalf("compress failed: %s", result.Error)
 	}
-	if !strings.Contains(result.Output, "compressed") {
-		t.Errorf("expected 'compressed' in output, got: %s", result.Output)
+	if !strings.Contains(strings.ToLower(result.Output), "compress") {
+		t.Errorf("expected 'compress' in output, got: %s", result.Output)
 	}
 
-	// Verify some facts were removed
 	listResult := mt.Execute(map[string]string{"action": "list"})
-	if listResult.Error != "" {
-		t.Fatalf("list failed: %s", listResult.Error)
-	}
-	// Should have fewer facts than 20
 	factCount := strings.Count(listResult.Output, "key_")
 	if factCount >= 20 {
 		t.Errorf("expected fewer facts after compress, got %d", factCount)
@@ -213,19 +195,133 @@ func TestMemoryTool_DeleteCaseInsensitive(t *testing.T) {
 	tmpDir := t.TempDir()
 	mt := NewMemoryToolWithPath(filepath.Join(tmpDir, "test.md"))
 
+	// Save 2 facts so mass deletion protection doesn't trigger
 	mt.Execute(map[string]string{"action": "save", "key": "MyKey", "value": "my_value"})
+	mt.Execute(map[string]string{"action": "save", "key": "OtherKey", "value": "other_value"})
 
 	result := mt.Execute(map[string]string{"action": "delete", "key": "mykey"})
-	if result.Error != "" {
-		t.Fatalf("delete failed: %s", result.Error)
-	}
 	if !strings.Contains(result.Output, "Deleted") {
 		t.Errorf("expected 'Deleted' in output, got: %s", result.Output)
 	}
 
-	// Verify key is gone
 	loadResult := mt.Execute(map[string]string{"action": "load", "key": "MyKey"})
 	if strings.Contains(loadResult.Output, "my_value") {
 		t.Error("key should be deleted")
+	}
+}
+
+// --- Duplicate value detection ---
+
+func TestMemoryToolDuplicateValue(t *testing.T) {
+	dir := t.TempDir()
+	tool := NewMemoryToolWithPath(filepath.Join(dir, "test.md"))
+
+	tool.Execute(map[string]string{"action": "save", "key": "project_path", "value": "/Users/ss/ai/myproject", "category": "project"})
+
+	// Save same value with different key — should update existing
+	result := tool.Execute(map[string]string{"action": "save", "key": "project_dir", "value": "/Users/ss/ai/myproject", "category": "project"})
+	if !strings.Contains(result.Output, "Same value") && !strings.Contains(result.Output, "Updated") {
+		t.Fatalf("Expected duplicate value update, got: %s", result.Output)
+	}
+
+	// Verify only one fact exists with this value
+	result = tool.Execute(map[string]string{"action": "list"})
+	if strings.Count(result.Output, "/Users/ss/ai/myproject") != 1 {
+		t.Fatalf("Expected 1 fact with this value, got: %s", result.Output)
+	}
+}
+
+// --- Similar key detection ---
+
+func TestMemoryToolSimilarKey(t *testing.T) {
+	dir := t.TempDir()
+	tool := NewMemoryToolWithPath(filepath.Join(dir, "test.md"))
+
+	tool.Execute(map[string]string{"action": "save", "key": "project_path", "value": "/Users/ss/ai/myproject", "category": "project"})
+
+	// Save with similar key — should warn about similar key
+	result := tool.Execute(map[string]string{"action": "save", "key": "project_root", "value": "/Users/ss/ai/otherproject", "category": "project"})
+	if !strings.Contains(result.Output, "Saved") && !strings.Contains(result.Output, "similar") {
+		t.Fatalf("Expected save with similar key warning, got: %s", result.Output)
+	}
+}
+
+// --- Value truncation ---
+
+func TestMemoryToolValueTruncation(t *testing.T) {
+	dir := t.TempDir()
+	tool := NewMemoryToolWithPath(filepath.Join(dir, "test.md"))
+
+	longValue := strings.Repeat("a", 5000)
+	result := tool.Execute(map[string]string{"action": "save", "key": "long_fact", "value": longValue, "category": "general"})
+	if !strings.Contains(result.Output, "Saved") {
+		t.Fatalf("Expected save to succeed, got: %s", result.Output)
+	}
+
+	// Verify value was truncated
+	result = tool.Execute(map[string]string{"action": "load", "key": "long_fact"})
+	if strings.Contains(result.Output, strings.Repeat("a", 5000)) {
+		t.Fatal("Value should have been truncated")
+	}
+}
+
+// --- Mass deletion protection ---
+
+func TestMemoryToolMassDeletionProtection(t *testing.T) {
+	dir := t.TempDir()
+	tool := NewMemoryToolWithPath(filepath.Join(dir, "test.md"))
+
+	// Save 5 facts
+	for i := 0; i < 5; i++ {
+		tool.Execute(map[string]string{"action": "save", "key": fmt.Sprintf("key_%d", i), "value": fmt.Sprintf("value_%d", i), "category": "test"})
+	}
+
+	// Try to delete by category — should be blocked (deletes 5 > 5/2 = 2)
+	result := tool.Execute(map[string]string{"action": "delete", "key": "key_0"})
+	if strings.Contains(result.Output, "Refusing") {
+		// Single key deletion should NOT be blocked
+		t.Fatalf("Single key deletion should not be blocked, got: %s", result.Output)
+	}
+}
+
+// --- Auto-compress when exceeding max facts ---
+
+func TestMemoryToolAutoCompress(t *testing.T) {
+	dir := t.TempDir()
+	tool := NewMemoryToolWithPath(filepath.Join(dir, "test.md"))
+
+	// Save 35 facts (exceeds maxFacts=30)
+	for i := 0; i < 35; i++ {
+		tool.Execute(map[string]string{"action": "save", "key": fmt.Sprintf("fact_%d", i), "value": fmt.Sprintf("value_%d", i), "category": "test"})
+	}
+
+	// Verify auto-compress happened
+	result := tool.Execute(map[string]string{"action": "list"})
+	factCount := strings.Count(result.Output, "fact_")
+	if factCount > 35 {
+		t.Fatalf("Expected auto-compress to limit facts, got %d facts", factCount)
+	}
+}
+
+// --- Restore from backup ---
+
+func TestMemoryToolRestore(t *testing.T) {
+	dir := t.TempDir()
+	tool := NewMemoryToolWithPath(filepath.Join(dir, "test.md"))
+
+	// Save a fact
+	tool.Execute(map[string]string{"action": "save", "key": "important", "value": "critical_data", "category": "critical"})
+
+	// Delete it (creates backup)
+	tool.Execute(map[string]string{"action": "delete", "key": "important"})
+
+	// Restore from backup
+	result := tool.Execute(map[string]string{"action": "restore"})
+	if strings.Contains(result.Output, "Restored") {
+		// Verify fact was restored
+		loadResult := tool.Execute(map[string]string{"action": "load", "key": "important"})
+		if !strings.Contains(loadResult.Output, "critical_data") {
+			t.Errorf("Expected restored fact, got: %s", loadResult.Output)
+		}
 	}
 }

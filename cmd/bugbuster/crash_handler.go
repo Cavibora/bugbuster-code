@@ -52,6 +52,9 @@ func setupCrashHandler() (cleanup func(), prevCrashPath string) {
 	dir := crashDir()
 	os.MkdirAll(dir, 0755)
 
+	// Clean up empty crash logs from previous runs BEFORE checking for crashes
+	cleanupEmptyCrashLog()
+
 	// Check for previous crash
 	prevCrashPath = findLatestCrash(dir)
 
@@ -344,7 +347,7 @@ func cleanupEmptyCrashLog() {
 			continue
 		}
 		// If crash log only contains the header (no actual crash), remove it
-		if info.Size() < 500 { // Header is ~200 bytes, crash dump is much larger
+		if info.Size() < 200 { // Header is ~92 bytes, crash dump is much larger
 			os.Remove(path)
 		}
 	}

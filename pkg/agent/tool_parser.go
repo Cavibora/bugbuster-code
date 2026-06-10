@@ -1027,6 +1027,21 @@ func parseFuncCallToolCalls(response string) []ToolCall {
 				paramName := defaultParamName(toolName)
 				params[paramName] = singleMatch2[1]
 			}
+			// Try bare path without quotes: read(/path/to/file)
+			// Also handles broken XML: read(/path/to/file</param)
+			if len(params) == 0 {
+				// Strip any trailing XML-like tags (</param>, </param, </path>, etc.)
+				cleaned := regexp.MustCompile(`</\w+>?`).ReplaceAllString(argsStr, "")
+				// Strip trailing > if present (from broken XML like </param>)
+				cleaned = strings.TrimRight(cleaned, ">")
+				// Strip leading/trailing whitespace
+				cleaned = strings.TrimSpace(cleaned)
+				if len(cleaned) > 0 && !strings.Contains(cleaned, "=") && !strings.Contains(cleaned, `"`) {
+					// Looks like a bare path/command
+					paramName := defaultParamName(toolName)
+					params[paramName] = cleaned
+				}
+			}
 		}
 
 		if len(params) > 0 {

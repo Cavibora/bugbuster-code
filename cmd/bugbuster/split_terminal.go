@@ -73,6 +73,25 @@ type SplitTerminal struct {
 	bgTool *tools.BackgroundTool
 }
 
+// ensureHistoryDir ensures .bugbuster/history is a directory.
+// Old versions used .bugbuster/history as a single file —
+// if it's a file, rename to .old and create directory.
+func ensureHistoryDir(projectDir string) {
+	historyPath := filepath.Join(projectDir, ".bugbuster", "history")
+	info, err := os.Stat(historyPath)
+	if err != nil {
+		// Doesn't exist — create directory
+		os.MkdirAll(historyPath, 0755)
+		return
+	}
+	if info.IsDir() {
+		return // Already a directory
+	}
+	// It's a file — rename to .old and create directory
+	os.Rename(historyPath, historyPath+".old")
+	os.MkdirAll(historyPath, 0755)
+}
+
 // NewSplitTerminal creates a new split-terminal mode
 func NewSplitTerminal(cfg *config.BugBusterConfig, loop *agent.AgentLoop, ct *ChangeTracker, providerName string) *SplitTerminal {
 	projectDir := getProjectDir(cfg)
@@ -106,6 +125,7 @@ func (st *SplitTerminal) resetReadline() {
 	}
 	// Readline was closed (by rlClose in ask_user) — recreate it
 	restoreTerminalToNormal()
+	ensureHistoryDir(getProjectDir(st.cfg))
 	historyFile := filepath.Join(getProjectDir(st.cfg), ".bugbuster", "history", st.loop.Context.SessionID)
 	rl, err := readline.NewEx(&readline.Config{
 		Prompt:          color.HiGreenString("❯ "),
@@ -155,8 +175,12 @@ func (st *SplitTerminal) Run() bool {
 	// Banner
 	printBanner(st.cfg, p)
 
+	// Ensure history directory exists (old versions used file instead of dir)
+	projectDir := getProjectDir(st.cfg)
+	ensureHistoryDir(projectDir)
+
 	// Readline with command history
-	historyFile := filepath.Join(getProjectDir(st.cfg), ".bugbuster", "history", st.loop.Context.SessionID)
+	historyFile := filepath.Join(projectDir, ".bugbuster", "history", st.loop.Context.SessionID)
 	rl, err := readline.NewEx(&readline.Config{
 		Prompt:          color.HiGreenString("❯ "),
 		HistoryFile:     historyFile,
@@ -255,6 +279,16 @@ func (st *SplitTerminal) Run() bool {
 	// Main input loop
 	var ctrlCount int
 	for {
+		if rl == nil {
+			// Readline failed to initialize — wait and retry
+			st.resetReadline()
+			rl = st.rl
+			if rl == nil {
+				color.Red("Failed to initialize readline. Press Enter to retry...")
+				time.Sleep(1 * time.Second)
+				continue
+			}
+		}
 		input := st.readMultilineInput(rl)
 		if input == "" {
 			ctrlCount++
@@ -270,8 +304,12 @@ func (st *SplitTerminal) Run() bool {
 
 		// Slash command handling
 		// Commands write to os.Stdout directly (fmt.Println, color.XXX).
-		handled := handleCommand(input, st.loop, st.cfg, p, st.changeTracker, st.rl, sessionMgr, currentSession, st.bgTool)
+		handled, _, newProvName := handleCommand(input, st.loop, st.cfg, p, st.changeTracker, st.rl, sessionMgr, currentSession, st.bgTool)
 		if handled {
+			// Update provider name if model/provider was switched
+			if newProvName != "" {
+				st.providerName = newProvName
+			}
 			continue
 		}
 
@@ -349,6 +387,10 @@ func (st *SplitTerminal) Run() bool {
 			st.autoMode = false
 			color.Yellow("🤖 %s", i18n.T("cli.auto_interrupted"))
 		}
+		// Ensure readline is recreated after autopilot loop
+		// (runStreamingQuery closes readline each time)
+		st.resetReadline()
+		rl = st.rl
 	}
 }
 
@@ -377,11 +419,20 @@ func (st *SplitTerminal) runStreamingQuery(input string, currentCancel *context.
 	st.cancel = cancel
 	st.mu.Unlock()
 
+	// CRITICAL: Close readline before streaming starts.
+	// Readline leaves goroutines (CancelableStdin.ioloop, Operation.ioloop,
+	// Terminal.ioloop) that intercept SIGINT (Ctrl+C). If readline is active
+	// during streaming, Ctrl+C is swallowed by readline goroutines and the
+	// signal handler never receives it — user cannot cancel the request.
+	// Closing readline kills these goroutines, allowing SIGINT to reach
+	// our signal handler which cancels the streaming context.
+	if st.rl != nil {
+		st.rl.Close()
+		st.rl = nil
+	}
+
 	rlClose := func() {
-		if st.rl != nil {
-			st.rl.Close()
-			st.rl = nil
-		}
+		// Readline already closed above — nothing to do
 	}
 	rlRecreate := func() {
 		st.resetReadline()
@@ -405,12 +456,17 @@ func (st *SplitTerminal) runStreamingQuery(input string, currentCancel *context.
 }
 
 // readMultilineInput reads input with multiline support.
-// Uses a simple approach: read lines one at a time.
-// Lines ending with \ are continuation lines.
-// Empty lines are ignored (unless in multiline mode).
-// Paste detection: after reading a line, wait up to 50ms for more data.
-// If more data arrives within 50ms, it's a paste — keep reading.
-// If no data arrives within 50ms, it's a single line — process it.
+//
+// CRITICAL: When pasting multiline text, ALL lines must be collected into
+// a SINGLE query. If lines are split into separate queries, the model
+// processes them independently — it may try to "fix" things that were
+// already fixed in earlier lines, corrupting the code.
+//
+// Paste detection strategy:
+// 1. After reading first line, wait up to 200ms for more data
+// 2. If more data arrives → it's a paste → collect ALL lines until gap > 200ms
+// 3. Join all lines with \n and send as single query
+// 4. Ctrl+C during paste: cancel paste and return empty string
 func (st *SplitTerminal) readMultilineInput(rl *readline.Instance) string {
 	prompt := color.HiGreenString("❯ ")
 	continuation := color.HiGreenString("... ")
@@ -418,7 +474,6 @@ func (st *SplitTerminal) readMultilineInput(rl *readline.Instance) string {
 	rl.SetPrompt(prompt)
 
 	var lines []string
-	var isPaste bool
 
 	// Check if we have a pending line from previous paste detection
 	if st.pendingLine != nil {
@@ -443,9 +498,10 @@ func (st *SplitTerminal) readMultilineInput(rl *readline.Instance) string {
 		if err != nil {
 			if err == readline.ErrInterrupt {
 				if len(lines) > 0 {
+					// Ctrl+C during input — cancel everything
+					fmt.Printf("\n  %s\n", i18n.T("cli.paste_cancelled"))
 					lines = nil
-					fmt.Println()
-					continue
+					return ""
 				}
 				return ""
 			}
@@ -462,56 +518,57 @@ func (st *SplitTerminal) readMultilineInput(rl *readline.Instance) string {
 
 		lines = append(lines, line)
 
-		// Check if this is a paste by waiting for more data
-		// Wait up to 100ms — if more data arrives, it's a paste
+		// Paste detection: after first line, wait for more data
+		// Use longer timeout (200ms) to reliably detect paste operations
 		if len(lines) == 1 {
-			// First line — check if more data is coming (paste detection)
-			time.Sleep(50 * time.Millisecond)
-			isPaste = stdinHasData()
+			time.Sleep(100 * time.Millisecond)
+			if !stdinHasData() {
+				// Single line — not a paste
+				// Check for continuation backslash
+				if strings.HasSuffix(line, "\\") {
+					lines[len(lines)-1] = strings.TrimSuffix(line, "\\")
+					rl.SetPrompt(continuation)
+					continue
+				}
+				result := strings.Join(lines, "\n")
+				rl.SetPrompt(prompt)
+				return result
+			}
+			// It's a paste — show indicator and collect all lines
+			fmt.Printf("  %s\n", i18n.T("cli.paste_detected"))
 		}
 
-		// If pasting, keep reading until no more data
-		if isPaste {
-			for stdinHasData() {
-				nextLine, nextErr := rl.Readline()
-				if nextErr != nil {
-					if nextErr == readline.ErrInterrupt {
-						lines = nil
-						fmt.Println()
-						break
-					}
-					// EOF or other error — return what we have
-					result := strings.Join(lines, "\n")
-					rl.SetPrompt(prompt)
-					return result
-				}
-				nextLine = strings.TrimSpace(nextLine)
-				if nextLine != "" {
-					lines = append(lines, nextLine)
+		// Collecting paste — read all remaining lines until gap > 200ms
+		// This ensures ALL pasted lines are collected into ONE query
+		for {
+			time.Sleep(50 * time.Millisecond)
+			if !stdinHasData() {
+				// Wait a bit longer — large pastes may have small gaps
+				time.Sleep(150 * time.Millisecond)
+				if !stdinHasData() {
+					break // No more data — paste complete
 				}
 			}
-			// Paste complete — wait a bit more for any remaining data
-			time.Sleep(50 * time.Millisecond)
-			for stdinHasData() {
-				nextLine, nextErr := rl.Readline()
-				if nextErr != nil {
-					break
+			nextLine, nextErr := rl.Readline()
+			if nextErr != nil {
+				if nextErr == readline.ErrInterrupt {
+					// Ctrl+C during paste — cancel everything
+					fmt.Printf("\n  %s\n", i18n.T("cli.paste_cancelled"))
+					lines = nil
+					return ""
 				}
-				nextLine = strings.TrimSpace(nextLine)
-				if nextLine != "" {
-					lines = append(lines, nextLine)
-				}
+				break // EOF or other error
+			}
+			nextLine = strings.TrimSpace(nextLine)
+			if nextLine != "" {
+				lines = append(lines, nextLine)
 			}
 		}
 
-		if strings.HasSuffix(line, "\\") {
-			lines[len(lines)-1] = strings.TrimSuffix(line, "\\")
-			rl.SetPrompt(continuation)
-			continue
-		}
-
+		// Paste complete — join ALL lines into single query
 		result := strings.Join(lines, "\n")
 		rl.SetPrompt(prompt)
+		fmt.Printf("  %s (%d %s)\n", i18n.T("cli.paste_complete"), len(lines), i18n.T("cli.paste_lines"))
 		return result
 	}
 }

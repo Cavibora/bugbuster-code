@@ -140,6 +140,7 @@ func runExecStream(ctx context.Context, loop *agent.AgentLoop, cfg *config.BugBu
 	var toolCalls int
 	var errorSeen bool
 	var genStart, genEnd time.Time
+	var totalGenDur time.Duration
 
 	for event := range eventCh {
 		switch event.Type {
@@ -152,6 +153,8 @@ func runExecStream(ctx context.Context, loop *agent.AgentLoop, cfg *config.BugBu
 				// Track generation time for accurate speed calculation
 				if genStart.IsZero() {
 					genStart = time.Now()
+				} else if !genEnd.IsZero() {
+					totalGenDur += time.Since(genEnd)
 				}
 				genEnd = time.Now()
 			}
@@ -163,6 +166,8 @@ func runExecStream(ctx context.Context, loop *agent.AgentLoop, cfg *config.BugBu
 				})
 			}
 		case provider.EventToolCallStart:
+			// Reset genEnd so gap before tool call is not counted as generation time
+			genEnd = time.Time{}
 			toolCalls++
 			if execJSON {
 				emitJSONL(map[string]any{
@@ -174,6 +179,8 @@ func runExecStream(ctx context.Context, loop *agent.AgentLoop, cfg *config.BugBu
 				fmt.Fprintf(os.Stderr, "  ⏺ %s\n", event.ToolName)
 			}
 		case provider.EventToolCallEnd:
+			// Reset genEnd so tool execution time is not counted as generation time
+			genEnd = time.Time{}
 			if execJSON {
 				emitJSONL(map[string]any{
 					"type":     "tool_call_end",
@@ -200,13 +207,9 @@ func runExecStream(ctx context.Context, loop *agent.AgentLoop, cfg *config.BugBu
 				})
 			} else {
 				// Status line to stderr
-				var genDur time.Duration
-				if !genStart.IsZero() && !genEnd.IsZero() {
-					genDur = genEnd.Sub(genStart)
-				}
 				fmt.Fprintf(os.Stderr, "%s\n", FormatStatusLineEx(
 					event.InputTokens, event.OutputTokens,
-					event.Duration, genDur, 0, 0, providerName, "",
+					event.Duration, totalGenDur, 0, 0, providerName, "",
 				))
 			}
 

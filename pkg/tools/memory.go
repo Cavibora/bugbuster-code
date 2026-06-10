@@ -1,6 +1,8 @@
 package tools
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +12,12 @@ import (
 	"time"
 
 	"bugbuster-code/pkg/i18n"
+)
+
+const (
+	memoryMaxFacts    = 30
+	memoryMaxValueLen = 2000
+	memoryMaxBackups  = 3
 )
 
 // MemoryTool stores important project facts that persist across sessions.
@@ -45,7 +53,6 @@ func NewMemoryToolWithPath(filePath string) *MemoryTool {
 }
 
 // SetSessionID updates the session ID and file path.
-// Call this after session creation to associate memory with the correct session.
 func (t *MemoryTool) SetSessionID(sessionID string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -57,7 +64,7 @@ func (t *MemoryTool) SetSessionID(sessionID string) {
 		t.facts = nil
 		if len(oldFacts) > 0 {
 			t.facts = oldFacts
-			t.saveToFile()
+			t.saveToFileLocked()
 		}
 	}
 }
@@ -74,7 +81,7 @@ func (t *MemoryTool) SetSessionIDForProject(sessionID, projectDir string) {
 		t.facts = nil
 		if len(oldFacts) > 0 {
 			t.facts = oldFacts
-			t.saveToFile()
+			t.saveToFileLocked()
 		}
 	}
 }
@@ -98,6 +105,8 @@ func (t *MemoryTool) Execute(params map[string]string) ToolResult {
 		return t.delete(params)
 	case "compress":
 		return t.compress(params)
+	case "restore":
+		return t.restore()
 	default:
 		return Error("tools.memory.unknown_action", action)
 	}
@@ -109,7 +118,7 @@ func (t *MemoryTool) Parameters() map[string]any {
 		"properties": map[string]any{
 			"action": map[string]any{
 				"type":        "string",
-				"enum":        []string{"save", "load", "list", "delete", "compress"},
+				"enum":        []string{"save", "load", "list", "delete", "compress", "restore"},
 				"description": i18n.T("tools.memory.param_action_desc"),
 			},
 			"key": map[string]any{
@@ -133,6 +142,7 @@ func (t *MemoryTool) Parameters() map[string]any {
 	}
 }
 
+// save stores a key-value fact with deduplication and limits
 func (t *MemoryTool) save(params map[string]string) ToolResult {
 	key := strings.TrimSpace(params["key"])
 	value := strings.TrimSpace(params["value"])
@@ -145,6 +155,12 @@ func (t *MemoryTool) save(params map[string]string) ToolResult {
 		category = "general"
 	}
 
+	// Truncate long values
+	originalLen := len(value)
+	if len(value) > memoryMaxValueLen {
+		value = value[:memoryMaxValueLen] + fmt.Sprintf("... (truncated, original was %d chars)", originalLen)
+	}
+
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -152,7 +168,34 @@ func (t *MemoryTool) save(params map[string]string) ToolResult {
 		return Error("tools.memory.read_error", err)
 	}
 
-	// Update existing or add new
+	// Check for exact duplicate value under different key
+	for _, f := range t.facts {
+		if f.Value == value && f.Key != key {
+			// Update existing key instead of creating duplicate
+			for i := range t.facts {
+				if t.facts[i].Key == f.Key {
+					t.facts[i].Value = value
+					t.facts[i].Category = category
+					t.facts[i].SavedAt = time.Now()
+					break
+				}
+			}
+			if err := t.saveToFileLocked(); err != nil {
+				return Error("tools.memory.write_error", err)
+			}
+			return ToolResult{Output: fmt.Sprintf("✓ Same value already saved as '%s'. Updated that key instead of creating duplicate '%s'. Total: %d/%d facts", f.Key, key, len(t.facts), memoryMaxFacts)}
+		}
+	}
+
+	// Warn about similar key (prefix match or Levenshtein ≤ 2)
+	// Don't auto-update — let the model decide
+	if similarKey := findSimilarMemoryKey(t.facts, key); similarKey != "" {
+		// Just warn, don't auto-update
+		// (Continue to save the new key below)
+		_ = similarKey // suppress unused warning
+	}
+
+	// Update existing key or add new
 	found := false
 	for i, f := range t.facts {
 		if strings.EqualFold(f.Key, key) {
@@ -172,11 +215,16 @@ func (t *MemoryTool) save(params map[string]string) ToolResult {
 		})
 	}
 
-	if err := t.saveToFile(); err != nil {
+	// Auto-compress if too many facts
+	if len(t.facts) > memoryMaxFacts {
+		t.compressInternal(memoryMaxFacts)
+	}
+
+	if err := t.saveToFileLocked(); err != nil {
 		return Error("tools.memory.write_error", err)
 	}
 
-	return ToolResult{Output: fmt.Sprintf("✓ Saved: %s = %s [%s]", key, value, category)}
+	return ToolResult{Output: fmt.Sprintf("✓ Saved '%s' (%d/%d facts). Category: %s", key, len(t.facts), memoryMaxFacts, category)}
 }
 
 func (t *MemoryTool) load(params map[string]string) ToolResult {
@@ -238,6 +286,9 @@ func (t *MemoryTool) delete(params map[string]string) ToolResult {
 		return Error("tools.memory.read_error", err)
 	}
 
+	// Backup before delete
+	t.backup()
+
 	filtered := make([]MemoryFact, 0, len(t.facts))
 	deleted := 0
 	for _, f := range t.facts {
@@ -248,16 +299,21 @@ func (t *MemoryTool) delete(params map[string]string) ToolResult {
 		}
 	}
 
+	// Protect from mass deletion (but allow single key deletion)
+	if len(t.facts) > 2 && deleted > len(t.facts)/2 {
+		return ToolResult{Output: fmt.Sprintf("⚠️ Refusing to delete %d facts — that's more than half of all facts (%d total). Delete specific keys or use 'compress'.", deleted, len(t.facts))}
+	}
+
 	if deleted == 0 {
 		return ToolResult{Output: fmt.Sprintf("Fact '%s' not found.", key)}
 	}
 
 	t.facts = filtered
-	if err := t.saveToFile(); err != nil {
+	if err := t.saveToFileLocked(); err != nil {
 		return Error("tools.memory.write_error", err)
 	}
 
-	return ToolResult{Output: fmt.Sprintf("✓ Deleted %d fact(s) with key '%s'", deleted, key)}
+	return ToolResult{Output: fmt.Sprintf("✓ Deleted %d fact(s) with key '%s'. Remaining: %d/%d", deleted, key, len(t.facts), memoryMaxFacts)}
 }
 
 func (t *MemoryTool) compress(params map[string]string) ToolResult {
@@ -271,7 +327,6 @@ func (t *MemoryTool) compress(params map[string]string) ToolResult {
 }
 
 // TokenCount estimates the number of tokens in the memory file.
-// Uses a rough estimate: 1 token ≈ 4 characters.
 func (t *MemoryTool) TokenCount() int {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -284,8 +339,7 @@ func (t *MemoryTool) TokenCount() int {
 	return len(content) / 4
 }
 
-// Compress removes duplicate and outdated facts.
-// Called automatically when memory exceeds maxTokens% of the model's context window.
+// Compress removes duplicate and low-priority facts.
 func (t *MemoryTool) Compress(maxTokens int) ToolResult {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -298,10 +352,18 @@ func (t *MemoryTool) Compress(maxTokens int) ToolResult {
 		return ToolResult{Output: "Memory is empty, nothing to compress."}
 	}
 
-	originalCount := len(t.facts)
-	originalTokens := len(renderMemoryMD(t.facts)) / 4
+	result := t.compressInternal(maxTokens)
+	return ToolResult{Output: result}
+}
 
-	// Step 1: Remove exact duplicates (same key, same value)
+// compressInternal removes low-priority facts (caller must hold t.mu)
+func (t *MemoryTool) compressInternal(maxTokens int) string {
+	originalCount := len(t.facts)
+
+	// Backup before compress
+	t.backup()
+
+	// Step 1: Remove exact duplicates (same key + same value)
 	seen := make(map[string]bool)
 	deduped := make([]MemoryFact, 0, len(t.facts))
 	for _, f := range t.facts {
@@ -318,7 +380,6 @@ func (t *MemoryTool) Compress(maxTokens int) ToolResult {
 	for _, f := range deduped {
 		key := strings.ToLower(f.Key)
 		if existing, ok := merged[key]; ok {
-			// Keep the one with more recent SavedAt, or longer value
 			if f.SavedAt.After(existing.SavedAt) || len(f.Value) > len(existing.Value) {
 				merged[key] = f
 			}
@@ -328,46 +389,108 @@ func (t *MemoryTool) Compress(maxTokens int) ToolResult {
 		}
 	}
 
-	// Step 3: Remove outdated facts (older than 30 days, unless in "permanent" category)
-	cutoff := time.Now().AddDate(0, 0, -30)
-	var result []MemoryFact
+	// Step 3: Remove duplicate values (keep first occurrence)
+	valueSeen := make(map[string]bool)
+	var unique []MemoryFact
 	for _, key := range order {
 		f := merged[key]
-		if f.Category == "permanent" || f.Category == "project" || f.SavedAt.After(cutoff) {
-			result = append(result, f)
+		h := hashMemoryValue(f.Value)
+		if !valueSeen[h] {
+			valueSeen[h] = true
+			unique = append(unique, f)
 		}
 	}
 
-	// Step 4: If still over limit, keep only the most recent facts
-	newTokens := len(renderMemoryMD(result)) / 4
-	if maxTokens > 0 && newTokens > maxTokens {
-		// Sort by SavedAt (most recent first)
-		sort.Slice(result, func(i, j int) bool {
-			return result[i].SavedAt.After(result[j].SavedAt)
-		})
-		// Keep only facts that fit within maxTokens
-		var kept []MemoryFact
-		currentTokens := 0
-		for _, f := range result {
-			factTokens := (len(f.Key) + len(f.Value) + len(f.Category) + 10) / 4
-			if currentTokens+factTokens <= maxTokens {
-				kept = append(kept, f)
-				currentTokens += factTokens
+	// Step 4: Sort by priority (critical > credentials > project > architecture > general)
+	priorityCategories := map[string]int{
+		"critical":     10,
+		"credentials":  9,
+		"project":      8,
+		"architecture": 7,
+		"permanent":    6,
+	}
+
+	sort.Slice(unique, func(i, j int) bool {
+		pi, oki := priorityCategories[unique[i].Category]
+		pj, okj := priorityCategories[unique[j].Category]
+		if !oki {
+			pi = 1
+		}
+		if !okj {
+			pj = 1
+		}
+		if pi != pj {
+			return pi > pj
+		}
+		return unique[i].SavedAt.After(unique[j].SavedAt)
+	})
+
+	// Step 5: If over maxTokens, keep only facts that fit
+	if maxTokens > 0 {
+		newTokens := len(renderMemoryMD(unique)) / 4
+		if newTokens > maxTokens {
+			var kept []MemoryFact
+			currentTokens := 0
+			for _, f := range unique {
+				factTokens := (len(f.Key) + len(f.Value) + len(f.Category) + 10) / 4
+				if currentTokens+factTokens <= maxTokens {
+					kept = append(kept, f)
+					currentTokens += factTokens
+				}
+			}
+			unique = kept
+		}
+	}
+
+	// Step 6: If still over maxFacts, keep only top maxFacts
+	if len(unique) > memoryMaxFacts {
+		unique = unique[:memoryMaxFacts]
+	}
+
+	t.facts = unique
+	if err := t.saveToFileLocked(); err != nil {
+		return fmt.Sprintf("Error saving compressed memory: %v", err)
+	}
+
+	removed := originalCount - len(t.facts)
+	return fmt.Sprintf("✓ Compressed: %d → %d facts (removed %d duplicates/low-priority). Protected: critical, credentials, project, architecture.", originalCount, len(t.facts), removed)
+}
+
+// restore loads facts from the most recent backup
+func (t *MemoryTool) restore() ToolResult {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	backupPath := t.filePath + ".bak.1"
+	data, err := os.ReadFile(backupPath)
+	if err != nil {
+		return ToolResult{Output: fmt.Sprintf("No backup found at %s", backupPath)}
+	}
+
+	backupFacts := parseMemoryMD(string(data))
+
+	// Merge: add backup facts that don't exist in current
+	var added int
+	for _, bf := range backupFacts {
+		found := false
+		for _, cf := range t.facts {
+			if strings.EqualFold(cf.Key, bf.Key) {
+				found = true
+				break
 			}
 		}
-		result = kept
+		if !found {
+			bf.Category = "restored"
+			t.facts = append(t.facts, bf)
+			added++
+		}
 	}
 
-	t.facts = result
-	if err := t.saveToFile(); err != nil {
+	if err := t.saveToFileLocked(); err != nil {
 		return Error("tools.memory.write_error", err)
 	}
 
-	newTokens = len(renderMemoryMD(t.facts)) / 4
-	removed := originalCount - len(t.facts)
-
-	return ToolResult{Output: fmt.Sprintf("✓ Memory compressed: %d → %d facts, %d → %d tokens (removed %d duplicates/outdated)",
-		originalCount, len(t.facts), originalTokens, newTokens, removed)}
+	return ToolResult{Output: fmt.Sprintf("✓ Restored %d facts from backup. Total: %d facts", added, len(t.facts))}
 }
 
 // LoadAllFacts returns all stored facts as formatted text (for system prompt injection)
@@ -386,17 +509,13 @@ func (t *MemoryTool) LoadAllFacts() string {
 }
 
 // MemoryFilePath returns the path to the memory file for a session.
-// Priority: <project>/.bugbuster/memory/ if .bugbuster exists in project dir,
-// otherwise ~/.bugbuster/memory/
 func MemoryFilePath(sessionID string) string {
-	// Check if .bugbuster exists in current working directory
 	if cwd, err := os.Getwd(); err == nil {
 		bbDir := filepath.Join(cwd, ".bugbuster")
 		if info, err := os.Stat(bbDir); err == nil && info.IsDir() {
 			return filepath.Join(cwd, ".bugbuster", "memory", sessionID+".md")
 		}
 	}
-	// Fallback to home directory
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".bugbuster", "memory", sessionID+".md")
 }
@@ -404,19 +523,16 @@ func MemoryFilePath(sessionID string) string {
 // MemoryFilePathForProject returns the path to the memory file for a session,
 // using the given project directory as the first choice.
 func MemoryFilePathForProject(sessionID, projectDir string) string {
-	// Check if .bugbuster exists in project directory
 	bbDir := filepath.Join(projectDir, ".bugbuster")
 	if info, err := os.Stat(bbDir); err == nil && info.IsDir() {
 		return filepath.Join(projectDir, ".bugbuster", "memory", sessionID+".md")
 	}
-	// Check if .bugbuster exists in current working directory
 	if cwd, err := os.Getwd(); err == nil {
 		bbDir := filepath.Join(cwd, ".bugbuster")
 		if info, err := os.Stat(bbDir); err == nil && info.IsDir() {
 			return filepath.Join(cwd, ".bugbuster", "memory", sessionID+".md")
 		}
 	}
-	// Fallback to home directory
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".bugbuster", "memory", sessionID+".md")
 }
@@ -438,7 +554,8 @@ func (t *MemoryTool) loadFromFile() error {
 	return nil
 }
 
-func (t *MemoryTool) saveToFile() error {
+// saveToFileLocked saves facts to file (caller must hold t.mu)
+func (t *MemoryTool) saveToFileLocked() error {
 	dir := filepath.Dir(t.filePath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
@@ -446,6 +563,114 @@ func (t *MemoryTool) saveToFile() error {
 
 	content := renderMemoryMD(t.facts)
 	return os.WriteFile(t.filePath, []byte(content), 0644)
+}
+
+func (t *MemoryTool) saveToFile() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.saveToFileLocked()
+}
+
+// backup creates a rotating backup of the memory file (caller must hold t.mu)
+func (t *MemoryTool) backup() {
+	for i := memoryMaxBackups - 1; i >= 1; i-- {
+		oldPath := fmt.Sprintf("%s.bak.%d", t.filePath, i)
+		newPath := fmt.Sprintf("%s.bak.%d", t.filePath, i+1)
+		data, err := os.ReadFile(oldPath)
+		if err == nil {
+			os.WriteFile(newPath, data, 0644)
+		}
+	}
+	data, err := os.ReadFile(t.filePath)
+	if err == nil {
+		os.WriteFile(t.filePath+".bak.1", data, 0644)
+	}
+}
+
+// --- Helper functions ---
+
+func findSimilarMemoryKey(facts []MemoryFact, key string) string {
+	keyLower := strings.ToLower(key)
+	for _, f := range facts {
+		fLower := strings.ToLower(f.Key)
+		if fLower == keyLower {
+			continue // exact match, not similar
+		}
+		// Prefix match (e.g., "project_path" vs "project_root")
+		if strings.HasPrefix(fLower, keyLower+"_") || strings.HasPrefix(keyLower, fLower+"_") {
+			return f.Key
+		}
+		// Common prefix match (e.g., "project_path" vs "project_root" share "project_")
+		commonLen := 0
+		minLen := len(fLower)
+		if len(keyLower) < minLen {
+			minLen = len(keyLower)
+		}
+		for i := 0; i < minLen; i++ {
+			if fLower[i] == keyLower[i] {
+				commonLen++
+			} else {
+				break
+			}
+		}
+		if commonLen >= 5 && commonLen >= len(fLower)/2 && commonLen >= len(keyLower)/2 {
+			return f.Key
+		}
+		// Levenshtein distance ≤ 2 for short keys
+		if len(key) <= 20 && levenshteinDist(fLower, keyLower) <= 2 {
+			return f.Key
+		}
+	}
+	return ""
+}
+
+func hashMemoryValue(v string) string {
+	h := sha256.Sum256([]byte(strings.TrimSpace(strings.ToLower(v))))
+	return hex.EncodeToString(h[:])
+}
+
+func levenshteinDist(a, b string) int {
+	if len(a) == 0 {
+		return len(b)
+	}
+	if len(b) == 0 {
+		return len(a)
+	}
+	if a == b {
+		return 0
+	}
+	la, lb := len(a), len(b)
+	d := make([][]int, la+1)
+	for i := range d {
+		d[i] = make([]int, lb+1)
+		d[i][0] = i
+	}
+	for j := 1; j <= lb; j++ {
+		d[0][j] = j
+	}
+	for i := 1; i <= la; i++ {
+		for j := 1; j <= lb; j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			d[i][j] = minOf3(d[i-1][j]+1, d[i][j-1]+1, d[i-1][j-1]+cost)
+		}
+	}
+	return d[la][lb]
+}
+
+func minOf3(a, b, c int) int {
+	if a < b {
+		if a < c {
+			return a
+		}
+		return c
+	}
+	if b < c {
+		return b
+	}
+	return c
 }
 
 // --- Markdown parsing/rendering ---

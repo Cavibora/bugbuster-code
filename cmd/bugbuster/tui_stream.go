@@ -114,6 +114,13 @@ func autoContinueCmd(input string) tea.Cmd {
 	})
 }
 
+// autoSaveCmd returns command for auto-saving session every 30 seconds
+func (m TUI) autoSaveCmd() tea.Cmd {
+	return tea.Tick(30*time.Second, func(t time.Time) tea.Msg {
+		return autoSaveTickMsg{}
+	})
+}
+
 // toolTickCmd returns command for tool timer update
 func (m TUI) toolTickCmd() tea.Cmd {
 	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {

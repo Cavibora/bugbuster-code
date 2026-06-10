@@ -473,3 +473,66 @@ func TestParseAngleBracketKVToolCalls(t *testing.T) {
 		})
 	}
 }
+
+
+func TestBrokenToolCall(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  int
+	}{
+		{"broken_xml_param", `read(/Users/ss/ai-test/grfnm-v1/CLAUDE.md</param)`, 1},
+		{"func_call_path", `read(path="/Users/ss/ai-test/grfnm-v1/CLAUDE.md")`, 1},
+		{"func_call_bare", `read("/Users/ss/ai-test/grfnm-v1/CLAUDE.md")`, 1},
+		{"func_call_bare_no_quotes", `read(/Users/ss/ai-test/grfnm-v1/CLAUDE.md)`, 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := ParseToolCalls(tt.input)
+			if len(calls) != tt.want {
+				t.Errorf("ParseToolCalls(%q) = %d calls, want %d", tt.input, len(calls), tt.want)
+				for _, c := range calls {
+					t.Logf("  -> Name: %s, Params: %v", c.Name, c.Params)
+				}
+			} else if len(calls) > 0 {
+				t.Logf("OK: Name: %s, Params: %v", calls[0].Name, calls[0].Params)
+			}
+		})
+	}
+}
+
+func TestBrokenToolCallExtended(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		wantTool string
+		wantPath string
+	}{
+		{"broken_xml_param_tag", `read(/Users/ss/ai-test/grfnm-v1/CLAUDE.md</param)`, "read", "/Users/ss/ai-test/grfnm-v1/CLAUDE.md"},
+		{"broken_xml_param_tag_close", `read(/Users/ss/ai-test/grfnm-v1/CLAUDE.md</param>)`, "read", "/Users/ss/ai-test/grfnm-v1/CLAUDE.md"},
+		{"broken_xml_path_tag", `read(/Users/ss/ai-test/grfnm-v1/CLAUDE.md</path>)`, "read", "/Users/ss/ai-test/grfnm-v1/CLAUDE.md"},
+		{"func_call_bare_path", `read(/Users/ss/ai-test/grfnm-v1/CLAUDE.md)`, "read", "/Users/ss/ai-test/grfnm-v1/CLAUDE.md"},
+		{"func_call_quoted_path", `read("/Users/ss/ai-test/grfnm-v1/CLAUDE.md")`, "read", "/Users/ss/ai-test/grfnm-v1/CLAUDE.md"},
+		{"func_call_key_value", `read(path="/Users/ss/ai-test/grfnm-v1/CLAUDE.md")`, "read", "/Users/ss/ai-test/grfnm-v1/CLAUDE.md"},
+		{"bash_bare_command", `bash(ls -la /tmp)`, "bash", "ls -la /tmp"},
+		{"bash_broken_xml", `bash(ls -la /tmp</param>)`, "bash", "ls -la /tmp"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := ParseToolCalls(tt.input)
+			if len(calls) != 1 {
+				t.Errorf("ParseToolCalls(%q) = %d calls, want 1", tt.input, len(calls))
+				return
+			}
+			if calls[0].Name != tt.wantTool {
+				t.Errorf("Tool = %q, want %q", calls[0].Name, tt.wantTool)
+			}
+			paramName := defaultParamName(tt.wantTool)
+			if calls[0].Params[paramName] != tt.wantPath {
+				t.Errorf("Params[%q] = %q, want %q", paramName, calls[0].Params[paramName], tt.wantPath)
+			}
+		})
+	}
+}

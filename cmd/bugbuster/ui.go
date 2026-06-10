@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"bugbuster-code/pkg/i18n"
 	"bugbuster-code/pkg/theme"
@@ -67,7 +68,9 @@ func terminalWidth() int {
 }
 
 func truncateMessage(msg string, maxWidth int) string {
-	reserve := 35
+	// Reserve space for: duration + tokens + speed + provider/model
+	// "1.2m · ⬆ 99999 ⬇ 99999 Σ 99999 · ⚡ 999tok/s · local · model-name"
+	reserve := 80
 	available := maxWidth - reserve
 	if available < 20 {
 		available = 20
@@ -125,31 +128,20 @@ func (s *Spinner) Start() {
 
 				parts := []string{msg}
 				parts = append(parts, FormatDuration(elapsed))
+				// Always show tokens if available (even if only input tokens)
 				if tokensIn > 0 || tokensOut > 0 {
 					parts = append(parts, FormatTokens(tokensIn, tokensOut))
 				}
-			// Speed: tokens per second (based on generation time, not total time)
-			if elapsed > 0 && tokensOut > 0 {
-				var speed float64
+				// Speed: use ONLY totalGenDur (accumulated generation time)
+				// Never fallback to elapsed — it's only time since spinner creation, not total session
 				s.mu.Lock()
-				gs := s.genStart
-				ge := s.genEnd
 				totalGD := s.totalGenDur
 				s.mu.Unlock()
-				if totalGD.Seconds() > 0.1 {
-					// Use accumulated generation time for accurate speed
-					speed = float64(tokensOut) / totalGD.Seconds()
-				} else if !gs.IsZero() && ge.After(gs) {
-					genDur := ge.Sub(gs).Seconds()
-					if genDur > 0.1 {
-						speed = float64(tokensOut) / genDur
-					} else {
-						speed = float64(tokensOut) / elapsed.Seconds()
+				if totalGD.Seconds() > 0 && tokensOut > 0 {
+					speed := float64(tokensOut) / totalGD.Seconds()
+					if speed >= 0.5 && speed <= 500 { // realistic range: 0.5-500 tok/s
+						parts = append(parts, fmt.Sprintf("%s⚡%s %s%s%s", appTheme.Success.ANSICode(), ansiReset, appTheme.Info.ANSICode(), formatSpeed(speed), ansiReset))
 					}
-				} else {
-					speed = float64(tokensOut) / elapsed.Seconds()
-				}
-				parts = append(parts, fmt.Sprintf("%s⚡%s %s%s%s", appTheme.Success.ANSICode(), ansiReset, appTheme.Info.ANSICode(), formatSpeed(speed), ansiReset))
 				}
 				// Provider and model
 				if s.providerName != "" || s.modelName != "" {
@@ -235,8 +227,19 @@ func (s *Spinner) UpdateTokens(tokensIn, tokensOut int) {
 
 func (s *Spinner) UpdateProvider(providerName, modelName string) {
 	s.mu.Lock()
-	s.providerName = providerName
-	s.modelName = modelName
+	// Avoid duplication like "qwen-fast-35b · qwen-fast-35b"
+	// If provider name equals model name, show only model name
+	if providerName == modelName && modelName != "" {
+		s.providerName = ""
+		s.modelName = modelName
+	} else if providerName == "" && modelName != "" {
+		// No provider name, show only model name
+		s.providerName = ""
+		s.modelName = modelName
+	} else {
+		s.providerName = providerName
+		s.modelName = modelName
+	}
 	s.mu.Unlock()
 }
 
@@ -245,11 +248,19 @@ func (s *Spinner) UpdateGenTime() {
 	defer s.mu.Unlock()
 	if s.genStart.IsZero() {
 		s.genStart = time.Now()
-	} else {
-		// Accumulate generation time between tokens
+	} else if !s.genEnd.IsZero() {
+		// Accumulate generation time between tokens (skip if genEnd was reset by PauseGenTime)
 		s.totalGenDur += time.Since(s.genEnd)
 	}
 	s.genEnd = time.Now()
+}
+
+// PauseGenTime resets genEnd so that time spent on tool execution
+// is not counted as generation time. Call this when a tool starts executing.
+func (s *Spinner) PauseGenTime() {
+	s.mu.Lock()
+	s.genEnd = time.Time{} // reset genEnd so next UpdateGenTime doesn't add tool execution time
+	s.mu.Unlock()
 }
 
 // CopyStatsTo copies tokens and gen time to another spinner.
@@ -264,12 +275,16 @@ func (s *Spinner) CopyStatsTo(dst *Spinner) {
 	srcGenStart := s.genStart
 	srcGenEnd := s.genEnd
 	srcTotalGenDur := s.totalGenDur
+	srcProviderName := s.providerName
+	srcModelName := s.modelName
 	s.mu.Unlock()
 
 	dst.mu.Lock()
 	dst.tokensIn = srcIn
 	dst.tokensOut = srcOut
 	dst.totalGenDur = srcTotalGenDur
+	dst.providerName = srcProviderName
+	dst.modelName = srcModelName
 	if !srcGenStart.IsZero() {
 		dst.genStart = srcGenStart
 	}
@@ -363,26 +378,28 @@ func FormatStatusLineEx(tokensIn, tokensOut int, dur, genDur time.Duration, ctxU
 	if tokensIn > 0 || tokensOut > 0 {
 		parts = append(parts, FormatTokens(tokensIn, tokensOut))
 	}
-	// Speed: tokens per second (based on generation time if available)
-	if tokensOut > 0 {
-		var speed float64
-		if genDur > 0 && genDur.Seconds() > 0.1 {
-			speed = float64(tokensOut) / genDur.Seconds()
-		} else if dur > 0 {
-			speed = float64(tokensOut) / dur.Seconds()
-		}
-		if speed > 0 {
+	// Speed: use ONLY genDur (accumulated generation time)
+	// Never fallback to total duration — it includes tool execution time
+	if tokensOut > 0 && genDur > 0 {
+		speed := float64(tokensOut) / genDur.Seconds()
+		// Realistic range: 0.5-500 tok/s
+		if speed >= 0.5 && speed <= 500 {
 			speedStr := fmt.Sprintf("%s⚡%s %s%s%s", appTheme.Success.ANSICode(), ansiReset, appTheme.Info.ANSICode(), formatSpeed(speed), ansiReset)
 			parts = append(parts, speedStr)
 		}
 	}
 	if providerName != "" || modelName != "" {
 		var info []string
-		if providerName != "" {
-			info = append(info, providerName)
-		}
-		if modelName != "" {
+		// Avoid duplication like "qwen-fast-35b · qwen-fast-35b"
+		if providerName == modelName && modelName != "" {
 			info = append(info, modelName)
+		} else {
+			if providerName != "" {
+				info = append(info, providerName)
+			}
+			if modelName != "" {
+				info = append(info, modelName)
+			}
 		}
 		parts = append(parts, fmt.Sprintf("%s%s%s", appTheme.Dim.ANSICode(), strings.Join(info, " · "), ansiReset))
 	}
@@ -444,7 +461,7 @@ func FormatProgressBar(current, total int, width int) string {
 
 func FormatToolCallStart(name string, params map[string]string) string {
 	var parts []string
-	displayKeys := []string{"path", "command", "pattern", "query", "prompt", "url", "file", "dir", "lines"}
+	displayKeys := []string{"path", "command", "pattern", "query", "prompt", "url", "file", "dir", "lines", "task"}
 	shown := make(map[string]bool)
 
 	for _, key := range displayKeys {
@@ -454,11 +471,22 @@ func FormatToolCallStart(name string, params map[string]string) string {
 				if idx := strings.Index(v, "\n"); idx >= 0 {
 					display = v[:idx]
 				}
-				if len(display) > 80 {
-					display = display[:77] + "..."
+				if utf8.RuneCountInString(display) > 80 {
+					runes := []rune(display)
+					display = string(runes[:77]) + "..."
 				}
-			} else if len(display) > 120 {
-				display = display[:117] + "..."
+			} else if key == "task" {
+				// Tasks can be very long — truncate aggressively
+				if idx := strings.Index(v, "\n"); idx >= 0 {
+					display = v[:idx]
+				}
+				if utf8.RuneCountInString(display) > 60 {
+					runes := []rune(display)
+					display = string(runes[:57]) + "..."
+				}
+			} else if utf8.RuneCountInString(display) > 120 {
+				runes := []rune(display)
+				display = string(runes[:117]) + "..."
 			}
 			parts = append(parts, display)
 			shown[key] = true
@@ -470,8 +498,9 @@ func FormatToolCallStart(name string, params map[string]string) string {
 			continue
 		}
 		display := v
-		if len(display) > 60 {
-			display = display[:57] + "..."
+		if utf8.RuneCountInString(display) > 60 {
+			runes := []rune(display)
+			display = string(runes[:57]) + "..."
 		}
 		parts = append(parts, fmt.Sprintf("%s=%s", k, display))
 	}
@@ -705,7 +734,7 @@ func formatDelegateTaskSummary(fullResult string) string {
 // ─── Tool result extra lines ────────────────────────────────────────────────
 
 func formatToolResultExtra(name string, ok bool, fullResult string) []string {
-	if fullResult == "" {
+	if fullResult == "" || !ok {
 		return nil
 	}
 	switch name {
@@ -1030,11 +1059,31 @@ func formatToolSummary(toolName string, params map[string]string) string {
 		return toolName
 	}
 	var parts []string
-	displayKeys := []string{"path", "command", "pattern", "query", "prompt", "url", "file", "dir", "lines"}
+	displayKeys := []string{"path", "command", "pattern", "query", "prompt", "url", "file", "dir", "lines", "task"}
 	shown := make(map[string]bool)
 	for _, key := range displayKeys {
 		if v, ok := params[key]; ok {
-			parts = append(parts, v)
+			display := v
+			if key == "task" {
+				// Tasks can be very long — truncate aggressively
+				if idx := strings.Index(v, "\n"); idx >= 0 {
+					display = v[:idx]
+				}
+				if utf8.RuneCountInString(display) > 60 {
+					runes := []rune(display)
+					display = string(runes[:57]) + "..."
+				}
+			} else if key == "command" {
+				if idx := strings.Index(v, "\n"); idx >= 0 {
+					display = v[:idx]
+				}
+				if len(display) > 80 {
+					display = display[:77] + "..."
+				}
+			} else if len(display) > 120 {
+				display = display[:117] + "..."
+			}
+			parts = append(parts, display)
 			shown[key] = true
 		}
 	}
@@ -1042,7 +1091,11 @@ func formatToolSummary(toolName string, params map[string]string) string {
 		if shown[k] {
 			continue
 		}
-		parts = append(parts, fmt.Sprintf("%s=%s", k, v))
+		display := v
+		if len(display) > 60 {
+			display = display[:57] + "..."
+		}
+		parts = append(parts, fmt.Sprintf("%s=%s", k, display))
 	}
 	paramStr := strings.Join(parts, " · ")
 	if paramStr != "" {
@@ -1063,7 +1116,20 @@ func parsePartialToolInput(jsonStr string) map[string]string {
 		}
 		return result
 	}
+	// Try to fix partial JSON:
+	// 1. Count unescaped quotes to detect unclosed strings
+	quoteCount := 0
+	for i := 0; i < len(jsonStr); i++ {
+		if jsonStr[i] == '"' && (i == 0 || jsonStr[i-1] != '\\') {
+			quoteCount++
+		}
+	}
 	fixed := jsonStr
+	// If odd number of quotes, last string is unclosed — close it
+	if quoteCount%2 != 0 {
+		fixed += `"`
+	}
+	// Close unclosed braces and brackets
 	openBraces := strings.Count(fixed, "{") - strings.Count(fixed, "}")
 	for i := 0; i < openBraces; i++ {
 		fixed += "}"

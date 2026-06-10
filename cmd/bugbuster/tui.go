@@ -20,6 +20,8 @@ import (
 
 	"encoding/json"
 
+	"unicode/utf8"
+
 	"charm.land/bubbles/v2/progress"
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/viewport"
@@ -129,6 +131,9 @@ type TUI struct {
 
 	// Task type for status line
 	taskType string
+
+	// Auto-save
+	lastSaveTime time.Time
 }
 
 // streamEventMsg — streaming event sent via tea.Program.Send
@@ -154,6 +159,9 @@ type spinnerTickMsg struct{}
 
 // toolTickMsg — timer tick for tool execution time update
 type toolTickMsg struct{}
+
+// autoSaveTickMsg — timer tick for auto-saving session
+type autoSaveTickMsg struct{}
 
 // NewTUI creates new TUI model
 func NewTUI(cfg *config.BugBusterConfig, loop *agent.AgentLoop, ct *ChangeTracker, providerName string, inline bool) TUI {
@@ -369,6 +377,16 @@ func (m TUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.syncViewport()
 			return m, m.toolTickCmd()
 		}
+
+	case autoSaveTickMsg:
+		// Auto-save session every 30 seconds during streaming
+		if m.streaming && m.session != nil && m.sessionMgr != nil {
+			m.session.Messages = m.loop.Context.GetMessages()
+			if err := m.sessionMgr.SaveSessionMessages(m.session); err == nil {
+				m.lastSaveTime = time.Now()
+			}
+		}
+		return m, m.autoSaveCmd()
 
 	case progress.FrameMsg:
 		// Progress bar animation
@@ -912,7 +930,7 @@ func (m TUI) handleSend() (retModel tea.Model, retCmd tea.Cmd) {
 
 	go m.runStream(input, ctx, m.program)
 
-	return m, m.spinnerCmd()
+	return m, tea.Batch(m.spinnerCmd(), m.autoSaveCmd())
 }
 
 // handleStreamEvent handles streaming events
@@ -933,8 +951,8 @@ func (m TUI) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 		m.totalOutTokens++
 		if m.genStart.IsZero() {
 			m.genStart = time.Now()
-		} else {
-			// Accumulate generation time between tokens
+		} else if !m.genEnd.IsZero() {
+			// Accumulate generation time between tokens (skip if genEnd was reset)
 			m.totalGenDur += time.Since(m.genEnd)
 		}
 		m.genEnd = time.Now()
@@ -954,6 +972,8 @@ func (m TUI) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 		}
 		m.syncViewport()
 	case provider.EventThinking:
+		// Reset genEnd so thinking time is not counted as generation time
+		m.genEnd = time.Time{}
 		if !m.thinkingStarted {
 			m.output.WriteString(lipgloss.NewStyle().Foreground(appTheme.Thinking.LipglossColor()).Italic(true).Render("  ∴ "+i18n.T("cli.thinking")) + "\n")
 			m.thinkingStarted = true
@@ -963,6 +983,11 @@ func (m TUI) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 		m.thinkingSummary = summarizeThinking(m.thinkingBuf.String())
 		m.syncViewport()
 	case provider.EventToolCallStart:
+		// Accumulate generation time for tool call tokens before resetting
+		if !m.genEnd.IsZero() {
+			m.totalGenDur += time.Since(m.genEnd)
+		}
+		m.genEnd = time.Time{} // reset genEnd so tool execution time is not counted as generation time
 		m.flushThinking()
 		m.pendingAction = ""
 		m.output.WriteString(m.mdRenderer.Flush())
@@ -988,6 +1013,8 @@ func (m TUI) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 		m.syncViewport()
 		cmds = append(cmds, m.toolTickCmd())
 	case provider.EventToolCallDelta:
+		// Tool call tokens are also generation — count them
+		m.totalOutTokens++
 		m.toolInputBuf.WriteString(msg.event.ToolDelta)
 		// Try to parse partial JSON for progress lines update
 		params := parsePartialToolInput(m.toolInputBuf.String())
@@ -1007,6 +1034,7 @@ func (m TUI) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 		}
 		m.syncViewport()
 	case provider.EventToolCallEnd:
+		m.genEnd = time.Time{} // reset genEnd so tool execution time is not counted as generation time
 		m.showProgress = false
 		m.toolInProgress = ""
 		m.toolPercent = 0
@@ -1028,6 +1056,8 @@ func (m TUI) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 			m.output.WriteString(FormatTodoChecklist(msg.event.ToolFullResult) + "\n")
 		}
 		m.syncViewport()
+		// Auto-save session after each tool call
+		saveSessionTUI(m)
 	case provider.EventUserInjected:
 		m.output.WriteString(
 			lipgloss.NewStyle().
@@ -1050,6 +1080,8 @@ func (m TUI) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 	case provider.EventCompactionDone:
 		m.compacting = false
 		m.syncViewport()
+		// Auto-save session after compaction
+		saveSessionTUI(m)
 	case provider.EventThinkingTimeout:
 		mins := int(msg.event.Duration.Minutes())
 		if mins < 1 {
@@ -1062,8 +1094,8 @@ func (m TUI) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 		)
 		m.syncViewport()
 	case provider.EventUsage:
-		m.totalInTokens = msg.event.InputTokens
-		m.totalOutTokens = msg.event.OutputTokens
+		m.totalInTokens = max(m.totalInTokens, msg.event.InputTokens)
+		m.totalOutTokens = max(m.totalOutTokens, msg.event.OutputTokens)
 		// Track generation time for accurate speed calculation
 		if msg.event.OutputTokens > 0 {
 			if m.genStart.IsZero() {
@@ -1123,10 +1155,16 @@ func (m TUI) View() tea.View {
 	// Header — name and provider/model
 	provCfg := m.cfg.Providers[m.cfg.DefaultProvider]
 	var headerInfo string
+	displayProvider := providerDisplayName(m.providerName, provCfg)
 	if provCfg.Model != "" {
-		headerInfo = fmt.Sprintf("%s · %s", m.providerName, provCfg.Model)
+		// Avoid duplication like "qwen-fast-35b · qwen-fast-35b"
+		if displayProvider == provCfg.Model {
+			headerInfo = provCfg.Model
+		} else {
+			headerInfo = fmt.Sprintf("%s · %s", displayProvider, provCfg.Model)
+		}
 	} else {
-		headerInfo = m.providerName
+		headerInfo = displayProvider
 	}
 	header := lipgloss.NewStyle().
 		Foreground(appTheme.Dim.LipglossColor()).
@@ -1166,8 +1204,18 @@ func (m TUI) View() tea.View {
 		if m.showProgress && m.toolInProgress != "" {
 			spinner := tuiSpinnerFrames[m.spinnerFrame%len(tuiSpinnerFrames)]
 			elapsed := time.Since(m.toolStartTime).Round(100 * time.Millisecond)
+			// Truncate toolInProgress to fit terminal width (reserve 20 for spinner+elapsed)
+			toolText := m.toolInProgress
+			maxToolLen := m.width - 20
+			if maxToolLen < 40 {
+				maxToolLen = 40
+			}
+			if utf8.RuneCountInString(toolText) > maxToolLen {
+				runes := []rune(toolText)
+				toolText = string(runes[:maxToolLen-3]) + "..."
+			}
 			// Header: spinner + tool name + time + line count
-			toolHeader := fmt.Sprintf("  %s ⏺ %s  %s", spinner, m.toolInProgress, elapsed)
+			toolHeader := fmt.Sprintf("  %s ⏺ %s  %s", spinner, toolText, elapsed)
 			if m.toolOutputCount > 0 {
 				toolHeader += fmt.Sprintf(" [%d lines]", m.toolOutputCount)
 			}
@@ -1190,15 +1238,11 @@ func (m TUI) View() tea.View {
 
 	// Status bar with tokens, time, context bar
 	genDur := m.totalGenDur
-	if genDur == 0 && !m.genStart.IsZero() && m.genEnd.After(m.genStart) {
-		// Fallback: use time between first and last token
-		genDur = m.genEnd.Sub(m.genStart)
-	}
 	statusBar := FormatStatusLineEx(
 		m.totalInTokens, m.totalOutTokens,
 		m.totalDuration, genDur,
 		m.ctxTokens, m.ctxMaxTokens,
-		m.providerName, provCfg.Model,
+		providerDisplayName(m.providerName, provCfg), provCfg.Model,
 		m.taskType,
 	)
 

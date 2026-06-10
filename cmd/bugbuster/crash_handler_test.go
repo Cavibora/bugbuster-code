@@ -122,9 +122,10 @@ func TestSetupCrashHandler(t *testing.T) {
 	}
 	cleanup()
 
-	// Create a crash log
+	// Create a crash log (must be > 200 bytes to survive cleanupEmptyCrashLog)
 	crashFile := filepath.Join(tmpDir, "crash_2024-01-01_12-00-00.log")
-	os.WriteFile(crashFile, []byte("Panic: test crash\nStack Trace:\ntest"), 0644)
+	largeContent := "Panic: test crash\nStack Trace:\n" + strings.Repeat("test line\n", 30)
+	os.WriteFile(crashFile, []byte(largeContent), 0644)
 
 	// Should find the crash log
 	cleanup, prevCrash = setupCrashHandler()

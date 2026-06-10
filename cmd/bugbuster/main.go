@@ -28,12 +28,17 @@ func main() {
 	// Initialize i18n with default language (will be updated in runInteractive)
 	i18n.Init("en")
 
-	// Handle --version flag early, before crash handler
+	// Handle --version and --clear-crash flags early, before crash handler
 	for _, arg := range os.Args[1:] {
 		if arg == "--version" || arg == "-v" {
 			color.Cyan("BugBuster Code %s", Version)
 			color.Yellow("  Commit: %s", GitCommit)
 			color.Yellow("  Built:  %s", BuildDate)
+			os.Exit(0)
+		}
+		if arg == "--clear-crash" {
+			clearCrashLogs()
+			fmt.Println("Crash logs cleared.")
 			os.Exit(0)
 		}
 	}
@@ -46,6 +51,12 @@ func main() {
 		showPreviousCrashNotification(prevCrashPath)
 	}
 	defer crashCleanup()
+
+	// Clean up empty crash logs from previous runs (no actual crash)
+	// This is also called inside setupCrashHandler before findLatestCrash
+	// Calling it here again handles the case where the current run's crash log
+	// was created by setupCrashHandler but no crash occurred
+	cleanupEmptyCrashLog()
 
 	// Install global panic handler — catches panics in main goroutine
 	defer func() {
@@ -84,7 +95,7 @@ func main() {
 	rootCmd.PersistentFlags().StringVarP(&tuiMode, "tui", "t", "", "TUI mode: auto (AltScreen) or inline")
 	rootCmd.PersistentFlags().BoolVar(&clearCrash, "clear-crash", false, "Clear crash logs and dismiss notification")
 
-	// Handle --clear-crash before anything else
+	// Handle --clear-crash (also handled early in main() before crash handler)
 	if clearCrash {
 		clearCrashLogs()
 		fmt.Println("Crash logs cleared.")

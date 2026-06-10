@@ -492,45 +492,47 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 	return loop
 }
 
-// switchModel switches model
-func switchModel(loop *agent.AgentLoop, cfg *config.BugBusterConfig, modelName string) {
+// switchModel switches model. Returns the provider name if successful.
+func switchModel(loop *agent.AgentLoop, cfg *config.BugBusterConfig, modelName string) string {
 	for name, prov := range cfg.Providers {
 		if prov.Model == modelName {
 			p, err := provider.NewFromConfig(name, prov)
 			if err != nil {
 				color.Red("%s", i18n.T("cli_error.model_switch", err))
-				return
+				return ""
 			}
 			loop.SetProvider(p)
 			color.Green("%s", i18n.T("cli_success.model_switched", modelName, name))
-			return
+			return name
 		}
 	}
 	color.Red("%s", i18n.T("cli_error.model_not_found", modelName))
 	for name, prov := range cfg.Providers {
 		color.Yellow(i18n.T("cli_config.provider_entry", prov.Model, name))
 	}
+	return ""
 }
 
 // switchProvider switches provider
-func switchProvider(loop *agent.AgentLoop, cfg *config.BugBusterConfig, providerName string) {
+func switchProvider(loop *agent.AgentLoop, cfg *config.BugBusterConfig, providerName string) string {
 	provCfg, ok := cfg.Providers[providerName]
 	if !ok {
 		color.Red("%s", i18n.T("cli_error.provider_not_found_short", providerName))
 		for name := range cfg.Providers {
 			color.Yellow("  - %s", name)
 		}
-		return
+		return ""
 	}
 
 	p, err := provider.NewFromConfig(providerName, provCfg)
 	if err != nil {
 		color.Red("%s", i18n.T("cli_error.provider_switch", err))
-		return
+		return ""
 	}
 
 	loop.SetProvider(p)
 	color.Green("%s", i18n.T("cli_success.provider_switched", providerName, provCfg.Model))
+	return providerName
 }
 
 // getProjectDir returns project working directory
