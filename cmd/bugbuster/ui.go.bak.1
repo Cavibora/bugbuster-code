@@ -384,16 +384,11 @@ func FormatStatusLineEx(tokensIn, tokensOut int, dur, genDur time.Duration, ctxU
 	if tokensIn > 0 || tokensOut > 0 {
 		parts = append(parts, FormatTokens(tokensIn, tokensOut))
 	}
-	// Speed: use genDur (accumulated generation time)
-	// If genDur is 0 (no deltas yet), use dur as fallback
-	if tokensOut > 0 {
-		var speed float64
-		if genDur.Seconds() > 0 {
-			speed = float64(tokensOut) / genDur.Seconds()
-		} else if dur.Seconds() > 0 {
-			// Fallback: use total duration (includes tool execution time, but better than nothing)
-			speed = float64(tokensOut) / dur.Seconds()
-		}
+	// Speed: use ONLY genDur (accumulated generation time)
+	// Never fallback to total duration — it includes tool execution time
+	if tokensOut > 0 && genDur > 0 {
+		speed := float64(tokensOut) / genDur.Seconds()
+		// Realistic range: 0.5-500 tok/s
 		if speed >= 0.5 && speed <= 500 {
 			speedStr := fmt.Sprintf("%s⚡%s %s%s%s", appTheme.Success.ANSICode(), ansiReset, appTheme.Info.ANSICode(), formatSpeed(speed), ansiReset)
 			parts = append(parts, speedStr)
