@@ -1096,8 +1096,13 @@ func (m TUI) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 	case provider.EventUsage:
 		m.totalInTokens = max(m.totalInTokens, msg.event.InputTokens)
 		m.totalOutTokens = max(m.totalOutTokens, msg.event.OutputTokens)
-		// Note: do NOT update genStart/genEnd here — EventUsage is not a generation event.
-		// Only EventTextDelta/EventToolCallDelta should update generation time.
+		// Track generation time for accurate speed calculation
+		if msg.event.OutputTokens > 0 {
+			if m.genStart.IsZero() {
+				m.genStart = time.Now()
+			}
+			m.genEnd = time.Now()
+		}
 		// Update ctxTokens from Usage data (safely, no data race)
 		if msg.event.InputTokens > 0 {
 			m.ctxTokens = msg.event.InputTokens + msg.event.OutputTokens
