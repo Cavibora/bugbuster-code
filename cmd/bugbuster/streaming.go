@@ -315,15 +315,32 @@ streamLoop:
 
 			switch event.Type {
 
-			case provider.EventIterationStart:
-				// Reset genEnd so gap between iterations is not counted as generation time
-				genEnd = time.Time{}
-				if spinner != nil {
-					spinner.PauseGenTime()
+		case provider.EventIterationStart:
+			// Set genEnd to now so gap between iterations is not counted as generation time
+			// (but don't reset genEnd to zero — that would lose accumulated time)
+			if !genEnd.IsZero() {
+				genEnd = time.Now()
+			}
+			if spinner != nil {
+				// Don't pause gen time — just update genEnd in spinner
+				// This preserves totalGenDur from previous iterations
+				spinner.mu.Lock()
+				if !spinner.genEnd.IsZero() {
+					spinner.genEnd = time.Now()
 				}
-				if !textReceived && spinner != nil && spinner.IsActive() {
-					spinner.UpdateMessage(fmt.Sprintf(i18n.T("cli.spinner_step"), event.Iteration))
+				// Update totalGenDur from local variable so speed is shown immediately
+				// (spinner's totalGenDur may be stale if UpdateGenTime wasn't called recently)
+				spinner.totalGenDur = totalGenDur
+				spinner.mu.Unlock()
+				// Update tokens from accumulated data so speed/tokens are shown
+				// on first step (before any EventTextDelta/EventToolCallDelta)
+				if totalInTokens > 0 || totalOutTokens > 0 {
+					spinner.UpdateTokens(totalInTokens, totalOutTokens)
 				}
+			}
+			if !textReceived && spinner != nil && spinner.IsActive() {
+				spinner.UpdateMessage(fmt.Sprintf(i18n.T("cli.spinner_step"), event.Iteration))
+			}
 
 			case provider.EventThinking:
 				// Reset genEnd so thinking time is not counted as generation time

@@ -132,14 +132,15 @@ func (s *Spinner) Start() {
 				if tokensIn > 0 || tokensOut > 0 {
 					parts = append(parts, FormatTokens(tokensIn, tokensOut))
 				}
-				// Speed: use ONLY totalGenDur (accumulated generation time)
-				// Never fallback to elapsed — it's only time since spinner creation, not total session
+				// Speed: use totalGenDur (accumulated generation time)
+				// Show speed as soon as we have any generation time
 				s.mu.Lock()
 				totalGD := s.totalGenDur
 				s.mu.Unlock()
-				if totalGD.Seconds() > 0 && tokensOut > 0 {
+				if tokensOut > 0 && totalGD.Seconds() > 0 {
 					speed := float64(tokensOut) / totalGD.Seconds()
-					if speed >= 0.5 && speed <= 500 { // realistic range: 0.5-500 tok/s
+					// Realistic range: 0.5-500 tok/s
+					if speed >= 0.5 && speed <= 500 {
 						parts = append(parts, fmt.Sprintf("%s⚡%s %s%s%s", appTheme.Success.ANSICode(), ansiReset, appTheme.Info.ANSICode(), formatSpeed(speed), ansiReset))
 					}
 				}
