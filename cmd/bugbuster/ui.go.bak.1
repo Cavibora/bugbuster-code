@@ -219,16 +219,11 @@ func (s *Spinner) UpdateMessage(msg string) {
 	s.mu.Unlock()
 }
 
-func (s *Spinner) UpdateTokens(tokensIn, tokensOut int, totalGenDur time.Duration) {
+func (s *Spinner) UpdateTokens(tokensIn, tokensOut int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.tokensIn = tokensIn
 	s.tokensOut = tokensOut
-	// Sync totalGenDur from local variable so speed is shown immediately
-	// (spinner's totalGenDur may be stale if UpdateGenTime wasn't called recently)
-	if totalGenDur > s.totalGenDur {
-		s.totalGenDur = totalGenDur
-	}
 }
 
 func (s *Spinner) UpdateProvider(providerName, modelName string) {

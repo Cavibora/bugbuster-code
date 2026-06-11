@@ -335,7 +335,7 @@ streamLoop:
 				// Update tokens from accumulated data so speed/tokens are shown
 				// on first step (before any EventTextDelta/EventToolCallDelta)
 				if totalInTokens > 0 || totalOutTokens > 0 {
-					spinner.UpdateTokens(totalInTokens, totalOutTokens)
+					spinner.UpdateTokens(totalInTokens, totalOutTokens, totalGenDur)
 				}
 			}
 			if !textReceived && spinner != nil && spinner.IsActive() {
@@ -381,7 +381,7 @@ streamLoop:
 					// Increment token count for accurate speed display
 					// EventUsage may come infrequently, so we count text deltas
 					totalOutTokens++
-					spinner.UpdateTokens(totalInTokens, totalOutTokens)
+					spinner.UpdateTokens(totalInTokens, totalOutTokens, totalGenDur)
 				}
 				if thinkingActive {
 					spinner = stopActiveSpinner(spinner)
@@ -438,7 +438,7 @@ streamLoop:
 				totalOutTokens++
 				if spinner != nil {
 					spinner.UpdateGenTime()
-					spinner.UpdateTokens(totalInTokens, totalOutTokens)
+					spinner.UpdateTokens(totalInTokens, totalOutTokens, totalGenDur)
 				}
 				toolInputBuf.WriteString(event.ToolDelta)
 				if spinner != nil && spinner.IsActive() {
@@ -509,7 +509,7 @@ streamLoop:
 					totalOutTokens = event.OutputTokens
 				}
 				if spinner != nil && spinner.IsActive() {
-					spinner.UpdateTokens(totalInTokens, totalOutTokens)
+					spinner.UpdateTokens(totalInTokens, totalOutTokens, totalGenDur)
 				}
 				if event.ToolMessage != "" {
 					msg := event.ToolMessage
