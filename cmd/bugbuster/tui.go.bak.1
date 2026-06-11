@@ -1013,14 +1013,7 @@ func (m TUI) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 		m.syncViewport()
 		cmds = append(cmds, m.toolTickCmd())
 	case provider.EventToolCallDelta:
-		// Tool call tokens are also generation — count them and track time
-		if m.genStart.IsZero() {
-			m.genStart = time.Now()
-		}
-		if !m.genEnd.IsZero() {
-			m.totalGenDur += time.Since(m.genEnd)
-		}
-		m.genEnd = time.Now()
+		// Tool call tokens are also generation — count them
 		m.totalOutTokens++
 		m.toolInputBuf.WriteString(msg.event.ToolDelta)
 		// Try to parse partial JSON for progress lines update
