@@ -80,8 +80,17 @@ func RemoveDuplicates(messages []provider.Message) []provider.Message {
 	for i := len(messages) - 1; i >= 0; i-- {
 		msg := messages[i]
 		text := msg.GetResponseText()
+
+		// Never skip user messages — they contain important context
+		// (tool_result blocks have empty GetResponseText but are critical)
+		if msg.Role == "user" {
+			// Always keep user messages, even if they appear empty or duplicate
+			result = append(result, msg)
+			continue
+		}
+
 		key := msg.Role + ":" + text
-		if key == "system:" || key == "user:" || key == "assistant:" {
+		if key == "system:" || key == "assistant:" {
 			// Empty messages — skip
 			continue
 		}

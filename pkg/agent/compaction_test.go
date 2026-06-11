@@ -903,33 +903,46 @@ func TestRemoveToolErrors_MixedErrors(t *testing.T) {
 }
 
 func TestRemoveDuplicates(t *testing.T) {
-	// Дублирующиеся сообщения должны быть удалены, сохраняется последнее
+	// Дублирующиеся assistant сообщения должны быть удалены, сохраняется последнее
+	// Пользовательские сообщения НЕ удаляются даже если дубликаты
 	messages := []provider.Message{
 		provider.SystemMsg("Ты помощник"),
 		provider.UserMsg("Привет"),
 		provider.AssistantText("Здравствуй!"),
-		provider.UserMsg("Привет"),            // дубликат
-		provider.AssistantText("Здравствуй!"), // дубликат
+		provider.UserMsg("Привет"),            // дубликат user — НЕ удаляется
+		provider.AssistantText("Здравствуй!"), // дубликат assistant — удаляется
 		provider.UserMsg("Как дела?"),
 	}
 
 	result := RemoveDuplicates(messages)
 
-	// Должно остаться 4 сообщения: system + Привет + Здравствуй! + Как дела?
-	// (дубликаты "Привет" и "Здравствуй!" удалены, но сохранены последние вхождения)
+	// Должно остаться 5 сообщений: system + Привет + Здравствуй! + Привет + Как дела?
+	// (дубликат assistant "Здравствуй!" удалён, но user "Привет" сохранён)
 	userCount := 0
 	for _, m := range result {
 		if m.Role == "user" {
 			userCount++
 		}
 	}
-	if userCount != 2 {
-		t.Errorf("Expected 2 user messages (Привет + Как дела?), got %d", userCount)
+	if userCount != 3 {
+		t.Errorf("Expected 3 user messages (Привет + Привет + Как дела?), got %d", userCount)
+	}
+
+	// Assistant дубликаты должны быть удалены (остаётся 1)
+	assistantCount := 0
+	for _, m := range result {
+		if m.Role == "assistant" {
+			assistantCount++
+		}
+	}
+	if assistantCount != 1 {
+		t.Errorf("Expected 1 assistant message, got %d", assistantCount)
 	}
 }
 
 func TestRemoveDuplicates_EmptyMessages(t *testing.T) {
-	// Пустые сообщения должны быть удалены
+	// Пустые system и assistant сообщения должны быть удалены
+	// Пустые user сообщения НЕ удаляются (могут содержать tool_result)
 	messages := []provider.Message{
 		provider.SystemMsg("Ты помощник"),
 		provider.UserMsg(""),
@@ -939,11 +952,11 @@ func TestRemoveDuplicates_EmptyMessages(t *testing.T) {
 
 	result := RemoveDuplicates(messages)
 
-	// Пустые сообщения должны быть удалены
+	// Пустые system и assistant сообщения должны быть удалены
+	// Пустые user сообщения сохраняются (могут содержать tool_result)
 	for _, m := range result {
-		text := m.GetResponseText()
-		if m.Role != "system" && text == "" {
-			t.Errorf("Empty message should be removed: role=%s", m.Role)
+		if m.Role == "assistant" && m.GetResponseText() == "" {
+			t.Errorf("Empty assistant message should be removed")
 		}
 	}
 }
@@ -1006,15 +1019,15 @@ func TestCompactByPriority_RemovesErrorsAndDuplicates(t *testing.T) {
 		}
 	}
 
-	// Дубликаты должны быть удалены
+	// Дубликаты assistant должны быть удалены, user дубликаты сохраняются
 	userMsgs := 0
 	for _, msg := range result {
 		if msg.Role == "user" && msg.GetResponseText() == "Привет" {
 			userMsgs++
 		}
 	}
-	if userMsgs > 1 {
-		t.Errorf("Expected at most 1 'Привет' message, got %d", userMsgs)
+	if userMsgs != 2 {
+		t.Errorf("Expected 2 'Привет' user messages (duplicates preserved), got %d", userMsgs)
 	}
 }
 
