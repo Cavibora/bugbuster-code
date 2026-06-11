@@ -159,8 +159,6 @@ func runExecStream(ctx context.Context, loop *agent.AgentLoop, cfg *config.BugBu
 				genEnd = time.Now()
 			}
 		case provider.EventThinking:
-			// Reset genEnd so thinking time is not counted as generation time
-			genEnd = time.Time{}
 			if execJSON {
 				emitJSONL(map[string]any{
 					"type": "thinking",
@@ -168,10 +166,7 @@ func runExecStream(ctx context.Context, loop *agent.AgentLoop, cfg *config.BugBu
 				})
 			}
 		case provider.EventToolCallStart:
-			// Accumulate generation time for tool call tokens before resetting
-			if !genEnd.IsZero() {
-				totalGenDur += time.Since(genEnd)
-			}
+			// Reset genEnd so gap before tool call is not counted as generation time
 			genEnd = time.Time{}
 			toolCalls++
 			if execJSON {
@@ -183,15 +178,6 @@ func runExecStream(ctx context.Context, loop *agent.AgentLoop, cfg *config.BugBu
 			} else {
 				fmt.Fprintf(os.Stderr, "  ⏺ %s\n", event.ToolName)
 			}
-		case provider.EventToolCallDelta:
-			// Tool call tokens are also generation — count them and track time
-			if genStart.IsZero() {
-				genStart = time.Now()
-			}
-			if !genEnd.IsZero() {
-				totalGenDur += time.Since(genEnd)
-			}
-			genEnd = time.Now()
 		case provider.EventToolCallEnd:
 			// Reset genEnd so tool execution time is not counted as generation time
 			genEnd = time.Time{}
