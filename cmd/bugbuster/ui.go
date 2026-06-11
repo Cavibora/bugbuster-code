@@ -136,6 +136,8 @@ func (s *Spinner) Start() {
 				// Show speed as soon as we have any generation time
 				s.mu.Lock()
 				totalGD := s.totalGenDur
+				providerName := s.providerName
+				modelName := s.modelName
 				s.mu.Unlock()
 				if tokensOut > 0 && totalGD.Seconds() > 0 {
 					speed := float64(tokensOut) / totalGD.Seconds()
@@ -145,13 +147,13 @@ func (s *Spinner) Start() {
 					}
 				}
 				// Provider and model
-				if s.providerName != "" || s.modelName != "" {
+				if providerName != "" || modelName != "" {
 					var info []string
-					if s.providerName != "" {
-						info = append(info, s.providerName)
+					if providerName != "" {
+						info = append(info, providerName)
 					}
-					if s.modelName != "" {
-						info = append(info, s.modelName)
+					if modelName != "" {
+						info = append(info, modelName)
 					}
 					parts = append(parts, fmt.Sprintf("%s%s%s", appTheme.Dim.ANSICode(), strings.Join(info, " · "), ansiReset))
 				}
