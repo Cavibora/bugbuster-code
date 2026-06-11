@@ -23,6 +23,13 @@ const (
 // MemoryTool stores important project facts that persist across sessions.
 // Each session has its own memory file (.bugbuster/memory/<session-id>.md).
 // Facts are automatically loaded into the system prompt at session start.
+//
+// IMPORTANT RULES:
+// - Save ONLY essential facts: paths, credentials, config, critical rules
+// - Do NOT save: temporary data, progress, test results, verbose descriptions
+// - Max 30 facts, max 2000 chars per value
+// - Use 'compress' to remove duplicates and outdated facts
+// - Category "permanent" or key prefix "!" means CANNOT be deleted or overwritten
 type MemoryTool struct {
 	mu       sync.RWMutex
 	filePath string
@@ -36,6 +43,15 @@ type MemoryFact struct {
 	Value    string    // Fact value
 	Category string    // Group (e.g. "project", "database", "metrics")
 	SavedAt  time.Time // When saved
+}
+
+// IsPermanent returns true if this fact cannot be deleted or overwritten
+func (f *MemoryFact) IsPermanent() bool {
+	return strings.EqualFold(f.Category, "permanent") ||
+		strings.EqualFold(f.Category, "critical") ||
+		strings.HasPrefix(f.Key, "!") ||
+		strings.EqualFold(f.Category, "credentials") ||
+		strings.EqualFold(f.Category, "project")
 }
 
 // NewMemoryTool creates a new memory tool for a specific session
@@ -155,6 +171,15 @@ func (t *MemoryTool) save(params map[string]string) ToolResult {
 		category = "general"
 	}
 
+	// Normalize: strip "!" prefix from key for storage, but mark as permanent
+	isPermanentKey := strings.HasPrefix(key, "!")
+	if isPermanentKey {
+		key = strings.TrimPrefix(key, "!")
+		if category == "general" {
+			category = "permanent"
+		}
+	}
+
 	// Truncate long values
 	originalLen := len(value)
 	if len(value) > memoryMaxValueLen {
@@ -168,9 +193,20 @@ func (t *MemoryTool) save(params map[string]string) ToolResult {
 		return Error("tools.memory.read_error", err)
 	}
 
+	// Check if trying to overwrite a permanent fact with a different value
+	for _, f := range t.facts {
+		if strings.EqualFold(f.Key, key) && f.IsPermanent() && f.Value != value {
+			return ToolResult{Output: fmt.Sprintf("🔒 Cannot overwrite permanent fact '%s'. Current value: %s. To change it, first delete it manually from the memory file.", key, truncateStr(f.Value, 80))}
+		}
+	}
+
 	// Check for exact duplicate value under different key
 	for _, f := range t.facts {
 		if f.Value == value && f.Key != key {
+			// Don't overwrite permanent facts
+			if f.IsPermanent() {
+				return ToolResult{Output: fmt.Sprintf("🔒 Same value already saved as permanent fact '%s'. Cannot overwrite.", f.Key)}
+			}
 			// Update existing key instead of creating duplicate
 			for i := range t.facts {
 				if t.facts[i].Key == f.Key {
@@ -188,11 +224,13 @@ func (t *MemoryTool) save(params map[string]string) ToolResult {
 	}
 
 	// Warn about similar key (prefix match or Levenshtein ≤ 2)
-	// Don't auto-update — let the model decide
 	if similarKey := findSimilarMemoryKey(t.facts, key); similarKey != "" {
-		// Just warn, don't auto-update
-		// (Continue to save the new key below)
-		_ = similarKey // suppress unused warning
+		// Check if similar key is permanent
+		for _, f := range t.facts {
+			if strings.EqualFold(f.Key, similarKey) && f.IsPermanent() {
+				return ToolResult{Output: fmt.Sprintf("🔒 Similar permanent fact '%s' already exists. Cannot create similar key '%s'.", similarKey, key)}
+			}
+		}
 	}
 
 	// Update existing key or add new
@@ -224,7 +262,11 @@ func (t *MemoryTool) save(params map[string]string) ToolResult {
 		return Error("tools.memory.write_error", err)
 	}
 
-	return ToolResult{Output: fmt.Sprintf("✓ Saved '%s' (%d/%d facts). Category: %s", key, len(t.facts), memoryMaxFacts, category)}
+	permMark := ""
+	if category == "permanent" || category == "critical" || category == "credentials" || category == "project" || isPermanentKey {
+		permMark = " 🔒"
+	}
+	return ToolResult{Output: fmt.Sprintf("✓ Saved '%s' (%d/%d facts). Category: %s%s", key, len(t.facts), memoryMaxFacts, category, permMark)}
 }
 
 func (t *MemoryTool) load(params map[string]string) ToolResult {
@@ -284,6 +326,13 @@ func (t *MemoryTool) delete(params map[string]string) ToolResult {
 
 	if err := t.loadFromFile(); err != nil && !os.IsNotExist(err) {
 		return Error("tools.memory.read_error", err)
+	}
+
+	// Check if trying to delete a permanent fact
+	for _, f := range t.facts {
+		if strings.EqualFold(f.Key, key) && f.IsPermanent() {
+			return ToolResult{Output: fmt.Sprintf("🔒 Cannot delete permanent fact '%s' (category: %s). Remove the 'permanent'/'critical' category or '!' prefix from the memory file manually if you really need to delete it.", key, f.Category)}
+		}
 	}
 
 	// Backup before delete
@@ -374,12 +423,16 @@ func (t *MemoryTool) compressInternal(maxTokens int) string {
 		}
 	}
 
-	// Step 2: Merge facts with same key (keep latest)
+	// Step 2: Merge facts with same key (keep latest, but never overwrite permanent)
 	merged := make(map[string]MemoryFact)
 	var order []string
 	for _, f := range deduped {
 		key := strings.ToLower(f.Key)
 		if existing, ok := merged[key]; ok {
+			// Never replace permanent fact with non-permanent
+			if existing.IsPermanent() && !f.IsPermanent() {
+				continue
+			}
 			if f.SavedAt.After(existing.SavedAt) || len(f.Value) > len(existing.Value) {
 				merged[key] = f
 			}
@@ -389,7 +442,7 @@ func (t *MemoryTool) compressInternal(maxTokens int) string {
 		}
 	}
 
-	// Step 3: Remove duplicate values (keep first occurrence)
+	// Step 3: Remove duplicate values (keep first occurrence, prefer permanent)
 	valueSeen := make(map[string]bool)
 	var unique []MemoryFact
 	for _, key := range order {
@@ -401,16 +454,20 @@ func (t *MemoryTool) compressInternal(maxTokens int) string {
 		}
 	}
 
-	// Step 4: Sort by priority (critical > credentials > project > architecture > general)
+	// Step 4: Sort by priority (permanent > critical > credentials > project > architecture > general)
 	priorityCategories := map[string]int{
+		"permanent":    10,
 		"critical":     10,
 		"credentials":  9,
 		"project":      8,
 		"architecture": 7,
-		"permanent":    6,
 	}
 
 	sort.Slice(unique, func(i, j int) bool {
+		// Permanent facts always come first
+		if unique[i].IsPermanent() != unique[j].IsPermanent() {
+			return unique[i].IsPermanent()
+		}
 		pi, oki := priorityCategories[unique[i].Category]
 		pj, okj := priorityCategories[unique[j].Category]
 		if !oki {
@@ -442,9 +499,22 @@ func (t *MemoryTool) compressInternal(maxTokens int) string {
 		}
 	}
 
-	// Step 6: If still over maxFacts, keep only top maxFacts
+	// Step 6: If still over maxFacts, keep only top maxFacts (but never remove permanent)
 	if len(unique) > memoryMaxFacts {
-		unique = unique[:memoryMaxFacts]
+		var kept []MemoryFact
+		// Always keep permanent facts
+		for _, f := range unique {
+			if f.IsPermanent() {
+				kept = append(kept, f)
+			}
+		}
+		// Add non-permanent facts up to maxFacts
+		for _, f := range unique {
+			if !f.IsPermanent() && len(kept) < memoryMaxFacts {
+				kept = append(kept, f)
+			}
+		}
+		unique = kept
 	}
 
 	t.facts = unique
@@ -453,7 +523,13 @@ func (t *MemoryTool) compressInternal(maxTokens int) string {
 	}
 
 	removed := originalCount - len(t.facts)
-	return fmt.Sprintf("✓ Compressed: %d → %d facts (removed %d duplicates/low-priority). Protected: critical, credentials, project, architecture.", originalCount, len(t.facts), removed)
+	permCount := 0
+	for _, f := range t.facts {
+		if f.IsPermanent() {
+			permCount++
+		}
+	}
+	return fmt.Sprintf("✓ Compressed: %d → %d facts (removed %d duplicates/low-priority). 🔒 %d permanent facts protected.", originalCount, len(t.facts), removed, permCount)
 }
 
 // restore loads facts from the most recent backup
@@ -589,6 +665,13 @@ func (t *MemoryTool) backup() {
 
 // --- Helper functions ---
 
+func truncateStr(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}
+
 func findSimilarMemoryKey(facts []MemoryFact, key string) string {
 	keyLower := strings.ToLower(key)
 	for _, f := range facts {
@@ -690,7 +773,7 @@ func parseMemoryMD(content string) []MemoryFact {
 			continue
 		}
 
-		// Fact line: - **key**: value
+		// Fact line: - **key**: value  or  - **!key**: value (permanent)
 		if strings.HasPrefix(line, "- **") {
 			rest := strings.TrimPrefix(line, "- **")
 			end := strings.Index(rest, "**")
@@ -701,6 +784,14 @@ func parseMemoryMD(content string) []MemoryFact {
 			value := strings.TrimSpace(rest[end+2:])
 			if strings.HasPrefix(value, ": ") {
 				value = value[2:]
+			}
+
+			// Handle ! prefix in key (permanent marker)
+			if strings.HasPrefix(key, "!") {
+				key = strings.TrimPrefix(key, "!")
+				if currentCategory == "general" || currentCategory == "" {
+					currentCategory = "permanent"
+				}
 			}
 
 			facts = append(facts, MemoryFact{
@@ -715,7 +806,7 @@ func parseMemoryMD(content string) []MemoryFact {
 }
 
 func renderMemoryMD(facts []MemoryFact) string {
-	// Group by category
+	// Group by category, permanent/critical/credentials first
 	groups := make(map[string][]MemoryFact)
 	var categories []string
 	for _, f := range facts {
@@ -724,7 +815,29 @@ func renderMemoryMD(facts []MemoryFact) string {
 		}
 		groups[f.Category] = append(groups[f.Category], f)
 	}
-	sort.Strings(categories)
+
+	// Sort: permanent, critical, credentials, project first
+	priorityOrder := map[string]int{
+		"permanent":    0,
+		"critical":     1,
+		"credentials":  2,
+		"project":      3,
+		"architecture": 4,
+	}
+	sort.Slice(categories, func(i, j int) bool {
+		pi, oki := priorityOrder[categories[i]]
+		pj, okj := priorityOrder[categories[j]]
+		if !oki {
+			pi = 99
+		}
+		if !okj {
+			pj = 99
+		}
+		if pi != pj {
+			return pi < pj
+		}
+		return categories[i] < categories[j]
+	})
 
 	var sb strings.Builder
 	sb.WriteString("# BugBuster Agent Memory\n\n")
@@ -732,7 +845,12 @@ func renderMemoryMD(facts []MemoryFact) string {
 	for _, cat := range categories {
 		sb.WriteString(fmt.Sprintf("## %s\n", cat))
 		for _, f := range groups[cat] {
-			sb.WriteString(fmt.Sprintf("- **%s**: %s\n", f.Key, f.Value))
+			key := f.Key
+			// Add ! prefix for permanent facts in non-permanent categories
+			if f.IsPermanent() && cat != "permanent" && cat != "critical" && cat != "credentials" && cat != "project" {
+				key = "!" + key
+			}
+			sb.WriteString(fmt.Sprintf("- **%s**: %s\n", key, f.Value))
 		}
 		sb.WriteString("\n")
 	}
@@ -756,14 +874,18 @@ func formatFacts(facts []MemoryFact) string {
 	for _, cat := range categories {
 		sb.WriteString(fmt.Sprintf("[%s]\n", cat))
 		for _, f := range groups[cat] {
-			sb.WriteString(fmt.Sprintf("  %s: %s\n", f.Key, f.Value))
+			permMark := ""
+			if f.IsPermanent() {
+				permMark = " 🔒"
+			}
+			sb.WriteString(fmt.Sprintf("  %s: %s%s\n", f.Key, f.Value, permMark))
 		}
 	}
 	return sb.String()
 }
 
 func formatFactsForPrompt(facts []MemoryFact) string {
-	// Group by category
+	// Group by category, permanent first
 	groups := make(map[string][]MemoryFact)
 	var categories []string
 	for _, f := range facts {
@@ -772,14 +894,44 @@ func formatFactsForPrompt(facts []MemoryFact) string {
 		}
 		groups[f.Category] = append(groups[f.Category], f)
 	}
-	sort.Strings(categories)
+
+	// Sort: permanent, critical, credentials, project first
+	priorityOrder := map[string]int{
+		"permanent":    0,
+		"critical":     1,
+		"credentials":  2,
+		"project":      3,
+		"architecture": 4,
+	}
+	sort.Slice(categories, func(i, j int) bool {
+		pi, oki := priorityOrder[categories[i]]
+		pj, okj := priorityOrder[categories[j]]
+		if !oki {
+			pi = 99
+		}
+		if !okj {
+			pj = 99
+		}
+		if pi != pj {
+			return pi < pj
+		}
+		return categories[i] < categories[j]
+	})
 
 	var sb strings.Builder
 	sb.WriteString("Important facts about this project (from agent memory):\n\n")
 	for _, cat := range categories {
-		sb.WriteString(fmt.Sprintf("[%s]\n", cat))
+		permMark := ""
+		if cat == "permanent" || cat == "critical" || cat == "credentials" || cat == "project" {
+			permMark = " 🔒"
+		}
+		sb.WriteString(fmt.Sprintf("[%s]%s\n", cat, permMark))
 		for _, f := range groups[cat] {
-			sb.WriteString(fmt.Sprintf("- %s: %s\n", f.Key, f.Value))
+			perm := ""
+			if f.IsPermanent() {
+				perm = " 🔒"
+			}
+			sb.WriteString(fmt.Sprintf("- %s: %s%s\n", f.Key, f.Value, perm))
 		}
 	}
 	return sb.String()

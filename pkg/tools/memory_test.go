@@ -287,14 +287,15 @@ func TestMemoryToolFileFormatMultipleCategories(t *testing.T) {
 	}
 	content := string(data)
 
-	// Categories should be sorted alphabetically
+	// Categories should be sorted (priority categories first, then alphabetically)
 	alphaIdx := strings.Index(content, "## alpha")
 	betaIdx := strings.Index(content, "## beta")
 	if alphaIdx == -1 || betaIdx == -1 {
 		t.Fatalf("expected both categories, got: %s", content)
 	}
+	// alpha and beta are non-priority categories, sorted alphabetically
 	if alphaIdx > betaIdx {
-		t.Fatal("categories should be sorted alphabetically (alpha before beta)")
+		t.Fatalf("non-priority categories should be sorted alphabetically (alpha before beta), got:\n%s", content)
 	}
 }
 
@@ -720,10 +721,10 @@ func TestMemoryToolCompress(t *testing.T) {
 	tmpDir := t.TempDir()
 	mt := NewMemoryToolWithPath(filepath.Join(tmpDir, "test.md"))
 
-	// Save some facts
-	mt.Execute(map[string]string{"action": "save", "key": "path1", "value": "/old/path", "category": "project"})
-	mt.Execute(map[string]string{"action": "save", "key": "path2", "value": "/new/path", "category": "project"})
-	mt.Execute(map[string]string{"action": "save", "key": "host", "value": "localhost", "category": "database"})
+	// Save some facts with distinct keys (not similar to each other)
+	mt.Execute(map[string]string{"action": "save", "key": "project_dir", "value": "/old/path", "category": "project"})
+	mt.Execute(map[string]string{"action": "save", "key": "server_host", "value": "/new/path", "category": "project"})
+	mt.Execute(map[string]string{"action": "save", "key": "db_host", "value": "localhost", "category": "database"})
 
 	result := mt.Execute(map[string]string{"action": "compress", "max_tokens": "1000"})
 	if result.Error != "" {
@@ -735,14 +736,14 @@ func TestMemoryToolCompress(t *testing.T) {
 
 	// Verify facts still exist after compress
 	listResult := mt.Execute(map[string]string{"action": "list"})
-	if !strings.Contains(listResult.Output, "path1") {
-		t.Errorf("Expected path1 to exist after compress, got: %s", listResult.Output)
+	if !strings.Contains(listResult.Output, "project_dir") {
+		t.Errorf("Expected project_dir to exist after compress, got: %s", listResult.Output)
 	}
-	if !strings.Contains(listResult.Output, "path2") {
-		t.Errorf("Expected path2 to exist after compress, got: %s", listResult.Output)
+	if !strings.Contains(listResult.Output, "server_host") {
+		t.Errorf("Expected server_host to exist after compress, got: %s", listResult.Output)
 	}
-	if !strings.Contains(listResult.Output, "host") {
-		t.Errorf("Expected host to exist after compress, got: %s", listResult.Output)
+	if !strings.Contains(listResult.Output, "db_host") {
+		t.Errorf("Expected db_host to exist after compress, got: %s", listResult.Output)
 	}
 }
 
@@ -761,5 +762,185 @@ func TestMemoryToolTokenCount(t *testing.T) {
 	count = mt.TokenCount()
 	if count <= 0 {
 		t.Errorf("Expected positive token count, got %d", count)
+	}
+}
+
+// --- Permanent category ---
+
+func TestMemoryToolPermanentSave(t *testing.T) {
+	dir := t.TempDir()
+	fp := filepath.Join(dir, "memory.md")
+	tool := NewMemoryToolWithPath(fp)
+
+	// Save a permanent fact
+	result := tool.Execute(map[string]string{
+		"action": "save", "key": "db_credentials", "value": "MySQL: host=localhost, port=3306, user=root, password=secret", "category": "permanent",
+	})
+	if result.Error != "" {
+		t.Fatalf("save permanent failed: %s", result.Error)
+	}
+
+	// Verify it was saved
+	data, err := os.ReadFile(fp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	if !contains(content, "## permanent") {
+		t.Fatalf("expected permanent category header, got: %s", content)
+	}
+	if !contains(content, "db_credentials") {
+		t.Fatalf("expected db_credentials key, got: %s", content)
+	}
+	if !contains(content, "password=secret") {
+		t.Fatalf("expected password value, got: %s", content)
+	}
+}
+
+func TestMemoryToolPermanentCannotBeDeleted(t *testing.T) {
+	dir := t.TempDir()
+	fp := filepath.Join(dir, "memory.md")
+	tool := NewMemoryToolWithPath(fp)
+
+	// Save a permanent fact
+	tool.Execute(map[string]string{
+		"action": "save", "key": "db_credentials", "value": "MySQL: host=localhost, port=3306", "category": "permanent",
+	})
+
+	// Try to delete it — should fail
+	result := tool.Execute(map[string]string{
+		"action": "delete", "key": "db_credentials",
+	})
+	if result.Error != "" {
+		t.Fatalf("delete should not return error, got: %s", result.Error)
+	}
+	if !contains(result.Output, "permanent") && !contains(result.Output, "Protected") {
+		t.Fatalf("expected protection message, got: %s", result.Output)
+	}
+
+	// Verify it still exists
+	loadResult := tool.Execute(map[string]string{"action": "load", "key": "db_credentials"})
+	if !contains(loadResult.Output, "MySQL") {
+		t.Fatalf("permanent fact should still exist after delete attempt, got: %s", loadResult.Output)
+	}
+}
+
+func TestMemoryToolPermanentCannotBeOverwritten(t *testing.T) {
+	dir := t.TempDir()
+	fp := filepath.Join(dir, "memory.md")
+	tool := NewMemoryToolWithPath(fp)
+
+	// Save a permanent fact
+	tool.Execute(map[string]string{
+		"action": "save", "key": "db_credentials", "value": "MySQL: host=localhost, port=3306", "category": "permanent",
+	})
+
+	// Try to overwrite with different value and category
+	result := tool.Execute(map[string]string{
+		"action": "save", "key": "db_credentials", "value": "PostgreSQL: host=remote, port=5432", "category": "database",
+	})
+	if !contains(result.Output, "permanent") && !contains(result.Output, "Protected") {
+		t.Fatalf("expected protection message when overwriting permanent, got: %s", result.Output)
+	}
+
+	// Verify original value is preserved
+	loadResult := tool.Execute(map[string]string{"action": "load", "key": "db_credentials"})
+	if !contains(loadResult.Output, "MySQL") {
+		t.Fatalf("permanent fact should preserve original value, got: %s", loadResult.Output)
+	}
+	if contains(loadResult.Output, "PostgreSQL") {
+		t.Fatalf("permanent fact should not be overwritten, got: %s", loadResult.Output)
+	}
+}
+
+func TestMemoryToolPermanentCannotBeCompressed(t *testing.T) {
+	dir := t.TempDir()
+	fp := filepath.Join(dir, "memory.md")
+	tool := NewMemoryToolWithPath(fp)
+
+	// Save a permanent fact and a regular fact
+	tool.Execute(map[string]string{
+		"action": "save", "key": "db_credentials", "value": "MySQL: host=localhost, port=3306", "category": "permanent",
+	})
+	tool.Execute(map[string]string{
+		"action": "save", "key": "temp_note", "value": "temporary note", "category": "general",
+	})
+
+	// Compress — permanent fact should survive
+	result := tool.Execute(map[string]string{"action": "compress", "max_tokens": "100"})
+	_ = result
+
+	// Verify permanent fact still exists
+	loadResult := tool.Execute(map[string]string{"action": "load", "key": "db_credentials"})
+	if !contains(loadResult.Output, "MySQL") {
+		t.Fatalf("permanent fact should survive compress, got: %s", loadResult.Output)
+	}
+}
+
+func TestMemoryToolPermanentRenderFirst(t *testing.T) {
+	dir := t.TempDir()
+	fp := filepath.Join(dir, "memory.md")
+	tool := NewMemoryToolWithPath(fp)
+
+	// Save facts in different categories
+	tool.Execute(map[string]string{"action": "save", "key": "db_host", "value": "localhost", "category": "database"})
+	tool.Execute(map[string]string{"action": "save", "key": "db_credentials", "value": "root:secret@localhost", "category": "permanent"})
+	tool.Execute(map[string]string{"action": "save", "key": "project_path", "value": "/test", "category": "project"})
+
+	data, err := os.ReadFile(fp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+
+	// Permanent category should come first
+	permanentIdx := strings.Index(content, "## permanent")
+	databaseIdx := strings.Index(content, "## database")
+	projectIdx := strings.Index(content, "## project")
+
+	if permanentIdx == -1 {
+		t.Fatal("expected permanent category in output")
+	}
+	if databaseIdx != -1 && permanentIdx > databaseIdx {
+		t.Fatal("permanent category should come before database category")
+	}
+	if projectIdx != -1 && permanentIdx > projectIdx {
+		t.Fatal("permanent category should come before project category")
+	}
+}
+
+func TestMemoryToolBangPrefixPermanent(t *testing.T) {
+	dir := t.TempDir()
+	fp := filepath.Join(dir, "memory.md")
+	tool := NewMemoryToolWithPath(fp)
+
+	// Save with ! prefix — should be treated as permanent
+	result := tool.Execute(map[string]string{
+		"action": "save", "key": "!rules_path", "value": "/Users/ss/ai/grfn/docs/RULESOFARCHITECTURE.md",
+	})
+	if result.Error != "" {
+		t.Fatalf("save with ! prefix failed: %s", result.Error)
+	}
+
+	// Verify it's saved as permanent
+	data, err := os.ReadFile(fp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	if !contains(content, "permanent") {
+		t.Fatalf("expected permanent category for ! prefix key, got: %s", content)
+	}
+
+	// Try to delete — should fail (key is stored without ! prefix)
+	delResult := tool.Execute(map[string]string{"action": "delete", "key": "rules_path"})
+	if contains(delResult.Output, "Deleted") {
+		t.Fatalf("permanent fact with ! prefix should not be deletable, got: %s", delResult.Output)
+	}
+
+	// Verify it still exists (key is stored without ! prefix)
+	loadResult := tool.Execute(map[string]string{"action": "load", "key": "rules_path"})
+	if !contains(loadResult.Output, "RULESOFARCHITECTURE") {
+		t.Fatalf("permanent fact with ! prefix should still exist, got: %s", loadResult.Output)
 	}
 }
