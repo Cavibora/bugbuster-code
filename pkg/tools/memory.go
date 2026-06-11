@@ -49,9 +49,7 @@ type MemoryFact struct {
 func (f *MemoryFact) IsPermanent() bool {
 	return strings.EqualFold(f.Category, "permanent") ||
 		strings.EqualFold(f.Category, "critical") ||
-		strings.HasPrefix(f.Key, "!") ||
-		strings.EqualFold(f.Category, "credentials") ||
-		strings.EqualFold(f.Category, "project")
+		strings.HasPrefix(f.Key, "!")
 }
 
 // NewMemoryTool creates a new memory tool for a specific session
