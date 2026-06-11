@@ -258,13 +258,31 @@ func ensureToolPairIntegrity(messages []provider.Message) []provider.Message {
 		}
 	}
 
-	// Remove orphan blocks
+	// Remove orphan blocks, but preserve tool_result in user messages
+	// (they contain important context even without paired tool_use)
 	result := make([]provider.Message, 0, len(messages))
 	for _, msg := range messages {
 		var filtered []provider.ContentBlock
 		hasContent := false
 		for _, block := range msg.Content {
-			if (block.Type == "tool_use" || block.Type == "tool_result") && orphanIDs[block.ToolUseID] {
+			if block.Type == "tool_use" && orphanIDs[block.ToolUseID] {
+				// Always remove orphan tool_use — it's useless without tool_result
+				continue
+			}
+			if block.Type == "tool_result" && orphanIDs[block.ToolUseID] {
+				if msg.Role == "user" {
+					// Convert orphan tool_result to text block — preserve the output
+					text := block.Output
+					if text != "" {
+						filtered = append(filtered, provider.ContentBlock{
+							Type: "text",
+							Text: "[Tool output]\n" + text,
+						})
+						hasContent = true
+					}
+					continue
+				}
+				// Remove orphan tool_result from non-user messages
 				continue
 			}
 			filtered = append(filtered, block)

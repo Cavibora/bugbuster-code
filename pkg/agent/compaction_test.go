@@ -1169,10 +1169,25 @@ func TestEnsureToolPairIntegrity_RemovesOrphanedToolResult(t *testing.T) {
 		provider.AssistantText("done"),
 	}
 	result := ensureToolPairIntegrity(messages)
+	// Orphaned tool_result in user message should be converted to text block
+	found := false
+	for _, msg := range result {
+		if msg.Role == "user" {
+			for _, block := range msg.Content {
+				if block.Type == "text" && strings.Contains(block.Text, "orphaned result") {
+					found = true
+				}
+			}
+		}
+	}
+	if !found {
+		t.Error("Orphaned tool_result in user message should be converted to text block")
+	}
+	// tool_result block should be removed
 	for _, msg := range result {
 		for _, block := range msg.Content {
 			if block.Type == "tool_result" && block.ToolUseID == "orphan_1" {
-				t.Error("Orphaned tool_result should be removed")
+				t.Error("Orphaned tool_result block should be removed")
 			}
 		}
 	}
