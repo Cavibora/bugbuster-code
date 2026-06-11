@@ -140,7 +140,7 @@ func CompactContext(messages []provider.Message, maxTokens int, keepRecent int) 
 	// Always clean tool errors, duplicates, orphan pairs
 	messages = RemoveToolErrors(messages)
 	messages = RemoveDuplicates(messages)
-	messages = ensureToolPairIntegrity(messages)
+	messages = EnsureToolPairIntegrity(messages)
 
 	currentTokens := EstimateMessagesTokens(messages)
 	if currentTokens <= maxTokens {
@@ -248,7 +248,7 @@ func CompactContext(messages []provider.Message, maxTokens int, keepRecent int) 
 	for i, msg := range compactedRecent {
 		compactedRecent[i] = truncateToolOutputs(msg)
 	}
-	compactedRecent = ensureToolPairIntegrity(compactedRecent)
+	compactedRecent = EnsureToolPairIntegrity(compactedRecent)
 	if EstimateMessagesTokens(compactedRecent)+systemTokens <= maxTokens {
 		result := make([]provider.Message, 0, len(systemMsgs)+len(compactedRecent))
 		result = append(result, systemMsgs...)
@@ -262,7 +262,7 @@ func CompactContext(messages []provider.Message, maxTokens int, keepRecent int) 
 	for i, msg := range compactedRecent1a {
 		compactedRecent1a[i] = truncateToolArgs(msg, MaxToolArgChars)
 	}
-	compactedRecent1a = ensureToolPairIntegrity(compactedRecent1a)
+	compactedRecent1a = EnsureToolPairIntegrity(compactedRecent1a)
 	if EstimateMessagesTokens(compactedRecent1a)+systemTokens <= maxTokens {
 		result := make([]provider.Message, 0, len(systemMsgs)+len(compactedRecent1a))
 		result = append(result, systemMsgs...)
@@ -276,7 +276,7 @@ func CompactContext(messages []provider.Message, maxTokens int, keepRecent int) 
 	for i, msg := range compactedRecent1b {
 		compactedRecent1b[i] = truncateThinking(msg)
 	}
-	compactedRecent1b = ensureToolPairIntegrity(compactedRecent1b)
+	compactedRecent1b = EnsureToolPairIntegrity(compactedRecent1b)
 	if EstimateMessagesTokens(compactedRecent1b)+systemTokens <= maxTokens {
 		result := make([]provider.Message, 0, len(systemMsgs)+len(compactedRecent1b))
 		result = append(result, systemMsgs...)
@@ -290,7 +290,7 @@ func CompactContext(messages []provider.Message, maxTokens int, keepRecent int) 
 	for i, msg := range compactedRecent1c {
 		compactedRecent1c[i] = truncateAssistantText(msg)
 	}
-	compactedRecent1c = ensureToolPairIntegrity(compactedRecent1c)
+	compactedRecent1c = EnsureToolPairIntegrity(compactedRecent1c)
 	if EstimateMessagesTokens(compactedRecent1c)+systemTokens <= maxTokens {
 		result := make([]provider.Message, 0, len(systemMsgs)+len(compactedRecent1c))
 		result = append(result, systemMsgs...)
@@ -356,7 +356,7 @@ func CompactContextWithCompactor(messages []provider.Message, maxTokens int, kee
 	// Always clean tool errors, duplicates, orphan pairs
 	messages = RemoveToolErrors(messages)
 	messages = RemoveDuplicates(messages)
-	messages = ensureToolPairIntegrity(messages)
+	messages = EnsureToolPairIntegrity(messages)
 
 	currentTokens := EstimateMessagesTokens(messages)
 	if currentTokens <= maxTokens {
@@ -477,7 +477,7 @@ func CompactContextWithCompactor(messages []provider.Message, maxTokens int, kee
 	for i, msg := range compactedRecent {
 		compactedRecent[i] = truncateToolOutputs(msg)
 	}
-	compactedRecent = ensureToolPairIntegrity(compactedRecent)
+	compactedRecent = EnsureToolPairIntegrity(compactedRecent)
 	if EstimateMessagesTokens(compactedRecent)+systemTokens <= maxTokens {
 		result := make([]provider.Message, 0, len(systemMsgs)+len(compactedRecent))
 		result = append(result, systemMsgs...)
@@ -491,7 +491,7 @@ func CompactContextWithCompactor(messages []provider.Message, maxTokens int, kee
 	for i, msg := range compactedRecent1a {
 		compactedRecent1a[i] = truncateToolArgs(msg, MaxToolArgChars)
 	}
-	compactedRecent1a = ensureToolPairIntegrity(compactedRecent1a)
+	compactedRecent1a = EnsureToolPairIntegrity(compactedRecent1a)
 	if EstimateMessagesTokens(compactedRecent1a)+systemTokens <= maxTokens {
 		result := make([]provider.Message, 0, len(systemMsgs)+len(compactedRecent1a))
 		result = append(result, systemMsgs...)
@@ -505,7 +505,7 @@ func CompactContextWithCompactor(messages []provider.Message, maxTokens int, kee
 	for i, msg := range compactedRecent1b {
 		compactedRecent1b[i] = truncateThinking(msg)
 	}
-	compactedRecent1b = ensureToolPairIntegrity(compactedRecent1b)
+	compactedRecent1b = EnsureToolPairIntegrity(compactedRecent1b)
 	if EstimateMessagesTokens(compactedRecent1b)+systemTokens <= maxTokens {
 		result := make([]provider.Message, 0, len(systemMsgs)+len(compactedRecent1b))
 		result = append(result, systemMsgs...)
@@ -519,7 +519,7 @@ func CompactContextWithCompactor(messages []provider.Message, maxTokens int, kee
 	for i, msg := range compactedRecent1c {
 		compactedRecent1c[i] = truncateAssistantText(msg)
 	}
-	compactedRecent1c = ensureToolPairIntegrity(compactedRecent1c)
+	compactedRecent1c = EnsureToolPairIntegrity(compactedRecent1c)
 	if EstimateMessagesTokens(compactedRecent1c)+systemTokens <= maxTokens {
 		result := make([]provider.Message, 0, len(systemMsgs)+len(compactedRecent1c))
 		result = append(result, systemMsgs...)

@@ -455,9 +455,10 @@ func restoreSessionMessages(loop *agent.AgentLoop, messages []provider.Message) 
 	// Save current system prompt (with tool descriptions etc.)
 	currentSystemPrompt := loop.Context.GetSystemPrompt()
 
-	// Preliminary cleanup: delete tool errors and duplicates
+	// Preliminary cleanup: delete tool errors, duplicates, and orphan pairs
 	messages = agent.RemoveToolErrors(messages)
 	messages = agent.RemoveDuplicates(messages)
+	messages = agent.EnsureToolPairIntegrity(messages)
 
 	// Remove old system messages from loaded session
 	var filtered []provider.Message

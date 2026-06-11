@@ -202,11 +202,11 @@ func truncateToolArgs(msg provider.Message, maxChars int) provider.Message {
 	return msg
 }
 
-// ensureToolPairIntegrity deletes orphan tool_use (without tool_result)
+// EnsureToolPairIntegrity deletes orphan tool_use (without tool_result)
 // and orphan tool_result (without tool_use) from message list.
 // Anthropic API requires strict pairing: every tool_use must have tool_result
 // with matching ToolUseID, and vice versa.
-func ensureToolPairIntegrity(messages []provider.Message) []provider.Message {
+func EnsureToolPairIntegrity(messages []provider.Message) []provider.Message {
 	// Collect all ToolUseID from tool_use and tool_result blocks
 	useIDs := make(map[string]bool)
 	resultIDs := make(map[string]bool)

@@ -146,7 +146,7 @@ func compactByPriority(messages []provider.Message, maxTokens int) []provider.Me
 	// Preliminary cleanup: delete tool errors, duplicates, orphan pairs (always)
 	messages = RemoveToolErrors(messages)
 	messages = RemoveDuplicates(messages)
-	messages = ensureToolPairIntegrity(messages)
+	messages = EnsureToolPairIntegrity(messages)
 
 	currentTokens := EstimateMessagesTokens(messages)
 	if currentTokens <= maxTokens {
@@ -176,7 +176,7 @@ func compactByPriority(messages []provider.Message, maxTokens int) []provider.Me
 	for i, msg := range phase1 {
 		phase1[i] = truncateToolOutputs(msg)
 	}
-	phase1 = ensureToolPairIntegrity(phase1)
+	phase1 = EnsureToolPairIntegrity(phase1)
 	if EstimateMessagesTokens(phase1)+systemTokens <= maxTokens {
 		result := make([]provider.Message, 0, len(systemMsgs)+len(phase1))
 		result = append(result, systemMsgs...)
@@ -190,7 +190,7 @@ func compactByPriority(messages []provider.Message, maxTokens int) []provider.Me
 	for i, msg := range phase1a {
 		phase1a[i] = truncateToolArgs(msg, MaxToolArgChars)
 	}
-	phase1a = ensureToolPairIntegrity(phase1a)
+	phase1a = EnsureToolPairIntegrity(phase1a)
 	if EstimateMessagesTokens(phase1a)+systemTokens <= maxTokens {
 		result := make([]provider.Message, 0, len(systemMsgs)+len(phase1a))
 		result = append(result, systemMsgs...)
@@ -204,7 +204,7 @@ func compactByPriority(messages []provider.Message, maxTokens int) []provider.Me
 	for i, msg := range phase1b {
 		phase1b[i] = truncateThinking(msg)
 	}
-	phase1b = ensureToolPairIntegrity(phase1b)
+	phase1b = EnsureToolPairIntegrity(phase1b)
 	if EstimateMessagesTokens(phase1b)+systemTokens <= maxTokens {
 		result := make([]provider.Message, 0, len(systemMsgs)+len(phase1b))
 		result = append(result, systemMsgs...)
@@ -218,7 +218,7 @@ func compactByPriority(messages []provider.Message, maxTokens int) []provider.Me
 	for i, msg := range phase1c {
 		phase1c[i] = truncateAssistantText(msg)
 	}
-	phase1c = ensureToolPairIntegrity(phase1c)
+	phase1c = EnsureToolPairIntegrity(phase1c)
 	if EstimateMessagesTokens(phase1c)+systemTokens <= maxTokens {
 		result := make([]provider.Message, 0, len(systemMsgs)+len(phase1c))
 		result = append(result, systemMsgs...)

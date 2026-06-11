@@ -1168,7 +1168,7 @@ func TestEnsureToolPairIntegrity_RemovesOrphanedToolResult(t *testing.T) {
 		}},
 		provider.AssistantText("done"),
 	}
-	result := ensureToolPairIntegrity(messages)
+	result := EnsureToolPairIntegrity(messages)
 	// Orphaned tool_result in user message should be converted to text block
 	found := false
 	for _, msg := range result {
@@ -1201,7 +1201,7 @@ func TestEnsureToolPairIntegrity_RemovesOrphanedToolUse(t *testing.T) {
 		}},
 		provider.AssistantText("done"),
 	}
-	result := ensureToolPairIntegrity(messages)
+	result := EnsureToolPairIntegrity(messages)
 	for _, msg := range result {
 		for _, block := range msg.Content {
 			if block.Type == "tool_use" && block.ToolUseID == "orphan_2" {
@@ -1220,7 +1220,7 @@ func TestEnsureToolPairIntegrity_PreservesPairedBlocks(t *testing.T) {
 			{Type: "tool_result", ToolUseID: "call_ok", ToolName: "bash", Output: "file.txt"},
 		}},
 	}
-	result := ensureToolPairIntegrity(messages)
+	result := EnsureToolPairIntegrity(messages)
 	hasUse := false
 	hasResult := false
 	for _, msg := range result {
@@ -1243,7 +1243,7 @@ func TestEnsureToolPairIntegrity_NoOrphans(t *testing.T) {
 		provider.SystemMsg("system"),
 		provider.UserMsg("hello"),
 	}
-	result := ensureToolPairIntegrity(messages)
+	result := EnsureToolPairIntegrity(messages)
 	if len(result) != len(messages) {
 		t.Errorf("Expected %d messages, got %d", len(messages), len(result))
 	}
