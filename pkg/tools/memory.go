@@ -48,8 +48,7 @@ type MemoryFact struct {
 // IsPermanent returns true if this fact cannot be deleted or overwritten
 func (f *MemoryFact) IsPermanent() bool {
 	return strings.EqualFold(f.Category, "permanent") ||
-		strings.EqualFold(f.Category, "critical") ||
-		strings.HasPrefix(f.Key, "!")
+		strings.EqualFold(f.Category, "critical")
 }
 
 // NewMemoryTool creates a new memory tool for a specific session
@@ -271,6 +270,11 @@ func (t *MemoryTool) load(params map[string]string) ToolResult {
 	key := strings.TrimSpace(params["key"])
 	category := strings.TrimSpace(params["category"])
 
+	// Normalize: strip "!" prefix from key
+	if strings.HasPrefix(key, "!") {
+		key = strings.TrimPrefix(key, "!")
+	}
+
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
@@ -317,6 +321,12 @@ func (t *MemoryTool) delete(params map[string]string) ToolResult {
 	key := strings.TrimSpace(params["key"])
 	if key == "" {
 		return Error("tools.memory.delete_empty")
+	}
+
+	// Normalize: strip "!" prefix from key
+	isPermanentKey := strings.HasPrefix(key, "!")
+	if isPermanentKey {
+		key = strings.TrimPrefix(key, "!")
 	}
 
 	t.mu.Lock()
