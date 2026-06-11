@@ -302,9 +302,15 @@ func stripToolResults(msg provider.Message) provider.Message {
 
 // stripToolCalls deletes tool_use and tool_result blocks from messages.
 // Returns message with only thinking and text blocks.
+// Preserves tool_result blocks in user messages — they contain important context.
 func stripToolCalls(msg provider.Message) provider.Message {
 	var filtered []provider.ContentBlock
 	for _, block := range msg.Content {
+		if msg.Role == "user" && block.Type == "tool_result" {
+			// Keep tool_result in user messages — they contain important context
+			filtered = append(filtered, block)
+			continue
+		}
 		if block.Type == "tool_use" || block.Type == "tool_result" {
 			continue // fully delete
 		}

@@ -1554,3 +1554,104 @@ func TestCompactContext_FallbackTruncatesLargeMessage(t *testing.T) {
 		t.Error("Result should contain system prompt")
 	}
 }
+
+func TestStripToolCalls_PreservesUserToolResults(t *testing.T) {
+	msg := provider.Message{
+		Role: "user",
+		Content: []provider.ContentBlock{
+			{Type: "tool_result", ToolUseID: "tool1", Output: "result1"},
+			{Type: "tool_result", ToolUseID: "tool2", Output: "result2"},
+		},
+	}
+	result := stripToolCalls(msg)
+	if len(result.Content) != 2 {
+		t.Errorf("Expected 2 tool_result blocks preserved, got %d", len(result.Content))
+	}
+	for _, block := range result.Content {
+		if block.Type != "tool_result" {
+			t.Errorf("Expected tool_result block, got %s", block.Type)
+		}
+	}
+}
+
+func TestStripToolCalls_RemovesAssistantToolCalls(t *testing.T) {
+	msg := provider.Message{
+		Role: "assistant",
+		Content: []provider.ContentBlock{
+			{Type: "text", Text: "Hello"},
+			{Type: "tool_use", ToolUseID: "tool1", ToolName: "bash"},
+			{Type: "tool_result", ToolUseID: "tool1", Output: "result1"},
+		},
+	}
+	result := stripToolCalls(msg)
+	if len(result.Content) != 1 {
+		t.Errorf("Expected 1 text block, got %d", len(result.Content))
+	}
+	if result.Content[0].Type != "text" {
+		t.Errorf("Expected text block, got %s", result.Content[0].Type)
+	}
+}
+
+func TestCompactByPriority_PreservesUserMessages(t *testing.T) {
+	// Create messages where user messages contain tool_result blocks
+	messages := []provider.Message{
+		{Role: "system", Content: []provider.ContentBlock{{Type: "text", Text: "system prompt"}}},
+		{Role: "user", Content: []provider.ContentBlock{{Type: "text", Text: "hello"}}},
+		{Role: "assistant", Content: []provider.ContentBlock{{Type: "text", Text: "hi there"}}},
+		{Role: "user", Content: []provider.ContentBlock{
+			{Type: "tool_result", ToolUseID: "tool1", Output: "result1"},
+		}},
+		{Role: "assistant", Content: []provider.ContentBlock{
+			{Type: "tool_use", ToolUseID: "tool1", ToolName: "bash", Input: map[string]any{"command": "ls"}},
+		}},
+		{Role: "user", Content: []provider.ContentBlock{
+			{Type: "tool_result", ToolUseID: "tool1", Output: "file1.txt\nfile2.txt"},
+		}},
+	}
+
+	// Compact with large budget — should preserve all user messages
+	result := compactByPriority(messages, 5000)
+	
+	// Count user messages
+	userCount := 0
+	for _, msg := range result {
+		if msg.Role == "user" {
+			userCount++
+		}
+	}
+	if userCount < 2 {
+		t.Errorf("Expected at least 2 user messages preserved, got %d", userCount)
+	}
+}
+
+func TestRemoveDuplicates_NeverSkipsUserMessages(t *testing.T) {
+	messages := []provider.Message{
+		{Role: "user", Content: []provider.ContentBlock{{Type: "text", Text: "продолжай"}}},
+		{Role: "assistant", Content: []provider.ContentBlock{{Type: "text", Text: "OK"}}},
+		{Role: "user", Content: []provider.ContentBlock{{Type: "text", Text: "продолжай"}}},
+		{Role: "assistant", Content: []provider.ContentBlock{{Type: "text", Text: "Done"}}},
+	}
+	result := RemoveDuplicates(messages)
+	userCount := 0
+	for _, msg := range result {
+		if msg.Role == "user" {
+			userCount++
+		}
+	}
+	if userCount != 2 {
+		t.Errorf("Expected 2 user messages (duplicates should be kept), got %d", userCount)
+	}
+}
+
+func TestRemoveDuplicates_KeepsUserToolResults(t *testing.T) {
+	messages := []provider.Message{
+		{Role: "user", Content: []provider.ContentBlock{
+			{Type: "tool_result", ToolUseID: "tool1", Output: "result1"},
+		}},
+		{Role: "assistant", Content: []provider.ContentBlock{{Type: "text", Text: "OK"}}},
+	}
+	result := RemoveDuplicates(messages)
+	if len(result) != 2 {
+		t.Errorf("Expected 2 messages (user with tool_result should be kept), got %d", len(result))
+	}
+}

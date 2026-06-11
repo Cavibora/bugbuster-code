@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"strings"
+
 	"bugbuster-code/pkg/provider"
 )
 
@@ -85,6 +87,13 @@ func RemoveDuplicates(messages []provider.Message) []provider.Message {
 		// (tool_result blocks have empty GetResponseText but are critical)
 		if msg.Role == "user" {
 			// Always keep user messages, even if they appear empty or duplicate
+			result = append(result, msg)
+			continue
+		}
+
+		// Never skip assistant messages with tool_use blocks
+		// (they have empty GetResponseText but contain critical tool calls)
+		if msg.Role == "assistant" && hasToolUse(msg) {
 			result = append(result, msg)
 			continue
 		}
@@ -234,8 +243,14 @@ func compactByPriority(messages []provider.Message, maxTokens int) []provider.Me
 
 	// Phase 3: Remove old messages from the end, keeping recent ones
 	// Start removing from the beginning (oldest)
+	// Never remove user messages — they contain important context
 	for i := 0; i < len(phase2); i++ {
-		remaining := phase2[i+1:]
+		if phase2[i].Role == "user" {
+			continue // never remove user messages
+		}
+		remaining := make([]provider.Message, 0, len(phase2)-1)
+		remaining = append(remaining, phase2[:i]...)
+		remaining = append(remaining, phase2[i+1:]...)
 		if EstimateMessagesTokens(remaining)+systemTokens <= maxTokens {
 			result := make([]provider.Message, 0, len(systemMsgs)+len(remaining))
 			result = append(result, systemMsgs...)
@@ -244,8 +259,44 @@ func compactByPriority(messages []provider.Message, maxTokens int) []provider.Me
 		}
 	}
 
+	// Phase 3b: If still over budget, remove user messages that only contain tool_result
+	// (these are less important than user messages with text)
+	for i := 0; i < len(phase2); i++ {
+		if phase2[i].Role == "user" && !hasTextContent(phase2[i]) {
+			remaining := make([]provider.Message, 0, len(phase2)-1)
+			remaining = append(remaining, phase2[:i]...)
+			remaining = append(remaining, phase2[i+1:]...)
+			if EstimateMessagesTokens(remaining)+systemTokens <= maxTokens {
+				result := make([]provider.Message, 0, len(systemMsgs)+len(remaining))
+				result = append(result, systemMsgs...)
+				result = append(result, remaining...)
+				return result
+			}
+		}
+	}
+
 	// Phase 4: Only system prompt
 	return systemMsgs
+}
+
+// hasToolUse checks if message has tool_use blocks
+func hasToolUse(msg provider.Message) bool {
+	for _, block := range msg.Content {
+		if block.Type == "tool_use" {
+			return true
+		}
+	}
+	return false
+}
+
+// hasTextContent checks if message has text content (not just tool_result)
+func hasTextContent(msg provider.Message) bool {
+	for _, block := range msg.Content {
+		if block.Type == "text" && strings.TrimSpace(block.Text) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // CompactContext compacts context by tokens
