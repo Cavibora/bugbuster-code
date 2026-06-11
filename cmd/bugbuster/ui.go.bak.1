@@ -219,9 +219,13 @@ func (s *Spinner) UpdateTokens(tokensIn, tokensOut int) {
 	defer s.mu.Unlock()
 	s.tokensIn = tokensIn
 	s.tokensOut = tokensOut
-	// Note: do NOT update genStart/genEnd here — UpdateTokens is called from
-	// EventUsage which is not a generation event. Only UpdateGenTime() should
-	// update genStart/genEnd, which is called from EventTextDelta/EventToolCallDelta.
+	// Track generation time for accurate speed calculation
+	if tokensOut > 0 {
+		if s.genStart.IsZero() {
+			s.genStart = time.Now()
+		}
+		s.genEnd = time.Now()
+	}
 }
 
 func (s *Spinner) UpdateProvider(providerName, modelName string) {
