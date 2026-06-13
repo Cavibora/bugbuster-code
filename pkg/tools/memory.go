@@ -573,6 +573,11 @@ func (t *MemoryTool) restore() ToolResult {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	// Load current facts from file before merging
+	if err := t.loadFromFile(); err != nil && !os.IsNotExist(err) {
+		return Error("tools.memory.read_error", err)
+	}
+
 	backupPath := t.filePath + ".bak.1"
 	data, err := os.ReadFile(backupPath)
 	if err != nil {
