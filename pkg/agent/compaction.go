@@ -186,6 +186,9 @@ func CompactContext(messages []provider.Message, maxTokens int, keepRecent int) 
 	if keepRecent < 2 {
 		keepRecent = 2
 	}
+	if keepRecent > len(otherMsgs) {
+		keepRecent = len(otherMsgs)
+	}
 
 	recentMsgs := otherMsgs[len(otherMsgs)-keepRecent:]
 	oldMsgs := otherMsgs[:len(otherMsgs)-keepRecent]
@@ -398,6 +401,9 @@ func CompactContextWithCompactor(messages []provider.Message, maxTokens int, kee
 	}
 	if keepRecent < 2 {
 		keepRecent = 2
+	}
+	if keepRecent > len(otherMsgs) {
+		keepRecent = len(otherMsgs)
 	}
 
 	recentMsgs := otherMsgs[len(otherMsgs)-keepRecent:]
