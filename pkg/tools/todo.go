@@ -2,6 +2,8 @@ package tools
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"sync"
 
 	"bugbuster-code/pkg/i18n"
@@ -14,15 +16,24 @@ type TodoItem struct {
 	Status  string `json:"status"` // "pending" | "in_progress" | "completed"
 }
 
-// TodoWriteTool — checklist write tool
+// TodoWriteTool — checklist write tool with file persistence.
+// When filePath is set, todos are saved to/loaded from a JSON file,
+// so they survive crashes and session restarts.
 type TodoWriteTool struct {
-	todos []TodoItem
-	mu    sync.Mutex
+	todos    []TodoItem
+	mu       sync.Mutex
+	filePath string // empty = in-memory only (backward compatible)
+	loaded   bool
 }
 
-// NewTodoWriteTool creates a new checklist write tool
+// NewTodoWriteTool creates a new checklist write tool (in-memory, no file persistence)
 func NewTodoWriteTool() *TodoWriteTool {
 	return &TodoWriteTool{}
+}
+
+// NewTodoWriteToolWithPath creates a new checklist write tool with file persistence
+func NewTodoWriteToolWithPath(filePath string) *TodoWriteTool {
+	return &TodoWriteTool{filePath: filePath}
 }
 
 func (t *TodoWriteTool) Name() string { return "todo_write" }
@@ -54,6 +65,7 @@ func (t *TodoWriteTool) Execute(params map[string]string) ToolResult {
 
 	t.mu.Lock()
 	t.todos = items
+	t.saveToFileLocked()
 	t.mu.Unlock()
 
 	// Return JSON for UI rendering
@@ -101,9 +113,72 @@ func (t *TodoWriteTool) Parameters() map[string]any {
 func (t *TodoWriteTool) GetTodos() []TodoItem {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.loadFromFile()
 	result := make([]TodoItem, len(t.todos))
 	copy(result, t.todos)
 	return result
+}
+
+// --- File persistence ---
+
+// loadFromFile loads todos from file (caller must hold t.mu)
+func (t *TodoWriteTool) loadFromFile() {
+	if t.filePath == "" || t.loaded {
+		return
+	}
+
+	data, err := os.ReadFile(t.filePath)
+	if err != nil {
+		// File doesn't exist yet — that's OK
+		t.loaded = true
+		return
+	}
+
+	var items []TodoItem
+	if err := json.Unmarshal(data, &items); err != nil {
+		// Corrupted file — ignore
+		t.loaded = true
+		return
+	}
+
+	t.todos = items
+	t.loaded = true
+}
+
+// saveToFileLocked saves todos to file (caller must hold t.mu)
+func (t *TodoWriteTool) saveToFileLocked() {
+	if t.filePath == "" {
+		return
+	}
+
+	dir := filepath.Dir(t.filePath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return
+	}
+
+	data, err := json.Marshal(t.todos)
+	if err != nil {
+		return
+	}
+
+	os.WriteFile(t.filePath, data, 0644)
+}
+
+// TodoFilePathForProject returns the path to the todo file for a session,
+// using the given project directory as the first choice.
+func TodoFilePathForProject(sessionID, projectDir string) string {
+	bbDir := filepath.Join(projectDir, ".bugbuster")
+	if info, err := os.Stat(bbDir); err == nil && info.IsDir() {
+		return filepath.Join(projectDir, ".bugbuster", "todo", sessionID+".json")
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		bbDir := filepath.Join(cwd, ".bugbuster")
+		if info, err := os.Stat(bbDir); err == nil && info.IsDir() {
+			return filepath.Join(cwd, ".bugbuster", "todo", sessionID+".json")
+		}
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".bugbuster", "todo", sessionID+".json")
 }
 
 // TodoReadTool — checklist read tool

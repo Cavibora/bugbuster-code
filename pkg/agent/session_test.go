@@ -170,6 +170,42 @@ func TestGenerateSessionID(t *testing.T) {
 	}
 }
 
+func TestRenameSession(t *testing.T) {
+	tmpDir := t.TempDir()
+	sm := NewSessionManager(tmpDir)
+
+	// Создаём сессию
+	session := sm.NewSession()
+	session.Messages = append(session.Messages, provider.UserMsg("test"))
+	if err := sm.SaveSessionMessages(session); err != nil {
+		t.Fatalf("SaveSessionMessages error: %v", err)
+	}
+
+	// Переименовываем
+	if err := sm.RenameSession(session.ID, "my-session"); err != nil {
+		t.Fatalf("RenameSession error: %v", err)
+	}
+
+	// Загружаем и проверяем имя
+	loaded, err := sm.LoadSession(session.ID)
+	if err != nil {
+		t.Fatalf("LoadSession error: %v", err)
+	}
+	if loaded.Name != "my-session" {
+		t.Errorf("Expected name='my-session', got %q", loaded.Name)
+	}
+}
+
+func TestRenameSession_NotFound(t *testing.T) {
+	tmpDir := t.TempDir()
+	sm := NewSessionManager(tmpDir)
+
+	err := sm.RenameSession("nonexistent", "name")
+	if err == nil {
+		t.Error("Expected error for nonexistent session")
+	}
+}
+
 func TestLoadSession_LargeToolResult(t *testing.T) {
 	// Тест: tool_result длиннее 64KB (буфер bufio.Scanner по умолчанию)
 	// должен загружаться полностью, а не теряться

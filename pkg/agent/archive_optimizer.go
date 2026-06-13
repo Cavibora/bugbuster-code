@@ -143,6 +143,7 @@ func (o *ArchiveOptimizer) generalizeOldBlocks(ctx context.Context, idx *Archive
 				},
 			},
 		}
+		block.Summary = summary
 		block.TokenCount = EstimateMessagesTokens(block.Messages)
 		block.Optimized = true
 		block.SourcePhase = "optimizer"

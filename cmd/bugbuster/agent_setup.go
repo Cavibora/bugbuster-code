@@ -249,8 +249,9 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 	loop.RegisterTool(tools.NewLogsTool(bgTool))
 	loop.RegisterTool(tools.NewKillProcessTool(bgTool))
 
-	// Todo-tools (checklist for planning)
-	todoWrite := tools.NewTodoWriteTool()
+	// Todo-tools (checklist for planning) — session-scoped file persistence
+	todoFilePath := tools.TodoFilePathForProject(sessionID, getProjectDir(cfg))
+	todoWrite := tools.NewTodoWriteToolWithPath(todoFilePath)
 	loop.RegisterTool(todoWrite)
 	loop.RegisterTool(tools.NewTodoReadTool(todoWrite))
 

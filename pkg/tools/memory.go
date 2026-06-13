@@ -47,8 +47,13 @@ type MemoryFact struct {
 
 // IsPermanent returns true if this fact cannot be deleted or overwritten
 func (f *MemoryFact) IsPermanent() bool {
-	return strings.EqualFold(f.Category, "permanent") ||
-		strings.EqualFold(f.Category, "critical")
+	return isPermanentCategory(f.Category)
+}
+
+// isPermanentCategory returns true if the category marks a fact as permanent
+func isPermanentCategory(category string) bool {
+	return strings.EqualFold(category, "permanent") ||
+		strings.EqualFold(category, "critical")
 }
 
 // NewMemoryTool creates a new memory tool for a specific session
@@ -234,6 +239,13 @@ func (t *MemoryTool) save(params map[string]string) ToolResult {
 	found := false
 	for i, f := range t.facts {
 		if strings.EqualFold(f.Key, key) {
+			// Never downgrade a permanent fact's category
+			if f.IsPermanent() && !isPermanentCategory(category) {
+				// Keep the permanent category, only update value if same (no-op)
+				// Do not modify the fact at all
+				found = true
+				break
+			}
 			t.facts[i].Value = value
 			t.facts[i].Category = category
 			t.facts[i].SavedAt = time.Now()
@@ -451,6 +463,7 @@ func (t *MemoryTool) compressInternal(maxTokens int) string {
 	}
 
 	// Step 3: Remove duplicate values (keep first occurrence, prefer permanent)
+	// Sort order first so permanent facts come first, then they win on duplicate values
 	valueSeen := make(map[string]bool)
 	var unique []MemoryFact
 	for _, key := range order {
@@ -459,6 +472,15 @@ func (t *MemoryTool) compressInternal(maxTokens int) string {
 		if !valueSeen[h] {
 			valueSeen[h] = true
 			unique = append(unique, f)
+		} else {
+			// Duplicate value found — if this fact is permanent and the kept one is not, replace it
+			h := hashMemoryValue(f.Value)
+			for i, u := range unique {
+				if hashMemoryValue(u.Value) == h && u.Value == f.Value && !u.IsPermanent() && f.IsPermanent() {
+					unique[i] = f // Replace non-permanent with permanent
+					break
+				}
+			}
 		}
 	}
 
@@ -490,7 +512,7 @@ func (t *MemoryTool) compressInternal(maxTokens int) string {
 		return unique[i].SavedAt.After(unique[j].SavedAt)
 	})
 
-	// Step 5: If over maxTokens, keep only facts that fit
+	// Step 5: If over maxTokens, keep only facts that fit — but NEVER drop permanent
 	if maxTokens > 0 {
 		newTokens := len(renderMemoryMD(unique)) / 4
 		if newTokens > maxTokens {
@@ -498,6 +520,12 @@ func (t *MemoryTool) compressInternal(maxTokens int) string {
 			currentTokens := 0
 			for _, f := range unique {
 				factTokens := (len(f.Key) + len(f.Value) + len(f.Category) + 10) / 4
+				// Always keep permanent facts regardless of token budget
+				if f.IsPermanent() {
+					kept = append(kept, f)
+					currentTokens += factTokens
+					continue
+				}
 				if currentTokens+factTokens <= maxTokens {
 					kept = append(kept, f)
 					currentTokens += factTokens
@@ -564,7 +592,10 @@ func (t *MemoryTool) restore() ToolResult {
 			}
 		}
 		if !found {
-			bf.Category = "restored"
+			// Preserve original category — don't downgrade permanent to "restored"
+			if !bf.IsPermanent() {
+				bf.Category = "restored"
+			}
 			t.facts = append(t.facts, bf)
 			added++
 		}
