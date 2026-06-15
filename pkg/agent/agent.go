@@ -259,6 +259,9 @@ func (a *AgentLoop) InjectUserMessage(text string) bool {
 
 // Run is the main loop: think → parse tools → execute → repeat
 func (a *AgentLoop) Run(input string) (string, error) {
+	if a.Context.OriginalTask == "" {
+		a.Context.OriginalTask = input
+	}
 	a.Context.Add(provider.UserMsg(input))
 	return a.runLoop()
 }
@@ -373,9 +376,17 @@ func (a *AgentLoop) runLoop() (string, error) {
 					// Only when auto-continue is enabled (TUI mode)
 					if a.autoContinue && a.autoContinueCount < 3 && a.Context != nil {
 						a.autoContinueCount++
-						a.Context.Add(provider.UserMsg(
-							"Continue working. Use tools to read files, run commands, or search code. Do not just describe what to do — actually do it using tools.",
-						))
+						continueHint := "Continue working. Use tools to read files, run commands, or search code. Do not just describe what to do — actually do it using tools."
+						if a.Context.OriginalTask != "" {
+							continueHint = fmt.Sprintf(
+								"You responded with text only, but your task is not done yet.\n"+
+									"Original task: %s\n\n"+
+									"Continue working — use tools (read, bash, grep, edit, etc.) to make progress. "+
+									"Do NOT just describe what needs to be done. Actually DO it.",
+								a.Context.OriginalTask,
+							)
+						}
+						a.Context.Add(provider.UserMsg(continueHint))
 						continue
 					}
 					return text, nil
@@ -504,12 +515,18 @@ func (a *AgentLoop) runLoop() (string, error) {
 
 // Stream is the streaming agent loop
 func (a *AgentLoop) Stream(input string) (<-chan provider.StreamEvent, error) {
+	if a.Context.OriginalTask == "" {
+		a.Context.OriginalTask = input
+	}
 	a.Context.Add(provider.UserMsg(input))
 	return a.streamLoopWithCtx(context.Background())
 }
 
 // StreamWithCancel is the streaming loop with context cancellation support
 func (a *AgentLoop) StreamWithCancel(ctx context.Context, input string) (<-chan provider.StreamEvent, error) {
+	if a.Context.OriginalTask == "" {
+		a.Context.OriginalTask = input
+	}
 	a.Context.Add(provider.UserMsg(input))
 	return a.streamLoopWithCtx(ctx)
 }
@@ -801,6 +818,17 @@ func (a *AgentLoop) maybeCompact(eventCh chan<- provider.StreamEvent, ctx contex
 	// AfterCompact callback — inject memory facts after compaction
 	if a.Context.AfterCompact != nil {
 		a.Context.AfterCompact()
+	}
+
+	// Inject original task reminder after compaction so the model
+	// doesn't lose track of what it was doing
+	if a.Context.OriginalTask != "" {
+		taskReminder := fmt.Sprintf(
+			"[Context was compacted to save space. Your original task: %s\n"+
+				"Continue working on this task. Do NOT stop or say you are done unless the task is truly complete.]",
+			a.Context.OriginalTask,
+		)
+		a.Context.Add(provider.UserMsg(taskReminder))
 	}
 }
 

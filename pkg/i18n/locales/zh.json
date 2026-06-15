@@ -147,5 +147,6 @@
   "system_prompt.rule9": "9. TIMEOUT AND RETRY RULES:\n   - When a bash command times out, you MUST retry with a longer timeout (e.g. timeout=120 or timeout=300).\n   - Do NOT give up after a single timeout — long-running commands (cargo build, npm install, docker build) often need 2-5 minutes.\n   - When retrying, use the SAME command with an increased timeout parameter.\n   - If a command times out 3 times in a row, inform the user and suggest alternatives.\n   - For build commands (cargo, npm, go build), always use timeout=300 or higher.",
   "cli.retry_hint": "按Enter重试或输入新消息。",
   "cli.retry_auto": "使用延长超时重试（%s分钟）...",
-  "tools.memory.description": " Max 30 facts, max 2000 chars. DO NOT duplicate. UPDATE existing keys. One fact = one key."
+  "tools.memory.description": " Max 30 facts, max 2000 chars. DO NOT duplicate. UPDATE existing keys. One fact = one key.",
+  "system_prompt.rule11": "11. 继续工作 — 关键规则:\n   - 绝对不要在单次文本回复后结束。\n   - 如果任务需要读取文件、分析代码或多个步骤 — 你必须使用工具（read, bash, grep, glob 等）。\n   - 当需要调查项目时，不要只用文本回复 — 先读文件，再回复。\n   - 每次回复都应包含至少一个工具调用，除非任务已完全完成。\n   - 继续工作直到任务完全完成。\n   - 不要过早结束会话。如果不确定任务是否完成 — 继续使用工具。\n   - 如果上下文被压缩后你忘记了任务 — 查找 [Context was compacted] 消息中的原始任务。\n   - 示例: 用户要求\"评估项目\" → read(CLAUDE.md), read(结构), grep(关键词) → 然后回复。"
 }

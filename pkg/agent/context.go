@@ -26,6 +26,7 @@ type ConversationContext struct {
 	SessionID           string            // ID of current session for linking with archive blocks
 	lastCompactionRatio float64           // savings ratio at last compaction
 	lowSaveCount        int               // how many consecutive times savings < 10%
+	OriginalTask        string            // original user request — survives compaction
 }
 
 // NewConversationContext creates a new context with message limit

@@ -554,6 +554,15 @@ func (a *AgentLoop) handleStreamFinalResponse(
 			// Add a hint to continue with tools
 			a.autoContinueCount++
 			continueHint := "Continue working. Use tools to read files, run commands, or search code. Do not just describe what to do — actually do it using tools."
+			if a.Context.OriginalTask != "" {
+				continueHint = fmt.Sprintf(
+					"You responded with text only, but your task is not done yet.\n"+
+						"Original task: %s\n\n"+
+						"Continue working — use tools (read, bash, grep, edit, etc.) to make progress. "+
+						"Do NOT just describe what needs to be done. Actually DO it.",
+					a.Context.OriginalTask,
+				)
+			}
 			a.Context.Add(provider.UserMsg(continueHint))
 			eventCh <- provider.StreamEvent{Type: provider.EventTextDelta, Text: "\n[Auto-continue: prompting model to use tools]\n"}
 			return true, nil // continue loop — don't send EventDone

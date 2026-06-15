@@ -147,5 +147,6 @@
   "system_prompt.rule9": "9. TIMEOUT AND RETRY RULES:\n   - When a bash command times out, you MUST retry with a longer timeout (e.g. timeout=120 or timeout=300).\n   - Do NOT give up after a single timeout — long-running commands (cargo build, npm install, docker build) often need 2-5 minutes.\n   - When retrying, use the SAME command with an increased timeout parameter.\n   - If a command times out 3 times in a row, inform the user and suggest alternatives.\n   - For build commands (cargo, npm, go build), always use timeout=300 or higher.",
   "cli.retry_hint": "Enterキーで再試行、または新しいメッセージを入力してください。",
   "cli.retry_auto": "延長タイムアウトで再試行中（%s分）...",
-  "tools.memory.description": " Max 30 facts, max 2000 chars. DO NOT duplicate. UPDATE existing keys. One fact = one key."
+  "tools.memory.description": " Max 30 facts, max 2000 chars. DO NOT duplicate. UPDATE existing keys. One fact = one key.",
+  "system_prompt.rule11": "11. 作業を続ける — 重要なルール:\n   - 一度のテキスト応答で終了しないでください。\n   - タスクがファイルの読み取り、コード分析、または複数のステップを必要とする場合 — ツール（read, bash, grep, globなど）を使用しなければなりません。\n   - プロジェクトを調査する必要がある場合は、テキストのみで応答しないでください — まずファイルを読んでから応答してください。\n   - タスクが完全に完了していない限り、すべての応答に少なくとも1つのツール呼び出しを含めるべきです。\n   - タスクが完全に完了するまで作業を続けてください。\n   - セッションを途中で終了しないでください。タスクが完了したかどうかわからない場合は、ツールを使い続けてください。\n   - コンテキストが圧縮されてタスクを忘れた場合 — [Context was compacted] メッセージで元のタスクを探してください。\n   - 例: ユーザーが「プロジェクトを評価」と尋ねる → read(CLAUDE.md), read(構造), grep(キーワード) → その後応答。"
 }
