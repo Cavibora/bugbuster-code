@@ -307,9 +307,29 @@ func (t *EditTool) Execute(params map[string]string) ToolResult {
 	// Generate diff to show changes
 	diff := UnifiedDiff(path, path, content, newContent)
 	added, removed := DiffStats(diff)
-	result := fmt.Sprintf("✅ %s edited (+%d/-%d lines)\n%s", path, added, removed, diff)
 
-	return ToolResult{Output: result}
+	// Build model-friendly result: show what changed clearly
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("✅ %s edited (+%d/-%d lines)\n\n", path, added, removed))
+
+	if added == 0 && removed == 0 {
+		sb.WriteString("(no visible changes)\n")
+	} else {
+		sb.WriteString("Changes applied successfully. The file now contains the new content.\n")
+	}
+
+	// Show compact diff for reference (this is a CHANGE LOG, not file content)
+	if diff != "" {
+		diffLines := DiffLines(diff, 15)
+		if len(diffLines) > 0 {
+			sb.WriteString("\nChange log (NOT file content — only shows what changed):\n")
+			for _, line := range diffLines {
+				sb.WriteString(line + "\n")
+			}
+		}
+	}
+
+	return ToolResult{Output: sb.String()}
 }
 
 func (t *EditTool) Parameters() map[string]any {

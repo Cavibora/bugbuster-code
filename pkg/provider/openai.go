@@ -363,6 +363,9 @@ func (p *OpenAIProvider) buildRequest(messages []Message, tools []ToolDef, strea
 
 	if stream {
 		req["stream"] = true
+		req["stream_options"] = map[string]any{
+			"include_usage": true,
+		}
 	}
 
 	// Add tools (function calling)
@@ -567,10 +570,23 @@ func (p *OpenAIProvider) parseStream(body io.Reader, ch chan<- StreamEvent) {
 				} `json:"delta"`
 				FinishReason *string `json:"finish_reason"`
 			} `json:"choices"`
+			Usage *struct {
+				PromptTokens     int `json:"prompt_tokens"`
+				CompletionTokens int `json:"completion_tokens"`
+			} `json:"usage"`
 		}
 
 		if err := json.Unmarshal([]byte(jsonStr), &chunk); err != nil {
 			return nil // Skip invalid JSON
+		}
+
+		// Usage data (only present in the final chunk when stream_options.include_usage=true)
+		if chunk.Usage != nil {
+			ch <- StreamEvent{
+				Type:         EventUsage,
+				InputTokens:  chunk.Usage.PromptTokens,
+				OutputTokens: chunk.Usage.CompletionTokens,
+			}
 		}
 
 		if len(chunk.Choices) == 0 {

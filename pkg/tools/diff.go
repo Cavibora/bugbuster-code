@@ -8,8 +8,8 @@ import (
 // UnifiedDiff generates unified diff between two texts.
 // Returns line in format:
 //
-//	--- a/oldName
-//	+++ b/newName
+//	--- oldName (before)
+//	+++ newName (after)
 //	@@ -start,count +start,count @@
 //	-removed line
 //	+added line
@@ -45,8 +45,9 @@ func UnifiedDiff(oldName, newName, oldText, newText string) string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("--- a/%s\n", oldName))
-	sb.WriteString(fmt.Sprintf("+++ b/%s\n", newName))
+	// Use path as-is to avoid double slash (e.g. a//Users/...)
+	sb.WriteString(fmt.Sprintf("--- %s (before)\n", oldName))
+	sb.WriteString(fmt.Sprintf("+++ %s (after)\n", newName))
 
 	for _, hunk := range hunks {
 		sb.WriteString(fmt.Sprintf("@@ -%d,%d +%d,%d @@\n",
@@ -83,9 +84,12 @@ func DiffStats(diff string) (added, removed int) {
 		if len(line) == 0 {
 			continue
 		}
-		if line[0] == '+' && !strings.HasPrefix(line, "+++") {
+		if strings.HasPrefix(line, "---") || strings.HasPrefix(line, "+++") {
+			continue
+		}
+		if line[0] == '+' {
 			added++
-		} else if line[0] == '-' && !strings.HasPrefix(line, "---") {
+		} else if line[0] == '-' {
 			removed++
 		}
 	}

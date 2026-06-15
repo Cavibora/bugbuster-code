@@ -24,11 +24,11 @@ func TestUnifiedDiff_AddLine(t *testing.T) {
 	if !strings.Contains(diff, "+line3") {
 		t.Errorf("Expected '+line3' in diff, got:\n%s", diff)
 	}
-	if !strings.Contains(diff, "--- a/a.txt") {
-		t.Errorf("Expected '--- a/a.txt' header, got:\n%s", diff)
+	if !strings.Contains(diff, "--- a.txt (before)") {
+		t.Errorf("Expected '--- a.txt (before)' header, got:\n%s", diff)
 	}
-	if !strings.Contains(diff, "+++ b/b.txt") {
-		t.Errorf("Expected '+++ b/b.txt' header, got:\n%s", diff)
+	if !strings.Contains(diff, "+++ b.txt (after)") {
+		t.Errorf("Expected '+++ b.txt (after)' header, got:\n%s", diff)
 	}
 }
 
@@ -92,7 +92,7 @@ func TestUnifiedDiff_EmptyNew(t *testing.T) {
 }
 
 func TestDiffStats(t *testing.T) {
-	diff := "--- a/a.txt\n+++ b/b.txt\n@@ -1,3 +1,3 @@\n line1\n-old_line\n+new_line\n line3\n"
+	diff := "--- a.txt (before)\n+++ b.txt (after)\n@@ -1,3 +1,3 @@\n line1\n-old_line\n+new_line\n line3\n"
 
 	added, removed := DiffStats(diff)
 	if added != 1 {
@@ -111,7 +111,7 @@ func TestDiffStats_Empty(t *testing.T) {
 }
 
 func TestDiffLines(t *testing.T) {
-	diff := "--- a/a.txt\n+++ b/b.txt\n@@ -1,3 +1,3 @@\n line1\n-old_line\n+new_line\n line3\n"
+	diff := "--- a.txt (before)\n+++ b.txt (after)\n@@ -1,3 +1,3 @@\n line1\n-old_line\n+new_line\n line3\n"
 
 	lines := DiffLines(diff, 10)
 	if len(lines) != 4 {
@@ -129,7 +129,7 @@ func TestDiffLines(t *testing.T) {
 }
 
 func TestDiffLines_MaxLines(t *testing.T) {
-	diff := "--- a/a.txt\n+++ b/b.txt\n@@ -1,5 +1,5 @@\n line1\n-old1\n-old2\n+new1\n+new2\n line3\n"
+	diff := "--- a.txt (before)\n+++ b.txt (after)\n@@ -1,5 +1,5 @@\n line1\n-old1\n-old2\n+new1\n+new2\n line3\n"
 
 	lines := DiffLines(diff, 3)
 	if len(lines) != 4 { // 3 lines + "... (N more lines)"

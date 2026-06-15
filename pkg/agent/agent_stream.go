@@ -133,6 +133,11 @@ streamLoop:
 				currentToolID = ""
 				currentToolName = ""
 
+			case provider.EventUsage:
+				// Forward usage data from provider to UI
+				// Without this, totalInTokens stays 0 for OpenAI providers
+				eventCh <- event
+
 			case "stop_reason":
 				if event.StopReason == "max_tokens" {
 					eventCh <- provider.StreamEvent{
