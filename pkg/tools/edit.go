@@ -25,22 +25,6 @@ func (t *EditTool) Description() string {
 	return i18n.T("tools.edit.description")
 }
 
-// backupFile creates a .bak copy of the file before editing.
-func backupFile(path string) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	for i := 3; i >= 2; i-- {
-		oldBak := fmt.Sprintf("%s.bak.%d", path, i-1)
-		newBak := fmt.Sprintf("%s.bak.%d", path, i)
-		if _, err := os.Stat(oldBak); err == nil {
-			os.Rename(oldBak, newBak)
-		}
-	}
-	return os.WriteFile(path+".bak.1", data, 0644)
-}
-
 // normalizeWhitespace normalizes whitespace for fuzzy matching.
 func normalizeWhitespace(s string) string {
 	s = strings.ReplaceAll(s, "\r\n", "\n")
@@ -277,9 +261,6 @@ func (t *EditTool) Execute(params map[string]string) ToolResult {
 			Error:  "safety: too many lines deleted",
 		}
 	}
-
-	// Create backup before editing
-	backupFile(path)
 
 	// Replace first occurrence of actual matched text
 	newContent := strings.Replace(content, actualOld, newText, 1)

@@ -355,8 +355,8 @@ func (t *MemoryTool) delete(params map[string]string) ToolResult {
 		}
 	}
 
-	// Backup before delete
-	t.backup()
+	// Backup before delete (in .bugbuster/backups/, not next to memory file)
+	// ChangeTracker handles undo, no need for .bak files
 
 	filtered := make([]MemoryFact, 0, len(t.facts))
 	deleted := 0
@@ -429,8 +429,8 @@ func (t *MemoryTool) Compress(maxTokens int) ToolResult {
 func (t *MemoryTool) compressInternal(maxTokens int) string {
 	originalCount := len(t.facts)
 
-	// Backup before compress
-	t.backup()
+	// Backup before compress (in .bugbuster/backups/, not next to memory file)
+	// ChangeTracker handles undo, no need for .bak files
 
 	// Step 1: Remove exact duplicates (same key + same value)
 	seen := make(map[string]bool)

@@ -405,9 +405,9 @@ func TestEditTool_FuzzyMatch_TrailingSpaces(t *testing.T) {
 	}
 }
 
-func TestEditTool_Backup(t *testing.T) {
+func TestEditTool_NoBackupFiles(t *testing.T) {
 	tmpDir := t.TempDir()
-	tmpFile := filepath.Join(tmpDir, "backup.txt")
+	tmpFile := filepath.Join(tmpDir, "nobackup.txt")
 	os.WriteFile(tmpFile, []byte("original content"), 0644)
 
 	tool := NewEditTool()
@@ -420,13 +420,9 @@ func TestEditTool_Backup(t *testing.T) {
 		t.Errorf("Unexpected error: %s", result.Error)
 	}
 
-	// Check backup exists
-	bakData, err := os.ReadFile(tmpFile + ".bak.1")
-	if err != nil {
-		t.Errorf("Backup file should exist: %s", err)
-	}
-	if string(bakData) != "original content" {
-		t.Errorf("Backup should contain original content, got: %s", string(bakData))
+	// Check NO backup files created
+	if _, err := os.Stat(tmpFile + ".bak.1"); err == nil {
+		t.Error("Backup file .bak.1 should NOT exist — ChangeTracker handles undo")
 	}
 }
 
