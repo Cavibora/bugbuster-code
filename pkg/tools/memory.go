@@ -17,7 +17,6 @@ import (
 const (
 	memoryMaxFacts    = 30
 	memoryMaxValueLen = 2000
-	memoryMaxBackups  = 3
 )
 
 // MemoryTool stores important project facts that persist across sessions.
@@ -123,8 +122,6 @@ func (t *MemoryTool) Execute(params map[string]string) ToolResult {
 		return t.delete(params)
 	case "compress":
 		return t.compress(params)
-	case "restore":
-		return t.restore()
 	default:
 		return Error("tools.memory.unknown_action", action)
 	}
@@ -136,7 +133,7 @@ func (t *MemoryTool) Parameters() map[string]any {
 		"properties": map[string]any{
 			"action": map[string]any{
 				"type":        "string",
-				"enum":        []string{"save", "load", "list", "delete", "compress", "restore"},
+				"enum":        []string{"save", "load", "list", "delete", "compress"},
 				"description": i18n.T("tools.memory.param_action_desc"),
 			},
 			"key": map[string]any{
@@ -568,51 +565,6 @@ func (t *MemoryTool) compressInternal(maxTokens int) string {
 	return fmt.Sprintf("✓ Compressed: %d → %d facts (removed %d duplicates/low-priority). 🔒 %d permanent facts protected.", originalCount, len(t.facts), removed, permCount)
 }
 
-// restore loads facts from the most recent backup
-func (t *MemoryTool) restore() ToolResult {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	// Load current facts from file before merging
-	if err := t.loadFromFile(); err != nil && !os.IsNotExist(err) {
-		return Error("tools.memory.read_error", err)
-	}
-
-	backupPath := t.filePath + ".bak.1"
-	data, err := os.ReadFile(backupPath)
-	if err != nil {
-		return ToolResult{Output: fmt.Sprintf("No backup found at %s", backupPath)}
-	}
-
-	backupFacts := parseMemoryMD(string(data))
-
-	// Merge: add backup facts that don't exist in current
-	var added int
-	for _, bf := range backupFacts {
-		found := false
-		for _, cf := range t.facts {
-			if strings.EqualFold(cf.Key, bf.Key) {
-				found = true
-				break
-			}
-		}
-		if !found {
-			// Preserve original category — don't downgrade permanent to "restored"
-			if !bf.IsPermanent() {
-				bf.Category = "restored"
-			}
-			t.facts = append(t.facts, bf)
-			added++
-		}
-	}
-
-	if err := t.saveToFileLocked(); err != nil {
-		return Error("tools.memory.write_error", err)
-	}
-
-	return ToolResult{Output: fmt.Sprintf("✓ Restored %d facts from backup. Total: %d facts", added, len(t.facts))}
-}
-
 // LoadAllFacts returns all stored facts as formatted text (for system prompt injection)
 func (t *MemoryTool) LoadAllFacts() string {
 	t.mu.RLock()
@@ -689,22 +641,6 @@ func (t *MemoryTool) saveToFile() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.saveToFileLocked()
-}
-
-// backup creates a rotating backup of the memory file (caller must hold t.mu)
-func (t *MemoryTool) backup() {
-	for i := memoryMaxBackups - 1; i >= 1; i-- {
-		oldPath := fmt.Sprintf("%s.bak.%d", t.filePath, i)
-		newPath := fmt.Sprintf("%s.bak.%d", t.filePath, i+1)
-		data, err := os.ReadFile(oldPath)
-		if err == nil {
-			os.WriteFile(newPath, data, 0644)
-		}
-	}
-	data, err := os.ReadFile(t.filePath)
-	if err == nil {
-		os.WriteFile(t.filePath+".bak.1", data, 0644)
-	}
 }
 
 // --- Helper functions ---

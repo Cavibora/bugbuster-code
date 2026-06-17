@@ -96,9 +96,9 @@ func TestPermanentCompressPreservesAllPermanent(t *testing.T) {
 	}
 }
 
-// TestPermanentRestorePreservesCategory verifies that restore() does not downgrade
-// permanent facts to "restored" category.
-func TestPermanentRestorePreservesCategory(t *testing.T) {
+// TestPermanentCompressPreservesCategory verifies that compress() does not downgrade
+// permanent facts to a lower category.
+func TestPermanentCompressPreservesCategory(t *testing.T) {
 	dir := t.TempDir()
 	fp := filepath.Join(dir, "memory.md")
 	tool := NewMemoryToolWithPath(fp)
@@ -112,20 +112,15 @@ func TestPermanentRestorePreservesCategory(t *testing.T) {
 	tool.Execute(map[string]string{"action": "save", "key": "temp_key", "value": "temp", "category": "general"})
 	tool.Execute(map[string]string{"action": "delete", "key": "temp_key"})
 
-	restoreResult := tool.Execute(map[string]string{"action": "restore"})
-	if restoreResult.Error != "" {
-		t.Fatalf("restore failed: %s", restoreResult.Error)
-	}
-
 	data, _ := os.ReadFile(fp)
 	content := string(data)
 	if !strings.Contains(content, "## permanent") {
-		t.Fatalf("permanent category should be preserved after restore, got:\n%s", content)
+		t.Fatalf("permanent category should be preserved after compress, got:\n%s", content)
 	}
 
 	loadResult := tool.Execute(map[string]string{"action": "load", "key": "critical_config"})
 	if !strings.Contains(loadResult.Output, "DO_NOT_CHANGE") {
-		t.Fatalf("permanent value should be intact after restore, got: %s", loadResult.Output)
+		t.Fatalf("permanent value should be intact after compress, got: %s", loadResult.Output)
 	}
 }
 

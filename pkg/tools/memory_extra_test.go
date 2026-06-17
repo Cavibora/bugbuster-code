@@ -303,25 +303,20 @@ func TestMemoryToolAutoCompress(t *testing.T) {
 	}
 }
 
-// --- Restore from backup ---
+// --- Restore removed (no more .bak files) ---
 
-func TestMemoryToolRestore(t *testing.T) {
+func TestMemoryToolNoBackupFiles(t *testing.T) {
 	dir := t.TempDir()
 	tool := NewMemoryToolWithPath(filepath.Join(dir, "test.md"))
 
 	// Save a fact
 	tool.Execute(map[string]string{"action": "save", "key": "important", "value": "critical_data", "category": "critical"})
 
-	// Delete it (creates backup)
+	// Delete it
 	tool.Execute(map[string]string{"action": "delete", "key": "important"})
 
-	// Restore from backup
-	result := tool.Execute(map[string]string{"action": "restore"})
-	if strings.Contains(result.Output, "Restored") {
-		// Verify fact was restored
-		loadResult := tool.Execute(map[string]string{"action": "load", "key": "important"})
-		if !strings.Contains(loadResult.Output, "critical_data") {
-			t.Errorf("Expected restored fact, got: %s", loadResult.Output)
-		}
+	// Verify NO .bak files created
+	if _, err := os.Stat(filepath.Join(dir, "test.md.bak.1")); err == nil {
+		t.Error("Backup file .bak.1 should NOT exist")
 	}
 }
