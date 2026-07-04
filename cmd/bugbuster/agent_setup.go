@@ -103,10 +103,18 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 		loop.SetLoopTextSimilarityWindow(cfg.Agent.LoopDetection.TextSimilarityWindow)
 	}
 
-	// Override MaxTokens from provider if context_window is specified
+	// Context window from provider config overrides agent.max_tokens for compaction decisions.
+	// It should NOT be confused with the provider's max_tokens (output token limit).
 	provCfg := cfg.Providers[cfg.DefaultProvider]
+
+	// Override context window size from provider config if specified
 	if provCfg.ContextWindow > 0 {
 		loop.SetMaxTokens(provCfg.ContextWindow)
+	}
+
+	// Set provider's output token limit for display in warning messages
+	if provCfg.MaxTokens > 0 {
+		loop.SetProviderMaxTokens(provCfg.MaxTokens)
 	}
 
 	// LLM-based compaction — uses provider to generate summary

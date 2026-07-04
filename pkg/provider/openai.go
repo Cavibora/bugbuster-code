@@ -648,6 +648,10 @@ func (p *OpenAIProvider) parseStream(body io.Reader, ch chan<- StreamEvent) {
 					}
 				}
 			}
+			// Send stop_reason event for max_tokens detection
+			if reason == "length" {
+				ch <- StreamEvent{Type: "stop_reason", StopReason: "max_tokens"}
+			}
 			ch <- StreamEvent{Type: "done"}
 		}
 

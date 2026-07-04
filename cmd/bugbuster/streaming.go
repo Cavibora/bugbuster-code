@@ -343,9 +343,18 @@ streamLoop:
 			}
 
 			case provider.EventThinking:
-				// Reset genEnd so thinking time is not counted as generation time
-				// Thinking tokens are separate from output tokens
-				genEnd = time.Time{}
+				// Thinking tokens ARE output tokens — count them for speed display
+				if genStart.IsZero() {
+					genStart = time.Now()
+				} else if !genEnd.IsZero() {
+					totalGenDur += time.Since(genEnd)
+				}
+				genEnd = time.Now()
+				totalOutTokens++
+				if spinner != nil {
+					spinner.UpdateGenTime()
+					spinner.UpdateTokens(totalInTokens, totalOutTokens, totalGenDur)
+				}
 				if spinner != nil {
 					spinner.PauseGenTime()
 				}
@@ -566,7 +575,9 @@ streamLoop:
 
 
 			case provider.EventIterationEnd:
-				// iteration completed
+				// iteration completed — reset textReceived so next iteration
+				// updates spinner message to "Step N"
+				textReceived = false
 
 			case provider.EventDone:
 				spinner = stopActiveSpinner(spinner)

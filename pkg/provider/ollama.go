@@ -230,7 +230,8 @@ func (p *OllamaProvider) parseNativeResponse(body []byte) (*CompletionResult, er
 			Content  string `json:"content"`
 			Thinking string `json:"thinking"`
 		} `json:"message"`
-		Done bool `json:"done"`
+		Done       bool   `json:"done"`
+		DoneReason string `json:"done_reason"` // "stop", "length", "load"
 	}
 
 	if err := json.Unmarshal(body, &resp); err != nil {
@@ -243,12 +244,17 @@ func (p *OllamaProvider) parseNativeResponse(body []byte) (*CompletionResult, er
 	}
 	content = append(content, ContentBlock{Type: "text", Text: resp.Message.Content})
 
+	stopReason := "end_turn"
+	if resp.DoneReason == "length" {
+		stopReason = "max_tokens"
+	}
+
 	return &CompletionResult{
 		Message: Message{
 			Role:    "assistant",
 			Content: content,
 		},
-		StopReason: "end_turn",
+		StopReason: stopReason,
 	}, nil
 }
 
@@ -262,7 +268,8 @@ func (p *OllamaProvider) parseNativeStream(body io.Reader, ch chan<- StreamEvent
 				Content  string `json:"content"`
 				Thinking string `json:"thinking"`
 			} `json:"message"`
-			Done bool `json:"done"`
+			Done       bool   `json:"done"`
+			DoneReason string `json:"done_reason"` // "stop", "length", "load"
 		}
 
 		if err := scanner.Decode(&chunk); err != nil {
@@ -280,6 +287,10 @@ func (p *OllamaProvider) parseNativeStream(body io.Reader, ch chan<- StreamEvent
 		}
 
 		if chunk.Done {
+			// Ollama native API: done_reason="length" means max_tokens reached
+			if chunk.DoneReason == "length" {
+				ch <- StreamEvent{Type: "stop_reason", StopReason: "max_tokens"}
+			}
 			ch <- StreamEvent{Type: "done"}
 			return
 		}

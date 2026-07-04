@@ -50,6 +50,10 @@ type AgentLoop struct {
 	// autoContinueCount limits auto-continues (max 3)
 	autoContinueCount int
 
+	// providerMaxTokens is the provider's output token limit (max_tokens sent to API)
+	// Used for display in warning messages. 0 = unknown.
+	providerMaxTokens int
+
 	// autoContinue enables auto-continuation when model responds with text only
 	// Only enabled in TUI mode, not in sync mode (Run)
 	autoContinue bool
@@ -113,6 +117,11 @@ func (a *AgentLoop) SetDebugDir(dir string) {
 // SetMaxTokens sets the maximum token count in context
 func (a *AgentLoop) SetMaxTokens(maxTokens int) {
 	a.Context.MaxTokens = maxTokens
+}
+
+// SetProviderMaxTokens sets the provider's output token limit
+func (a *AgentLoop) SetProviderMaxTokens(maxTokens int) {
+	a.providerMaxTokens = maxTokens
 }
 
 // SetKeepRecent sets the count of recent messages to keep during compaction
@@ -223,8 +232,12 @@ func (a *AgentLoop) effectiveIdleTimeout() time.Duration {
 	return 5 * time.Minute
 }
 
-// effectiveMaxTokens returns the effective max_tokens limit.
+// effectiveMaxTokens returns the effective max_tokens limit for display in messages.
+// Returns provider's output token limit if set, otherwise context window size.
 func (a *AgentLoop) effectiveMaxTokens() int {
+	if a.providerMaxTokens > 0 {
+		return a.providerMaxTokens
+	}
 	if a.Context.MaxTokens > 0 {
 		return a.Context.MaxTokens
 	}
@@ -345,6 +358,26 @@ func (a *AgentLoop) runLoop() (string, error) {
 		if a.verbose {
 			logger.Debug("iteration", "num", iteration, "stop_reason", result.StopReason)
 			logger.Debug("response", "text", result.Message.GetText())
+		}
+
+		// max_tokens: continue truncated text response
+		// No limit — compaction handles context overflow automatically
+		if result.StopReason == "max_tokens" {
+			toolCalls := result.Message.GetToolCalls()
+			if len(toolCalls) == 0 {
+				// Check for XML/JSON tool calls in text
+				text := result.Message.GetText()
+				parsedCalls := ParseToolCalls(text)
+				if len(parsedCalls) == 0 {
+					// Pure text response was truncated — send "Continue."
+					if a.verbose {
+						logger.Debug("max_tokens_continue", "msg", "sending Continue.")
+					}
+					a.Context.Add(provider.UserMsg("Continue."))
+					continue
+				}
+			}
+			// Has tool calls — fall through to normal processing
 		}
 
 		// Check if there are tool calls
@@ -585,6 +618,10 @@ func (a *AgentLoop) streamLoopWithCtx(ctx context.Context) (<-chan provider.Stre
 			// Check user comment injection
 			a.drainUserInject(eventCh)
 
+			// Compact context if needed before sending request
+			// This prevents context overflow from max_tokens continuations
+			a.maybeCompact(eventCh, ctx)
+
 			iterStart := time.Now()
 
 			// Send iteration start event
@@ -630,6 +667,24 @@ func (a *AgentLoop) streamLoopWithCtx(ctx context.Context) (<-chan provider.Stre
 			}
 
 			// Final response (no tool calls)
+			// max_tokens: continue truncated text — no limit, compaction handles overflow
+			if result.maxTokens {
+				if a.verbose {
+					logger.Debug("max_tokens_continue_stream", "msg", "sending Continue.")
+				}
+				// Send iteration end so TUI can reset state (textReceived, spinner)
+				eventCh <- provider.StreamEvent{
+					Type:      provider.EventIterationEnd,
+					Iteration: iteration,
+					Duration:  time.Since(iterStart),
+				}
+				// Assistant message already added to context by collectStreamResponse
+				// Just send "Continue." — model will pick up where it left off
+				// Text from next response will be streamed seamlessly to user
+				a.Context.Add(provider.UserMsg("Continue."))
+				continue
+			}
+
 			continueLoop, _ := a.handleStreamFinalResponse(
 				result.text.String(), iteration, totalStart, iterStart, eventCh,
 			)

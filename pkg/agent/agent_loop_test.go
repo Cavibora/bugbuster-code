@@ -344,6 +344,127 @@ func TestStream_ProviderError(t *testing.T) {
 	}
 }
 
+// MockMaxTokensProvider — провайдер, который сначала возвращает max_tokens, а затем нормальный ответ
+type MockMaxTokensProvider struct {
+	callCount int
+	truncatedText string
+	finalText string
+}
+
+func (m *MockMaxTokensProvider) Name() string { return "mock-max-tokens" }
+
+func (m *MockMaxTokensProvider) Complete(messages []provider.Message, toolDefs []provider.ToolDef) (*provider.CompletionResult, error) {
+	m.callCount++
+	if m.callCount == 1 {
+		// Первый вызов — обрезанный ответ (max_tokens)
+		return &provider.CompletionResult{
+			Message:    provider.AssistantText(m.truncatedText),
+			StopReason: "max_tokens",
+		}, nil
+	}
+	// Второй вызов — нормальный ответ
+	return &provider.CompletionResult{
+		Message:    provider.AssistantText(m.finalText),
+		StopReason: "end_turn",
+	}, nil
+}
+
+func (m *MockMaxTokensProvider) Stream(messages []provider.Message, toolDefs []provider.ToolDef) (<-chan provider.StreamEvent, error) {
+	return m.StreamWithCtx(context.Background(), messages, toolDefs)
+}
+
+func (m *MockMaxTokensProvider) CompleteWithCtx(ctx context.Context, messages []provider.Message, toolDefs []provider.ToolDef) (*provider.CompletionResult, error) {
+	return m.Complete(messages, toolDefs)
+}
+
+func (m *MockMaxTokensProvider) StreamWithCtx(ctx context.Context, messages []provider.Message, toolDefs []provider.ToolDef) (<-chan provider.StreamEvent, error) {
+	m.callCount++
+	ch := make(chan provider.StreamEvent, 20)
+	go func() {
+		if m.callCount == 1 {
+			// Первый вызов — обрезанный ответ (max_tokens)
+			ch <- provider.StreamEvent{Type: provider.EventTextDelta, Text: m.truncatedText}
+			ch <- provider.StreamEvent{Type: "stop_reason", StopReason: "max_tokens"}
+			ch <- provider.StreamEvent{Type: provider.EventDone}
+		} else {
+			// Второй вызов — нормальный ответ
+			ch <- provider.StreamEvent{Type: provider.EventTextDelta, Text: m.finalText}
+			ch <- provider.StreamEvent{Type: provider.EventDone}
+		}
+		close(ch)
+	}()
+	return ch, nil
+}
+
+// TestRunLoop_MaxTokensContinues проверяет, что при max_tokens агент продолжает работу
+// с минимальным prompt "Continue." (не длинным continuation hint)
+func TestRunLoop_MaxTokensContinues(t *testing.T) {
+	if err := i18n.Init("en"); err != nil {
+		t.Fatalf("i18n.Init failed: %v", err)
+	}
+	mock := &MockMaxTokensProvider{
+		truncatedText: "This is a long response that got cut off",
+		finalText:     " and this is the continuation.",
+	}
+	loop := NewAgentLoop(mock)
+
+	result, err := loop.Run("test query")
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+	// Model should be called twice: first max_tokens, then continuation
+	if mock.callCount != 2 {
+		t.Errorf("Expected 2 calls to provider (truncated + continuation), got %d", mock.callCount)
+	}
+	// Result should contain the continuation text
+	if !strings.Contains(result, "continuation") {
+		t.Errorf("Expected result to contain continuation text, got: %s", result)
+	}
+}
+
+// TestStream_MaxTokensContinues проверяет, что при max_tokens стриминг продолжает работу
+// с минимальным prompt "Continue." — текст склеивается без предупреждений
+func TestStream_MaxTokensContinues(t *testing.T) {
+	if err := i18n.Init("en"); err != nil {
+		t.Fatalf("i18n.Init failed: %v", err)
+	}
+	mock := &MockMaxTokensProvider{
+		truncatedText: "This is a long response that got cut off",
+		finalText:     " and this is the continuation.",
+	}
+	loop := NewAgentLoop(mock)
+
+	eventCh, err := loop.Stream("test query")
+	if err != nil {
+		t.Fatalf("Stream failed: %v", err)
+	}
+
+	var gotDone bool
+	var textCount int
+	for event := range eventCh {
+		switch event.Type {
+		case provider.EventTextDelta:
+			textCount++
+		case provider.EventDone:
+			gotDone = true
+		case provider.EventError:
+			t.Errorf("Unexpected EventError: %v", event.Error)
+		}
+	}
+
+	if !gotDone {
+		t.Error("Expected EventDone at the end of stream")
+	}
+	// Should have at least 2 text deltas (truncated + continuation)
+	if textCount < 2 {
+		t.Errorf("Expected at least 2 text deltas, got %d", textCount)
+	}
+	// Provider should be called twice: first max_tokens, then continuation
+	if mock.callCount != 2 {
+		t.Errorf("Expected 2 calls to provider (truncated + continuation), got %d", mock.callCount)
+	}
+}
+
 // TestBuildSystemPrompt_WithTools проверяет системный промпт с инструментами
 func TestBuildSystemPrompt_WithTools(t *testing.T) {
 	if err := i18n.Init("en"); err != nil {

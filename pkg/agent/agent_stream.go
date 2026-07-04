@@ -22,6 +22,7 @@ type streamResult struct {
 	err       error
 	loopMsg   string // loop message (empty = no loop)
 	loopType  string // "thinking" | "text" | ""
+	maxTokens bool  // true = response was truncated by max_tokens limit
 }
 
 // streamRetryRequest receives streaming response from provider with retry (3 attempts).
@@ -140,9 +141,12 @@ streamLoop:
 
 			case "stop_reason":
 				if event.StopReason == "max_tokens" {
-					eventCh <- provider.StreamEvent{
-						Type:  provider.EventError,
-						Error: fmt.Errorf("%s (max_tokens=%d)", i18n.T("errors.max_tokens_reached"), a.effectiveMaxTokens()),
+					// max_tokens is NOT a fatal error — model just didn't finish.
+					// Accept the truncated response and continue normally.
+					// No warning, no continuation hint — just log it.
+					result.maxTokens = true
+					if a.verbose {
+						logger.Debug("max_tokens_truncated", "msg", "accepting truncated response")
 					}
 				}
 

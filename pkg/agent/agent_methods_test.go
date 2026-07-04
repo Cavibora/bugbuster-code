@@ -14,6 +14,19 @@ func TestEffectiveMaxTokens(t *testing.T) {
 	if a.effectiveMaxTokens() != 16000 {
 		t.Errorf("Expected MaxTokens=16000, got %d", a.effectiveMaxTokens())
 	}
+	// Provider max_tokens takes priority over context max_tokens
+	a.SetProviderMaxTokens(56384)
+	if a.effectiveMaxTokens() != 56384 {
+		t.Errorf("Expected providerMaxTokens=56384, got %d", a.effectiveMaxTokens())
+	}
+}
+
+func TestSetProviderMaxTokens(t *testing.T) {
+	a := NewAgentLoop(nil)
+	a.SetProviderMaxTokens(56384)
+	if a.providerMaxTokens != 56384 {
+		t.Errorf("Expected providerMaxTokens=56384, got %d", a.providerMaxTokens)
+	}
 }
 
 func TestEnableSubagents(t *testing.T) {
