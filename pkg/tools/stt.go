@@ -15,8 +15,10 @@ import (
 
 // STTTool converts speech to text using OpenAI Whisper API or system tools
 type STTTool struct {
-	apiKey     string
-	baseURL    string
+	APIKey     string
+	BaseURL    string
+	Model      string // STT model: "whisper-1"
+	Language    string // Language hint: "en", "ru", etc.
 	httpClient *http.Client
 }
 
@@ -27,8 +29,10 @@ func NewSTTTool(apiKey, baseURL string) *STTTool {
 	}
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &STTTool{
-		apiKey:     apiKey,
-		baseURL:    baseURL,
+		APIKey:     apiKey,
+		BaseURL:    baseURL,
+		Model:      "whisper-1",
+		Language:   "",
 		httpClient: &http.Client{},
 	}
 }
@@ -66,6 +70,9 @@ func (t *STTTool) Parameters() map[string]any {
 func (t *STTTool) Execute(params map[string]string) ToolResult {
 	filePath := params["file"]
 	language := params["language"]
+	if language == "" {
+		language = t.Language
+	}
 	duration := params["duration"]
 	if duration == "" {
 		duration = "5s"
@@ -87,7 +94,7 @@ func (t *STTTool) Execute(params map[string]string) ToolResult {
 	}
 
 	// Try OpenAI Whisper API first
-	if t.apiKey != "" {
+	if t.APIKey != "" {
 		result, err := t.whisperTranscribe(filePath, language)
 		if err == nil {
 			return result
@@ -176,7 +183,7 @@ func (t *STTTool) whisperTranscribe(filePath, language string) (ToolResult, erro
 	}
 
 	// Add model
-	_ = writer.WriteField("model", "whisper-1")
+	_ = writer.WriteField("model", t.Model)
 
 	// Add language if specified
 	if language != "" {
@@ -186,11 +193,11 @@ func (t *STTTool) whisperTranscribe(filePath, language string) (ToolResult, erro
 	writer.Close()
 
 	// Send request
-	req, err := http.NewRequest("POST", t.baseURL+"/audio/transcriptions", &buf)
+	req, err := http.NewRequest("POST", t.BaseURL+"/audio/transcriptions", &buf)
 	if err != nil {
 		return ToolResult{}, fmt.Errorf("failed to create request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+t.apiKey)
+	req.Header.Set("Authorization", "Bearer "+t.APIKey)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
 	resp, err := t.httpClient.Do(req)

@@ -159,6 +159,30 @@ type ToolsConfig struct {
 	MaxGrepResults int          `yaml:"max_grep_results"`
 	MaxGlobResults int          `yaml:"max_glob_results"`
 	Browse         BrowseConfig `yaml:"browse"`
+	Screenshot     ScreenshotConfig `yaml:"screenshot"`
+	TTS            TTSConfig    `yaml:"tts"`
+	STT            STTConfig    `yaml:"stt"`
+}
+
+// ScreenshotConfig — screenshot capture settings
+type ScreenshotConfig struct {
+	Enabled bool   `yaml:"enabled"`  // enable screenshot tool (default true)
+	Format  string `yaml:"format"`   // image format: "png" (default) or "jpeg"
+	Quality int    `yaml:"quality"`  // JPEG quality 1-100 (default 85, PNG only)
+}
+
+// TTSConfig — text-to-speech settings
+type TTSConfig struct {
+	Enabled bool   `yaml:"enabled"` // enable TTS tool (default true)
+	Voice   string `yaml:"voice"`   // voice: "alloy", "echo", "fable", "onyx", "nova", "shimmer" (default "alloy")
+	Model   string `yaml:"model"`   // TTS model: "tts-1" (default) or "tts-1-hd"
+}
+
+// STTConfig — speech-to-text settings
+type STTConfig struct {
+	Enabled  bool   `yaml:"enabled"`   // enable STT tool (default true)
+	Language string `yaml:"language"`   // default language hint: "en", "ru", etc. (empty = auto-detect)
+	Model    string `yaml:"model"`      // STT model: "whisper-1" (default)
 }
 
 // BrowseConfig — headless browser and search configuration
@@ -218,6 +242,20 @@ func DefaultConfig() *BugBusterConfig {
 			BashTimeout:    30,
 			MaxGrepResults: 50,
 			MaxGlobResults: 100,
+			Screenshot: ScreenshotConfig{
+				Enabled: true,
+				Format:  "png",
+			},
+			TTS: TTSConfig{
+				Enabled: true,
+				Voice:   "alloy",
+				Model:   "tts-1",
+			},
+			STT: STTConfig{
+				Enabled:  true,
+				Language: "",
+				Model:    "whisper-1",
+			},
 		},
 		Security: SecurityConfig{
 			AllowNetwork:    false,

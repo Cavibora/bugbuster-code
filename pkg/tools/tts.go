@@ -13,10 +13,10 @@ import (
 
 // TTSTool converts text to speech using OpenAI TTS API or system TTS
 type TTSTool struct {
-	apiKey     string
-	baseURL    string
-	model      string
-	voice      string
+	APIKey     string
+	BaseURL    string
+	Model      string // TTS model: "tts-1" or "tts-1-hd"
+	Voice      string // Voice: alloy, echo, fable, onyx, nova, shimmer
 	httpClient *http.Client
 }
 
@@ -27,10 +27,10 @@ func NewTTSTool(apiKey, baseURL string) *TTSTool {
 	}
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &TTSTool{
-		apiKey:  apiKey,
-		baseURL: baseURL,
-		model:  "tts-1",
-		voice:  "alloy",
+		APIKey:  apiKey,
+		BaseURL: baseURL,
+		Model:   "tts-1",
+		Voice:   "alloy",
 		httpClient: &http.Client{},
 	}
 }
@@ -74,7 +74,7 @@ func (t *TTSTool) Execute(params map[string]string) ToolResult {
 
 	voice := params["voice"]
 	if voice == "" {
-		voice = t.voice
+		voice = t.Voice
 	}
 
 	outputPath := params["output"]
@@ -83,7 +83,7 @@ func (t *TTSTool) Execute(params map[string]string) ToolResult {
 	}
 
 	// Try OpenAI TTS API first
-	if t.apiKey != "" {
+	if t.APIKey != "" {
 		result, err := t.openaiTTS(text, voice, outputPath)
 		if err == nil {
 			return result
@@ -97,7 +97,7 @@ func (t *TTSTool) Execute(params map[string]string) ToolResult {
 
 func (t *TTSTool) openaiTTS(text, voice, outputPath string) (ToolResult, error) {
 	reqBody := map[string]any{
-		"model":          t.model,
+		"model":          t.Model,
 		"input":          text,
 		"voice":          voice,
 		"response_format": "mp3",
@@ -108,11 +108,11 @@ func (t *TTSTool) openaiTTS(text, voice, outputPath string) (ToolResult, error) 
 		return ToolResult{}, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", t.baseURL+"/audio/speech", strings.NewReader(string(body)))
+	req, err := http.NewRequest("POST", t.BaseURL+"/audio/speech", strings.NewReader(string(body)))
 	if err != nil {
 		return ToolResult{}, fmt.Errorf("failed to create request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+t.apiKey)
+	req.Header.Set("Authorization", "Bearer "+t.APIKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := t.httpClient.Do(req)

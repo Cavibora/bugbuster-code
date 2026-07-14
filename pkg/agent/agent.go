@@ -81,8 +81,6 @@ func NewAgentLoop(p provider.Provider) *AgentLoop {
 	a.RegisterTool(tools.NewBashTool())
 	a.RegisterTool(tools.NewGrepTool())
 	a.RegisterTool(tools.NewGlobTool())
-	a.RegisterTool(tools.NewScreenshotTool())
-	a.RegisterTool(tools.NewSendFileTool(nil))
 
 	// compact_force — registered later when context is fully initialized
 	// (needs CompactForceContext interface, which is the ConversationContext)

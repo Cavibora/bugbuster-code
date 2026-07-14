@@ -6,21 +6,50 @@
 
 > ⚠️ **Alpha Software** — BugBuster Code is in early development. CLI mode is stable. TUI mode is experimental. Expect bugs and breaking changes.
 
-## Features
+**BugBuster Code** is a model-agnostic CLI agent for software development. It connects to any LLM (OpenAI, Anthropic, Ollama, Cavibora, or OpenAI-compatible) and gives it 21 tools to read, write, edit, search, and execute code — plus **multimodal capabilities** like screenshots, voice, and vision.
 
-- 🔧 **16 built-in tools**: read, write, edit, bash, grep, glob, ask, learn, web_fetch, browse, memory, ask_user, delegate_task, todo, lsp, search_context
-- 🤖 **5 LLM providers**: OpenAI, Anthropic, Ollama, [Cavibora](https://github.com/Cavibora), OpenAI-compatible
-- 🌍 **8 languages**: English, Russian, Spanish, French, German, Japanese, Chinese, Portuguese
-- 🧠 **Thinking/reasoning blocks**: Claude extended thinking, OpenAI o1/o3
-- 🔄 **Context compaction**: LLM summarization + simple fallback + archiving
-- 🔁 **Loop detection**: Text similarity thresholds, sliding window, anti-thrashing
-- 🤝 **Sub-agents**: Isolated context, parallelism semaphore, timeouts
-- 📡 **MCP**: Both client and server (stdio, SSE, streamable HTTP)
-- 🎨 **TUI**: Rich terminal UI with markdown rendering, spinners, progress bars
-- 💾 **Sessions**: Save/restore conversation context with names and per-session history
-- 🧠 **Memory**: Session-scoped persistent memory (project-local, compaction-safe)
-- 🎯 **Skills**: Reusable step-by-step procedures (debug, refactor, review, deploy, analyze + custom)
-- 🔒 **Security**: Path traversal protection, secret file blocking, sandbox mode, command blocking
+## ✨ Highlights
+
+- 🖥️ **Screenshots & Vision** — capture desktop, window, or region; send images to vision models
+- 🎤 **Speech-to-Text** — record from microphone or transcribe audio files via Whisper
+- 🔊 **Text-to-Speech** — generate voice with OpenAI TTS or system `say`/`espeak`
+- 🪞 **Speed Mirror** — model sees its own performance and self-optimizes context
+- 💥 **Aggressive Compaction** — `/compact!` for emergency context reduction; auto-triggers on 3x slowdown
+- 🧠 **Self-Awareness** — `self_info` tool lets the model know its provider, context usage, and environment
+- 🔒 **Security** — path traversal protection, secret file blocking, sandbox mode, command blocking
+- 🌍 **8 Languages** — English, Russian, Spanish, French, German, Japanese, Chinese, Portuguese
+- 🤖 **5 LLM Providers** — OpenAI, Anthropic, Ollama, Cavibora, OpenAI-compatible
+- 🔄 **Smart Context** — LLM summarization + simple fallback + archiving + auto-compact on slowdown
+- 🤝 **Sub-agents** — isolated context, parallelism semaphore, timeouts
+- 📡 **MCP** — both client and server (stdio, SSE, streamable HTTP)
+- 🎯 **Skills** — reusable step-by-step procedures (debug, refactor, review, deploy, analyze + custom)
+
+## 🛠️ 21 Built-in Tools
+
+| Tool | Description |
+|------|-------------|
+| `read` | Read file or list directory |
+| `write` | Write file (creates parent dirs) |
+| `edit` | Find & replace text in file |
+| `bash` | Execute shell command |
+| `grep` | Search by regex in files |
+| `glob` | Find files by pattern |
+| `ask` | Ask external LLM |
+| `ask_user` | Ask user for input |
+| `learn` | Train model on input/output pair |
+| `web_fetch` | Fetch URL content |
+| `browse` | Headless browser + web search |
+| `memory` | Session-scoped persistent memory |
+| `delegate_task` | Delegate to sub-agent |
+| `todo` | Manage task checklist |
+| `lsp` | Language Server Protocol analysis |
+| `search_context` | Search archival context |
+| `compact_force` | Aggressively reduce context (auto-triggers on 3x slowdown) |
+| `self_info` | Query model identity, context usage, environment |
+| `screenshot` | 🖥️ Capture desktop, window, or region |
+| `send_file` | 📎 Send image/audio/document to model |
+| `tts` | 🔊 Text-to-speech (OpenAI TTS or system) |
+| `stt` | 🎤 Speech-to-text (Whisper or local) |
 
 ## Quick Start
 
@@ -71,12 +100,19 @@ providers:
     max_tokens: 4096
     context_window: 32000
 
-  cavibora:
-    type: cavibora
-    api_key: ${CAVIBORA_API_KEY}
-    model: cavibora-v1
-    max_tokens: 8192
-    context_window: 128000
+# Multimodal settings
+tools:
+  screenshot:
+    enabled: true
+    format: png          # png or jpeg
+  tts:
+    enabled: true
+    model: tts-1          # tts-1 or tts-1-hd
+    voice: alloy          # alloy, echo, fable, onyx, nova, shimmer
+  stt:
+    enabled: true
+    model: whisper-1      # whisper-1
+    language: ""           # auto-detect, or "en", "ru", etc.
 
 agent:
   permission_mode: auto-approve
@@ -100,13 +136,15 @@ agent:
 | `--lang` | `-l` | Interface language: `en`, `ru`, `es`, `fr`, `de`, `ja`, `zh`, `pt` |
 | `--tui` | `-t` | TUI mode: `auto` (default) or `inline` |
 
-### Commands
+### Interactive Commands
 
 | Command | Description |
 |---------|-------------|
 | `/help` | Show help |
 | `/exit`, `/quit` | Exit (saves session) |
 | `/reset` | Reset conversation context |
+| `/compact` | Soft compact — summarize context |
+| `/compact!` | 💥 Aggressive compact — strip to 15% of context |
 | `/context` | Show context info |
 | `/tools` | Show available tools |
 | `/model <name>` | Switch model |
@@ -122,11 +160,52 @@ agent:
 | `/skill <name>` | Activate a skill |
 | `/skill off` | Deactivate current skill |
 
+## 🖥️ Multimodal Examples
+
+### Screenshot + Vision
+```
+> Take a screenshot and tell me what you see
+[screenshot mode=fullscreen]
+→ Captures entire screen, sends to vision model
+
+> Take a screenshot of the browser window
+[screenshot mode=window]
+→ Click to select window, sends to model
+
+> What's in this image?
+[send_file path=/tmp/error.png]
+→ Sends image to model for analysis
+```
+
+### Voice I/O
+```
+> Read this aloud
+[tts text="Hello! BugBuster Code is running." voice=alloy]
+→ Generates speech via OpenAI TTS, plays with afplay
+
+> Transcribe my recording
+[stt file=/tmp/meeting.mp3]
+→ Transcribes audio via Whisper
+
+> Record 10 seconds from microphone and transcribe
+[stt duration=10s language=en]
+→ Records from mic, transcribes
+```
+
+## 🪞 Speed Mirror & Self-Awareness
+
+BugBuster Code makes the LLM **self-aware** of its performance:
+
+- **Speed Mirror** — every 5 iterations, the model receives a system message with its iteration speed, context usage, and slowdown ratio
+- **Auto-compact on 3x slowdown** — when context >50% and speed drops 3x, aggressive compaction triggers automatically
+- **`self_info` tool** — model can query its provider, model name, context window, and message count
+- **`/compact!` command** — user can force aggressive compaction anytime
+
+This means the model **knows when it's slowing down** and takes action — no external monitoring needed.
+
 ## Agent Instructions
 
-BugBuster reads project-specific instructions from agent instruction files. These files define coding standards, project rules, and preferences that the agent follows.
-
-### Supported Files (in priority order)
+BugBuster reads project-specific instructions from agent instruction files:
 
 | File | Format | Description |
 |------|--------|-------------|
@@ -137,26 +216,6 @@ BugBuster reads project-specific instructions from agent instruction files. Thes
 | `.windsurfrules` | Text | Windsurf format |
 | `.aider.conf.yml` | YAML | Aider format |
 | `.clinerules` | Text | Cline format |
-
-All found files are loaded and appended to the system prompt. Create `AGENT.md` in your project root:
-
-```markdown
-# Project Instructions
-
-## Code Style
-- Use TypeScript strict mode
-- Prefer functional components over class components
-- All functions must have JSDoc comments
-
-## Testing
-- Write tests before fixing bugs
-- Use vitest for unit tests
-- Minimum 80% code coverage
-
-## Git
-- Conventional commits: feat, fix, refactor, test, docs
-- Always run lint before commit
-```
 
 ## Architecture
 
@@ -175,33 +234,13 @@ User → readline/TUI → AgentLoop.Stream() → Provider.Stream()
 ```go
 type Provider interface {
     Name() string
+    Model() string
     Complete(messages []Message, tools []ToolDef) (*CompletionResult, error)
     CompleteWithCtx(ctx context.Context, messages []Message, tools []ToolDef) (*CompletionResult, error)
     Stream(messages []Message, tools []ToolDef) (<-chan StreamEvent, error)
     StreamWithCtx(ctx context.Context, messages []Message, tools []ToolDef) (<-chan StreamEvent, error)
 }
 ```
-
-## Tools
-
-| Tool | Description |
-|------|-------------|
-| `read` | Read file or list directory |
-| `write` | Write file (creates parent dirs) |
-| `edit` | Find & replace text in file |
-| `bash` | Execute shell command |
-| `grep` | Search by regex in files |
-| `glob` | Find files by pattern |
-| `ask` | Ask external LLM |
-| `ask_user` | Ask user for input |
-| `learn` | Train model on input/output pair |
-| `web_fetch` | Fetch URL content |
-| `browse` | Headless browser + web search (configurable engine) |
-| `memory` | Session-scoped persistent memory (project-local storage) |
-| `delegate_task` | Delegate to sub-agent |
-| `todo` | Manage task checklist |
-| `lsp` | Language Server Protocol analysis |
-| `search_context` | Search archival context |
 
 ## MCP (Model Context Protocol)
 
@@ -221,9 +260,7 @@ Supported transports: `stdio`, `sse`, `streamable-http`
 
 ## Skills
 
-Skills are reusable step-by-step procedures that guide the agent through common tasks. Unlike tools (single operations), skills combine **instructions + context + tools** into a workflow.
-
-### Built-in Skills
+Skills are reusable step-by-step procedures that guide the agent through common tasks:
 
 | Skill | Description |
 |-------|-------------|
@@ -233,36 +270,7 @@ Skills are reusable step-by-step procedures that guide the agent through common 
 | `deploy` | Deployment: tests → build → deploy → health check → rollback |
 | `analyze` | Codebase analysis: structure → patterns → metrics → recommendations |
 
-### Custom Skills
-
-Create `.bugbuster/skills/my-skill.md` in your project:
-
-```markdown
-# My Custom Skill
-
-## Description
-Does something custom and useful
-
-## Steps
-1. Read the relevant files
-2. Analyze the code structure
-3. Identify the problem
-4. Propose a solution
-5. Implement the fix
-6. Run tests to verify
-
-## Tools
-- read
-- grep
-- edit
-- bash
-
-## Context
-- README.md
-- go.mod
-```
-
-Skills are automatically injected into the system prompt and survive context compaction.
+Create custom skills in `.bugbuster/skills/my-skill.md`.
 
 ## Security
 
@@ -272,6 +280,7 @@ Skills are automatically injected into the system prompt and survive context com
 - **Sandbox** — restrict file writes to `sandbox_dir`
 - **Network commands** — blocks `curl`, `wget` when `allow_network: false`
 - **Blocked commands** — configurable list of forbidden bash commands
+- **Auto-kill stale processes** — processes running >7 days are auto-killed
 
 ## Development
 
@@ -282,11 +291,11 @@ go test ./...
 # Run tests with race detector
 go test -race ./...
 
-# Run specific package tests
-go test ./pkg/agent/...
-
 # Build
 go build -o bugbuster ./cmd/bugbuster/
+
+# Build with version info
+go build -ldflags "-X main.Version=1.1.0 -X main.GitCommit=$(git rev-parse --short HEAD)" -o bugbuster ./cmd/bugbuster/
 ```
 
 ## Documentation
@@ -294,7 +303,7 @@ go build -o bugbuster ./cmd/bugbuster/
 | Document | Description |
 |----------|-------------|
 | [Architecture](docs/ARCHITECTURE.md) | Package structure, data flow, design decisions |
-| [Tools Reference](docs/TOOLS.md) | All 16 built-in tools with parameters and examples |
+| [Tools Reference](docs/TOOLS.md) | All 21 built-in tools with parameters and examples |
 | [Configuration](docs/CONFIGURATION.md) | Full YAML config reference, CLI flags, provider setup |
 | [Security](docs/SECURITY.md) | Security model, threat analysis, best practices |
 | [Contributing](docs/CONTRIBUTING.md) | Development setup, coding conventions, PR process |

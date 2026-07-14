@@ -1,6 +1,6 @@
 # Tools Reference
 
-BugBuster Code provides 17 built-in tools that the AI agent can use to interact with your codebase and environment.
+BugBuster Code provides 21 built-in tools that the AI agent can use to interact with your codebase and environment.
 
 ## Tool Overview
 
@@ -23,6 +23,12 @@ BugBuster Code provides 17 built-in tools that the AI agent can use to interact 
 | `todo_read` | Sync | Read the current task checklist |
 | `lsp` | Sync | Language Server Protocol analysis |
 | `search_context` | Sync | Search archival context memory |
+| `compact_force` | Sync | Aggressively reduce context size |
+| `self_info` | Sync | Query model identity, context usage, and environment |
+| `screenshot` | Sync | Capture desktop, window, or screen region |
+| `send_file` | Sync | Send image/audio/document to model |
+| `tts` | Sync | Text-to-speech (OpenAI TTS or system) |
+| `stt` | Sync | Speech-to-text (Whisper or local) |
 
 ---
 
@@ -525,6 +531,249 @@ Important facts about this project (from agent memory):
 
 [warnings]
 - avoid_mysql_memory_load: User warned: never load full MySQL datasets into memory, use pagination
+```
+
+---
+
+### `compact_force`
+
+Aggressively reduce context size by stripping tool calls, errors, thinking blocks, and low-value data. Auto-triggers when context >50% and iteration speed drops 3x below initial.
+
+**Parameters:** None
+
+**Behavior:**
+- Strips all tool calls, tool results, errors, and thinking blocks from context
+- Keeps only system prompt, recent messages, and memory facts
+- Reduces context to ~15% of its original size
+- Also triggered automatically by the speed mirror when slowdown >3x
+- Can be triggered manually via `/compact!` command
+
+**When it auto-triggers:**
+- Context usage >50% AND iteration speed is 3x slower than initial
+- Model receives a system message about slowdown before auto-trigger
+
+**Examples:**
+```json
+{}
+```
+
+---
+
+### `self_info`
+
+Query information about the model, provider, agent context, and system environment.
+
+**Parameters:** None
+
+**Behavior:**
+- Returns model name and provider
+- Returns context window size and current usage percentage
+- Returns message count in conversation
+- Returns system information (OS, architecture, runtime)
+- Returns agent configuration details
+
+**Example output:**
+```
+=== Model & Provider ===
+Provider: anthropic
+Model: claude-sonnet-4-20250514
+Context Window: 200000
+Current Usage: 45%
+
+=== Agent ===
+Session: abc123
+Messages: 42
+Tools: 21
+
+=== System ===
+OS: darwin/arm64
+Go: 1.22.0
+Working Dir: /Users/ss/project
+```
+
+**Examples:**
+```json
+{}
+```
+
+---
+
+## Multimodal
+
+### `screenshot`
+
+Capture a screenshot of the desktop, a specific window, or a screen region.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `mode` | string | ❌ | `fullscreen` (default), `window`, `region` |
+| `display` | string | ❌ | Display number (default: main display) |
+| `region` | string | ❌ | Region in `x,y,w,h` format (for `region` mode) |
+| `format` | string | ❌ | `png` (default) or `jpeg` |
+| `quality` | int | ❌ | JPEG quality 1-100 (default: 85) |
+
+**Modes:**
+
+| Mode | Description |
+|------|-------------|
+| `fullscreen` | Capture entire screen |
+| `window` | Interactive window selection (click to select) |
+| `region` | Capture specific region by coordinates |
+
+**Behavior:**
+- Uses `screencapture` on macOS, `scrot`/`xdg-screenshot` on Linux
+- Automatically sends captured image to vision-capable model
+- Falls back to base64 encoding if no native tool available
+- Images are included as `image` content blocks in the message
+
+**Configuration:**
+```yaml
+tools:
+  screenshot:
+    enabled: true
+    format: png
+    quality: 85
+```
+
+**Examples:**
+```json
+{"mode": "fullscreen"}
+{"mode": "window"}
+{"mode": "region", "region": "100,100,800,600"}
+```
+
+---
+
+### `send_file`
+
+Send a file (image, audio, document) to the model for analysis.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `path` | string | ✅ | Path to file |
+| `media_type` | string | ❌ | MIME type (auto-detected if not specified) |
+
+**Supported file types:**
+| Type | Extensions | Description |
+|------|-----------|-------------|
+| Image | `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp` | Sent as vision content |
+| Audio | `.mp3`, `.wav`, `.ogg`, `.flac`, `.m4a` | Sent as audio content |
+| Document | `.pdf`, `.txt`, `.csv` | Sent as text content |
+
+**Behavior:**
+- Auto-detects MIME type from file extension
+- Encodes file as base64 for transmission
+- Images are sent as `image` content blocks (vision)
+- Audio files are sent as `audio` content blocks
+- Documents are extracted and sent as text
+- Respects `max_file_size` limit (default: 10MB)
+
+**Examples:**
+```json
+{"path": "/tmp/screenshot.png"}
+{"path": "/tmp/recording.mp3", "media_type": "audio/mpeg"}
+{"path": "report.pdf"}
+```
+
+---
+
+### `tts`
+
+Text-to-speech synthesis. Generates audio from text using OpenAI TTS or system speech.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `text` | string | ✅ | Text to synthesize |
+| `voice` | string | ❌ | Voice name (default: `alloy`) |
+| `model` | string | ❌ | TTS model: `tts-1` (default) or `tts-1-hd` |
+| `speed` | float | ❌ | Speed multiplier 0.25-4.0 (default: 1.0) |
+| `output` | string | ❌ | Output file path (default: temp file) |
+| `provider` | string | ❌ | `openai` (default) or `system` |
+
+**OpenAI Voices:**
+
+| Voice | Description |
+|-------|-------------|
+| `alloy` | Balanced, neutral |
+| `echo` | Clear, authoritative |
+| `fable` | Expressive, storytelling |
+| `onyx` | Deep, confident |
+| `nova` | Warm, friendly |
+| `shimmer` | Bright, cheerful |
+
+**System Voices (macOS/Linux):**
+- Uses `say` on macOS, `espeak` on Linux
+- Voice names depend on system-installed voices
+
+**Behavior:**
+- Generates audio file and plays it automatically
+- Uses `afplay` on macOS, `aplay` on Linux for playback
+- Falls back to system TTS if OpenAI unavailable
+- Returns file path of generated audio
+
+**Configuration:**
+```yaml
+tools:
+  tts:
+    enabled: true
+    model: tts-1
+    voice: alloy
+    speed: 1.0
+```
+
+**Examples:**
+```json
+{"text": "Hello! BugBuster Code is running.", "voice": "alloy"}
+{"text": "Build complete.", "provider": "system"}
+{"text": "Critical error found!", "voice": "onyx", "model": "tts-1-hd"}
+```
+
+---
+
+### `stt`
+
+Speech-to-text transcription. Transcribes audio files or records from microphone.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `file` | string | ❌ | Path to audio file (for file transcription) |
+| `duration` | string | ❌ | Recording duration (for mic input, e.g. `10s`, `30s`) |
+| `language` | string | ❌ | Language code (`en`, `ru`, etc.) or auto-detect |
+| `model` | string | ❌ | STT model: `whisper-1` (default) |
+| `provider` | string | ❌ | `openai` (default) or `local` |
+
+**Modes:**
+
+| Mode | Parameters | Description |
+|------|-----------|-------------|
+| File | `file` | Transcribe existing audio file |
+| Mic | `duration` | Record from microphone then transcribe |
+
+**Behavior:**
+- Uses OpenAI Whisper API by default
+- Falls back to `ffmpeg` + local whisper if OpenAI unavailable
+- Mic recording uses `ffmpeg` or `sox` on macOS/Linux
+- Returns transcribed text
+- Supports MP3, WAV, OGG, FLAC, M4A formats
+
+**Configuration:**
+```yaml
+tools:
+  stt:
+    enabled: true
+    model: whisper-1
+    language: ""  # auto-detect
+```
+
+**Examples:**
+```json
+{"file": "/tmp/meeting.mp3"}
+{"duration": "10s", "language": "en"}
+{"file": "/tmp/voice_memo.wav", "language": "ru"}
 ```
 
 ---

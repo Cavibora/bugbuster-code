@@ -267,11 +267,31 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 	subagentConfig := agent.DefaultSubagentConfig()
 	subagentConfig.Compactor = loop.Context.Compactor
 
-	// TTS/STT tools — use OpenAI-compatible API key from provider config
-	ttsTool := tools.NewTTSTool(provCfg.APIKey, provCfg.GetBaseURL())
-	sttTool := tools.NewSTTTool(provCfg.APIKey, provCfg.GetBaseURL())
-	loop.RegisterTool(ttsTool)
-	loop.RegisterTool(sttTool)
+	// Multimodal tools — screenshot, send_file, TTS, STT
+	if cfg.Tools.Screenshot.Enabled {
+		loop.RegisterTool(tools.NewScreenshotTool())
+	}
+	loop.RegisterTool(tools.NewSendFileTool(cfg.Tools.AllowedDirs))
+	if cfg.Tools.TTS.Enabled {
+		ttsTool := tools.NewTTSTool(provCfg.APIKey, provCfg.GetBaseURL())
+		if cfg.Tools.TTS.Model != "" {
+			ttsTool.Model = cfg.Tools.TTS.Model
+		}
+		if cfg.Tools.TTS.Voice != "" {
+			ttsTool.Voice = cfg.Tools.TTS.Voice
+		}
+		loop.RegisterTool(ttsTool)
+	}
+	if cfg.Tools.STT.Enabled {
+		sttTool := tools.NewSTTTool(provCfg.APIKey, provCfg.GetBaseURL())
+		if cfg.Tools.STT.Model != "" {
+			sttTool.Model = cfg.Tools.STT.Model
+		}
+		if cfg.Tools.STT.Language != "" {
+			sttTool.Language = cfg.Tools.STT.Language
+		}
+		loop.RegisterTool(sttTool)
+	}
 	// Inherit context window from parent agent
 	subagentConfig.ContextTokens = loop.Context.MaxTokens
 	subagentConfig.ContextKeepRecent = loop.Context.KeepRecent
