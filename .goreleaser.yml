@@ -2,8 +2,7 @@
 # https://goreleaser.com
 
 before:
-  hooks:
-    - go mod tidy
+  hooks: []
 
 builds:
   - id: bugbuster
