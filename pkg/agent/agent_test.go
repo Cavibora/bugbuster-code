@@ -393,6 +393,7 @@ type MockProvider struct {
 }
 
 func (m *MockProvider) Name() string { return "mock" }
+func (m *MockProvider) Model() string { return "mock-model" }
 
 func (m *MockProvider) Complete(messages []provider.Message, toolDefs []provider.ToolDef) (*provider.CompletionResult, error) {
 	return &m.response, m.err
@@ -683,6 +684,7 @@ type MockStreamingProvider struct {
 }
 
 func (m *MockStreamingProvider) Name() string { return "mock-streaming" }
+func (m *MockStreamingProvider) Model() string { return "mock-streaming-model" }
 
 func (m *MockStreamingProvider) Complete(messages []provider.Message, toolDefs []provider.ToolDef) (*provider.CompletionResult, error) {
 	return &provider.CompletionResult{}, nil

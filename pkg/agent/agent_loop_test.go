@@ -17,6 +17,7 @@ type MockTextProvider struct {
 }
 
 func (m *MockTextProvider) Name() string { return "mock-text" }
+func (m *MockTextProvider) Model() string { return "mock-text-model" }
 
 func (m *MockTextProvider) Complete(messages []provider.Message, toolDefs []provider.ToolDef) (*provider.CompletionResult, error) {
 	return &provider.CompletionResult{
@@ -120,6 +121,7 @@ type MockToolCallProvider struct {
 }
 
 func (m *MockToolCallProvider) Name() string { return "mock-toolcall" }
+func (m *MockToolCallProvider) Model() string { return "mock-toolcall-model" }
 
 func (m *MockToolCallProvider) Complete(messages []provider.Message, toolDefs []provider.ToolDef) (*provider.CompletionResult, error) {
 	m.callCount++
@@ -288,6 +290,7 @@ type MockErrorProvider struct {
 }
 
 func (m *MockErrorProvider) Name() string { return "mock-error" }
+func (m *MockErrorProvider) Model() string { return "mock-error-model" }
 
 func (m *MockErrorProvider) Complete(messages []provider.Message, toolDefs []provider.ToolDef) (*provider.CompletionResult, error) {
 	return nil, m.err
@@ -352,6 +355,7 @@ type MockMaxTokensProvider struct {
 }
 
 func (m *MockMaxTokensProvider) Name() string { return "mock-max-tokens" }
+func (m *MockMaxTokensProvider) Model() string { return "mock-max-tokens-model" }
 
 func (m *MockMaxTokensProvider) Complete(messages []provider.Message, toolDefs []provider.ToolDef) (*provider.CompletionResult, error) {
 	m.callCount++

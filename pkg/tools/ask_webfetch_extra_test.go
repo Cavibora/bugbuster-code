@@ -26,7 +26,8 @@ type mockAskProvider struct {
 	err      error
 }
 
-func (m *mockAskProvider) Name() string { return "mock" }
+func (m *mockAskProvider) Name() string  { return "mock" }
+func (m *mockAskProvider) Model() string { return "mock-model" }
 
 func (m *mockAskProvider) Complete(messages []provider.Message, tools []provider.ToolDef) (*provider.CompletionResult, error) {
 	if m.err != nil {

@@ -33,6 +33,7 @@ type mockProviderForCompactor struct {
 }
 
 func (m *mockProviderForCompactor) Name() string { return "mock" }
+func (m *mockProviderForCompactor) Model() string { return "mock-compactor-model" }
 
 func (m *mockProviderForCompactor) Stream(messages []provider.Message, tools []provider.ToolDef) (<-chan provider.StreamEvent, error) {
 	ch := make(chan provider.StreamEvent, 1)
