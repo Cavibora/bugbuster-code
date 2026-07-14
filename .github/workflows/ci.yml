@@ -15,10 +15,10 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.25'
+          go-version: '1.24'
           cache: true
 
-      - name: Enable toolchain auto-download
+      - name: Enable Go toolchain auto-download
         run: echo "GOTOOLCHAIN=auto" >> $GITHUB_ENV
 
       - name: Go version

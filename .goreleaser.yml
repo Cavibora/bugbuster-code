@@ -50,7 +50,7 @@ checksum:
   name_template: 'checksums.txt'
 
 snapshot:
-  name_template: "{{ incpatch .Version }}-next"
+  name_template: "{{ incpatch .version }}-next"
 
 changelog:
   sort: asc
@@ -63,18 +63,6 @@ changelog:
       - '^build:'
       - 'merge conflict'
       - 'Merge pull request'
-  groups:
-    - title: '🚀 Features'
-      regexp: "^.*feat[(\\w)]*:+.*$"
-      order: 10
-    - title: '🐛 Bug Fixes'
-      regexp: "^.*fix[(\\w)]*:+.*$"
-      order: 20
-    - title: '📝 Documentation'
-      regexp: "^.*docs[(\\w)]*:+.*$"
-      order: 30
-    - title: '🔧 Other'
-      order: 99
 
 release:
   github:
@@ -85,40 +73,16 @@ release:
   name_template: "BugBuster Code {{.Version}}"
   header: |
     ## 🚀 What's New
-    
+
     See [CHANGELOG.md](https://github.com/Cavibora/bugbuster-code/blob/main/CHANGELOG.md) for full details.
 
-brews:
-  - name: bugbuster
-    repository:
-      owner: Cavibora
-      name: homebrew-tap
-    directory: .
-    homepage: "https://github.com/Cavibora/bugbuster-code"
-    description: "Model-agnostic AI coding agent for your terminal"
-    license: MIT
-    test: |
-      system "#{bin}/bugbuster", "--version"
-    install: |
-      bin.install "bugbuster"
+    ### Install
 
-scoops:
-  - name: bugbuster
-    repository:
-      owner: Cavibora
-      name: scoop-bucket
-    homepage: "https://github.com/Cavibora/bugbuster-code"
-    description: "Model-agnostic AI coding agent for your terminal"
-    license: MIT
+    ```bash
+    # macOS / Linux (download from assets below)
+    tar xzf bugbuster_1.2.0_*.tar.gz
+    sudo mv bugbuster /usr/local/bin/
 
-nfpms:
-  - id: bugbuster
-    package_name: bugbuster
-    homepage: "https://github.com/Cavibora/bugbuster-code"
-    description: "Model-agnostic AI coding agent for your terminal"
-    license: MIT
-    formats:
-      - deb
-      - rpm
-      - apk
-    maintainer: "Cavibora <bugbuster@cavibora.com>"
+    # Or build from source
+    go install github.com/Cavibora/bugbuster-code/cmd/bugbuster@latest
+    ```
