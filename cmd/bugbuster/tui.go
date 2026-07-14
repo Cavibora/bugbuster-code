@@ -671,6 +671,24 @@ func (m TUI) handleSend() (retModel tea.Model, retCmd tea.Cmd) {
 		m.syncViewport()
 		m.textarea.Reset()
 		return m, nil
+	case "/compact!":
+		if m.streaming {
+			m.output.WriteString(errorStyle.Render("  ✗ "+i18n.T("cli.compaction_during_stream")) + "\n")
+			m.syncViewport()
+			m.textarea.Reset()
+			return m, nil
+		}
+		tokensBefore := m.loop.Context.TokenCount()
+		m.output.WriteString(color.YellowString("  💥 Force compacting...") + fmt.Sprintf(" (%d tokens)...\n", tokensBefore))
+		m.loop.Context.CompactForce()
+		tokensAfter := m.loop.Context.TokenCount()
+		saved := tokensBefore - tokensAfter
+		m.output.WriteString(color.GreenString("  ✓ Force compacted") + fmt.Sprintf(" %d → %d (saved: %d)\n", tokensBefore, tokensAfter, saved))
+		m.ctxTokens = tokensAfter
+		m.ctxMaxTokens = m.loop.Context.MaxTokens
+		m.syncViewport()
+		m.textarea.Reset()
+		return m, nil
 	case "/context":
 		if m.streaming {
 			// During streaming use cached values (no data race)

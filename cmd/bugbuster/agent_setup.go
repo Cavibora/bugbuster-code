@@ -594,6 +594,7 @@ func printHelp() {
 	fmt.Fprintln(cmdOutput, i18n.T("cli_help.undo_all"))
 	fmt.Fprintln(cmdOutput, i18n.T("cli_help.diff"))
 	fmt.Fprintln(cmdOutput, i18n.T("cli_help.compact"))
+	fmt.Fprintln(cmdOutput, "  /compact!       — Force compact: strip all tool calls, errors, thinking")
 	fmt.Fprintln(cmdOutput, "  /plugin          — List, install, remove plugins")
 	fmt.Fprintln(cmdOutput, "  /plugin install <name> — Install plugin from registry")
 	fmt.Fprintln(cmdOutput, "  /plugin remove <name>  — Remove plugin from config")

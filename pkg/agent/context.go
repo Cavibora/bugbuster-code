@@ -105,6 +105,13 @@ func (c *ConversationContext) TokenCount() int {
 	return EstimateMessagesTokens(c.Messages)
 }
 
+// MaxTokensValue returns the maximum token count for the context.
+func (c *ConversationContext) MaxTokensValue() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.MaxTokens
+}
+
 // GetMessages returns a copy of messages.
 // Thread-safe: acquires read lock.
 func (c *ConversationContext) GetMessages() []provider.Message {
@@ -217,6 +224,119 @@ func (c *ConversationContext) Compact() {
 	defer c.mu.Unlock()
 	c.lowSaveCount = 0
 	c.compact()
+}
+
+// CompactForce performs aggressive compaction — strips all tool calls/results,
+// thinking blocks, errors, and low-value data. Keeps only system messages,
+// last 2 user/assistant exchanges, and OriginalTask.
+// Thread-safe: acquires write lock.
+func (c *ConversationContext) CompactForce() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.lowSaveCount = 0
+
+	if c.OnCompact != nil {
+		c.OnCompact()
+	}
+
+	tokensBefore := EstimateMessagesTokens(c.Messages)
+
+	// Save copy for archiving
+	var msgsBeforeCompaction []provider.Message
+	if c.Archive != nil {
+		msgsBeforeCompaction = make([]provider.Message, len(c.Messages))
+		copy(msgsBeforeCompaction, c.Messages)
+	}
+
+	// 1. Remove tool errors and duplicates
+	msgs := RemoveToolErrors(c.Messages)
+	msgs = RemoveDuplicates(msgs)
+	msgs = EnsureToolPairIntegrity(msgs)
+
+	// 2. Split system / other
+	var systemMsgs []provider.Message
+	var otherMsgs []provider.Message
+	for _, m := range msgs {
+		if m.Role == "system" {
+			systemMsgs = append(systemMsgs, m)
+		} else {
+			otherMsgs = append(otherMsgs, m)
+		}
+	}
+
+	// 3. Strip ALL tool calls and thinking from ALL messages
+	cleaned := make([]provider.Message, 0, len(otherMsgs))
+	for _, msg := range otherMsgs {
+		stripped := stripToolCalls(msg)
+		stripped = truncateThinking(stripped)
+		stripped = truncateAssistantText(stripped)
+		if !isEmptyMessage(stripped) {
+			cleaned = append(cleaned, stripped)
+		}
+	}
+
+	// 4. Keep only last 4 messages (2 exchanges)
+	keepCount := 4
+	if keepCount > len(cleaned) {
+		keepCount = len(cleaned)
+	}
+	recent := cleaned[len(cleaned)-keepCount:]
+
+	// 5. Summarize old messages into one compact system message
+	old := cleaned[:len(cleaned)-keepCount]
+	result := make([]provider.Message, 0, len(systemMsgs)+1+len(recent)+1)
+	result = append(result, systemMsgs...)
+
+	if len(old) > 0 {
+		summary := SimpleSummarize(old, 200)
+		if summary != "" {
+			result = append(result, provider.Message{
+				Role: "system",
+				Content: []provider.ContentBlock{
+					{Type: "text", Text: summary},
+				},
+			})
+		}
+	}
+
+	// 6. Add OriginalTask if set
+	if c.OriginalTask != "" {
+		result = append(result, provider.Message{
+			Role: "user",
+			Content: []provider.ContentBlock{
+				{Type: "text", Text: "Original task: " + c.OriginalTask},
+			},
+		})
+	}
+
+	result = append(result, recent...)
+	c.Messages = result
+
+	tokensAfter := EstimateMessagesTokens(c.Messages)
+
+	// Archive removed messages
+	if c.Archive != nil && len(msgsBeforeCompaction) > 0 && tokensBefore > tokensAfter {
+		removed := findRemovedMessages(msgsBeforeCompaction, c.Messages)
+		if len(removed) > 0 {
+			archive := c.Archive
+			sessionID := c.SessionID
+			go func() {
+				_, _ = archive.ArchiveMessages(removed, sessionID)
+			}()
+		}
+	}
+
+	if c.Optimizer != nil {
+		optimizer := c.Optimizer
+		go func() {
+			_ = optimizer.Optimize(context.Background())
+		}()
+	}
+
+	if tokensBefore > 0 {
+		c.lastCompactionRatio = float64(tokensBefore-tokensAfter) / float64(tokensBefore)
+	}
+	c.lowSaveCount = 0
 }
 
 // findRemovedMessages returns messages that were in before but not in after

@@ -57,6 +57,10 @@ type AgentLoop struct {
 	// autoContinue enables auto-continuation when model responds with text only
 	// Only enabled in TUI mode, not in sync mode (Run)
 	autoContinue bool
+
+	// Speed mirror — tracks iteration durations for self-awareness
+	iterDurations []time.Duration
+	lastMirrorAt  int // iteration when mirror was last injected
 }
 
 // NewAgentLoop creates a new agent loop
@@ -77,6 +81,10 @@ func NewAgentLoop(p provider.Provider) *AgentLoop {
 	a.RegisterTool(tools.NewBashTool())
 	a.RegisterTool(tools.NewGrepTool())
 	a.RegisterTool(tools.NewGlobTool())
+
+	// compact_force — registered later when context is fully initialized
+	// (needs CompactForceContext interface, which is the ConversationContext)
+	a.RegisterTool(tools.NewCompactForceTool(a.Context))
 
 	return a
 }
@@ -661,8 +669,12 @@ func (a *AgentLoop) streamLoopWithCtx(ctx context.Context) (<-chan provider.Stre
 			// Have tool calls — execute
 			if !result.done {
 				if a.handleStreamToolCalls(ctx, result.toolCalls, eventCh) {
+					// Inject speed mirror after tool execution
+					a.injectSpeedMirror(iteration, time.Since(iterStart))
 					continue
 				}
+				// Inject speed mirror after tool execution
+				a.injectSpeedMirror(iteration, time.Since(iterStart))
 				continue // Next iteration
 			}
 
@@ -780,6 +792,11 @@ func BuildSystemPrompt(projectDir string, toolList map[string]tools.Tool) string
 	if projectDir != "" {
 		sb.WriteString(fmt.Sprintf(i18n.T("system_prompt.workdir"), projectDir))
 	}
+
+	// Current system time — model needs this for reports and timestamps
+	now := time.Now()
+	sb.WriteString(fmt.Sprintf("Current date and time: %s\n", now.Format("2006-01-02 15:04:05 MST")))
+	sb.WriteString(fmt.Sprintf("Current year: %d\n\n", now.Year()))
 
 	sb.WriteString(i18n.T("system_prompt.tools_header"))
 	for name, tool := range toolList {
@@ -916,6 +933,142 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+// injectSpeedMirror adds a system message with performance statistics
+// so the model can self-assess its speed and decide to compact.
+// Injected every 5 iterations or when speed degrades significantly.
+func (a *AgentLoop) injectSpeedMirror(iteration int, iterDuration time.Duration) {
+	a.iterDurations = append(a.iterDurations, iterDuration)
+
+	// Inject mirror every 5 iterations
+	if iteration-a.lastMirrorAt < 5 {
+		return
+	}
+	a.lastMirrorAt = iteration
+
+	if len(a.iterDurations) < 2 {
+		return
+	}
+
+	// Calculate average duration of last iterations
+	recent := a.iterDurations
+	if len(recent) > 10 {
+		recent = recent[len(recent)-10:]
+	}
+	var sum time.Duration
+	for _, d := range recent {
+		sum += d
+	}
+	avg := sum / time.Duration(len(recent))
+
+	// Compare first half vs second half to detect slowdown
+	mid := len(recent) / 2
+	if mid == 0 {
+		return
+	}
+	var firstHalf, secondHalf time.Duration
+	for i, d := range recent {
+		if i < mid {
+			firstHalf += d
+		} else {
+			secondHalf += d
+		}
+	}
+	firstAvg := firstHalf / time.Duration(mid)
+	secondAvg := secondHalf / time.Duration(len(recent)-mid)
+
+	slowdownRatio := 0.0
+	if firstAvg > 0 {
+		slowdownRatio = float64(secondAvg) / float64(firstAvg)
+	}
+
+	tokenCount := a.Context.TokenCount()
+	maxTokens := a.Context.MaxTokens
+	contextUsage := 0
+	if maxTokens > 0 {
+		contextUsage = tokenCount * 100 / maxTokens
+	}
+
+	var sb strings.Builder
+	sb.WriteString("[Performance mirror] ")
+	sb.WriteString(fmt.Sprintf("Iteration %d. ", iteration))
+	sb.WriteString(fmt.Sprintf("Avg iteration time: %s. ", avg.Truncate(time.Millisecond)))
+	sb.WriteString(fmt.Sprintf("Context: %d/%d tokens (%d%%). ", tokenCount, maxTokens, contextUsage))
+
+	if slowdownRatio > 1.5 {
+		sb.WriteString(fmt.Sprintf("⚠ SLOWDOWN detected: %.1fx slower than initial. ", slowdownRatio))
+		sb.WriteString("Consider using compact_force tool to reduce context and speed up responses.")
+	} else if contextUsage > 70 {
+		sb.WriteString("Context is getting large. Consider using compact_force tool to reduce context.")
+	} else {
+		sb.WriteString("Performance is stable.")
+	}
+
+	// Report stale background processes
+	if staleMsg := a.checkStaleProcesses(); staleMsg != "" {
+		sb.WriteString("\n")
+		sb.WriteString(staleMsg)
+	}
+
+	a.Context.Add(provider.SystemMsg(sb.String()))
+}
+
+// checkStaleProcesses checks for long-running background processes
+// and returns a warning message if any are found.
+// Also auto-kills processes that have been running for more than 30 minutes.
+func (a *AgentLoop) checkStaleProcesses() string {
+	psTool, ok := a.Tools["ps"]
+	if !ok {
+		return ""
+	}
+	ps, ok := psTool.(*tools.PSTool)
+	if !ok {
+		return ""
+	}
+
+	processes := ps.ListProcesses()
+	if len(processes) == 0 {
+		return ""
+	}
+
+	var stale []string
+	var longRunning []string
+	for _, p := range processes {
+		if !p.Running.Load() {
+			continue
+		}
+		uptime := time.Since(p.StartTime)
+		if uptime > 7*24*time.Hour {
+			// Auto-kill processes running more than 7 days (truly stuck)
+			killTool, ok := a.Tools["kill"]
+			if ok {
+				kill, ok := killTool.(*tools.KillProcessTool)
+				if ok {
+					_ = kill.Execute(map[string]string{"id": fmt.Sprintf("%d", p.ID)})
+					longRunning = append(longRunning, fmt.Sprintf("  • Auto-killed process #%d (PID %d, uptime %s): %s",
+						p.ID, p.PID, uptime.Truncate(time.Hour), truncate(p.Command, 50)))
+				}
+			}
+		} else if uptime > 1*time.Hour {
+			stale = append(stale, fmt.Sprintf("  • Process #%d (PID %d, uptime %s): %s — use kill tool to terminate if no longer needed",
+				p.ID, p.PID, uptime.Truncate(time.Minute), truncate(p.Command, 50)))
+		}
+	}
+
+	var sb strings.Builder
+	if len(longRunning) > 0 {
+		sb.WriteString("⚠ Auto-killed stuck background processes (>7 days):\n")
+		sb.WriteString(strings.Join(longRunning, "\n"))
+	}
+	if len(stale) > 0 {
+		if sb.Len() > 0 {
+			sb.WriteString("\n")
+		}
+		sb.WriteString("ℹ Long-running background processes (>1 hour) — consider killing if not needed:\n")
+		sb.WriteString(strings.Join(stale, "\n"))
+	}
+	return sb.String()
 }
 
 // debugLog writes debug information to .bugbuster/debug.log

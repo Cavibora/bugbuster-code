@@ -302,6 +302,16 @@ func (t *PSTool) Description() string {
 	return i18n.T("tools.ps.description")
 }
 
+// ListProcesses returns all background processes (delegates to BackgroundTool)
+func (t *PSTool) ListProcesses() []*BackgroundProcess {
+	return t.bg.ListProcesses()
+}
+
+// KillProcess kills a process by ID (delegates to BackgroundTool)
+func (t *PSTool) KillProcess(id int) error {
+	return t.bg.KillProcess(id)
+}
+
 func (t *PSTool) Execute(params map[string]string) ToolResult {
 	processes := t.bg.ListProcesses()
 	if len(processes) == 0 {

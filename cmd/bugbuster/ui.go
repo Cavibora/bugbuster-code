@@ -474,17 +474,28 @@ func FormatToolCallStart(name string, params map[string]string) string {
 	var parts []string
 	displayKeys := []string{"path", "command", "pattern", "query", "prompt", "url", "file", "dir", "lines", "task"}
 	shown := make(map[string]bool)
+	// bash, write, edit — не обрезать параметры вообще
+	noTruncate := name == "bash" || name == "write" || name == "edit"
 
 	for _, key := range displayKeys {
 		if v, ok := params[key]; ok {
 			display := v
-			if key == "command" {
+			if noTruncate {
+				// Только убираем переводы строк для первой строки
 				if idx := strings.Index(v, "\n"); idx >= 0 {
 					display = v[:idx]
 				}
-				if utf8.RuneCountInString(display) > 80 {
+			} else if key == "command" {
+				if idx := strings.Index(v, "\n"); idx >= 0 {
+					display = v[:idx]
+				}
+				maxCmd := terminalWidth() - 10
+				if maxCmd < 80 {
+					maxCmd = 80
+				}
+				if utf8.RuneCountInString(display) > maxCmd {
 					runes := []rune(display)
-					display = string(runes[:77]) + "..."
+					display = string(runes[:maxCmd-3]) + "..."
 				}
 			} else if key == "task" {
 				// Tasks can be very long — truncate aggressively
@@ -601,9 +612,10 @@ func formatBashSummary(result string, params map[string]string) string {
 		return appTheme.ToolSummary.ANSICode() + "empty output" + ansiReset
 	}
 	if cmd, ok := params["command"]; ok {
+		// bash — не обрезать команду вообще
 		display := cmd
-		if len(display) > 80 {
-			display = display[:77] + "..."
+		if idx := strings.Index(display, "\n"); idx >= 0 {
+			display = display[:idx]
 		}
 		return appTheme.ToolSummary.ANSICode() + display + ansiReset
 	}
@@ -1072,10 +1084,17 @@ func formatToolSummary(toolName string, params map[string]string) string {
 	var parts []string
 	displayKeys := []string{"path", "command", "pattern", "query", "prompt", "url", "file", "dir", "lines", "task"}
 	shown := make(map[string]bool)
+	// bash, write, edit — не обрезать параметры вообще
+	noTruncate := toolName == "bash" || toolName == "write" || toolName == "edit"
 	for _, key := range displayKeys {
 		if v, ok := params[key]; ok {
 			display := v
-			if key == "task" {
+			if noTruncate {
+				// Только убираем переводы строк для первой строки
+				if idx := strings.Index(v, "\n"); idx >= 0 {
+					display = v[:idx]
+				}
+			} else if key == "task" {
 				// Tasks can be very long — truncate aggressively
 				if idx := strings.Index(v, "\n"); idx >= 0 {
 					display = v[:idx]
@@ -1088,8 +1107,12 @@ func formatToolSummary(toolName string, params map[string]string) string {
 				if idx := strings.Index(v, "\n"); idx >= 0 {
 					display = v[:idx]
 				}
-				if len(display) > 80 {
-					display = display[:77] + "..."
+				maxCmd := terminalWidth() - 10
+				if maxCmd < 80 {
+					maxCmd = 80
+				}
+				if len(display) > maxCmd {
+					display = display[:maxCmd-3] + "..."
 				}
 			} else if len(display) > 120 {
 				display = display[:117] + "..."

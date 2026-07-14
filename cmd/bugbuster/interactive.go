@@ -259,6 +259,14 @@ func handleCommand(input string, loop *agent.AgentLoop, cfg *config.BugBusterCon
 			color.Green("%s %d → %d (%s: %d)", i18n.T("cli.compaction_done"), tokensBefore, tokensAfter, i18n.T("cli.compaction_saved"), saved)
 		}
 		return true, "", ""
+	case input == "/compact!":
+		tokensBefore := loop.Context.TokenCount()
+		color.Yellow("💥 Force compacting... (%d tokens)", tokensBefore)
+		loop.Context.CompactForce()
+		tokensAfter := loop.Context.TokenCount()
+		saved := tokensBefore - tokensAfter
+		color.Green("💥 Force compacted: %d → %d (saved: %d)", tokensBefore, tokensAfter, saved)
+		return true, "", ""
 	case input == "/tools":
 		printTools(loop)
 		return true, "", ""
