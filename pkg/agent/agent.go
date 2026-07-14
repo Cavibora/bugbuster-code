@@ -949,6 +949,7 @@ func truncate(s string, maxLen int) string {
 // injectSpeedMirror adds a system message with performance statistics
 // so the model can self-assess its speed and decide to compact.
 // Injected every 5 iterations or when speed degrades significantly.
+// When slowdown is critical (>3x), auto-compacts to prevent degradation.
 func (a *AgentLoop) injectSpeedMirror(iteration int, iterDuration time.Duration) {
 	a.iterDurations = append(a.iterDurations, iterDuration)
 
@@ -999,6 +1000,26 @@ func (a *AgentLoop) injectSpeedMirror(iteration int, iterDuration time.Duration)
 	contextUsage := 0
 	if maxTokens > 0 {
 		contextUsage = tokenCount * 100 / maxTokens
+	}
+
+	// Auto-compact when slowdown is critical (>3x) and context is large (>50%)
+	// This handles the case when model is "in the flow" and ignores mirror warnings
+	if slowdownRatio > 3.0 && contextUsage > 50 && maxTokens > 0 {
+		a.Context.CompactForce()
+		compactedTokens := a.Context.TokenCount()
+		compactedUsage := 0
+		if maxTokens > 0 {
+			compactedUsage = compactedTokens * 100 / maxTokens
+		}
+		a.Context.Add(provider.SystemMsg(fmt.Sprintf(
+			"[Auto-compacted] Context was critically slow (%.1fx degradation, %d%% usage). "+
+				"Compacted from %d%% to %d%%. Continue working on your task.",
+			slowdownRatio, contextUsage, contextUsage, compactedUsage,
+		)))
+		// Reset speed tracking after compaction to avoid false positives
+		a.iterDurations = nil
+		a.lastMirrorAt = iteration
+		return
 	}
 
 	var sb strings.Builder
