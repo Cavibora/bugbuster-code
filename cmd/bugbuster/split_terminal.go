@@ -125,14 +125,17 @@ func (st *SplitTerminal) resetReadline() {
 	}
 	// Readline was closed (by rlClose in ask_user) — recreate it
 	restoreTerminalToNormal()
+	enableBracketedPaste()
 	ensureHistoryDir(getProjectDir(st.cfg))
 	historyFile := filepath.Join(getProjectDir(st.cfg), ".bugbuster", "history", st.loop.Context.SessionID)
+	pasteReader := newBracketedPasteReader(os.Stdin)
 	rl, err := readline.NewEx(&readline.Config{
 		Prompt:          color.HiGreenString("❯ "),
 		HistoryFile:     historyFile,
 		HistoryLimit:    1000,
 		InterruptPrompt: "^C",
 		EOFPrompt:       "exit",
+		Stdin:           pasteReader,
 	})
 	if err != nil {
 		color.Red("Failed to reinitialize readline: %v", err)
@@ -145,6 +148,9 @@ func (st *SplitTerminal) resetReadline() {
 // Run starts interactive split-terminal mode.
 // Returns true if need to switch to TUI mode.
 func (st *SplitTerminal) Run() bool {
+	// Ensure bracketed paste mode is disabled on exit
+	defer disableBracketedPaste()
+
 	// Initialize i18n
 	lang := langFlag
 	if lang == "" {
@@ -179,14 +185,20 @@ func (st *SplitTerminal) Run() bool {
 	projectDir := getProjectDir(st.cfg)
 	ensureHistoryDir(projectDir)
 
+	// Enable bracketed paste mode — terminal will wrap pasted text in
+	// \x1b[200~ ... \x1b[201~ escape sequences so we can detect multiline pastes
+	enableBracketedPaste()
+
 	// Readline with command history
 	historyFile := filepath.Join(projectDir, ".bugbuster", "history", st.loop.Context.SessionID)
+	pasteReader := newBracketedPasteReader(os.Stdin)
 	rl, err := readline.NewEx(&readline.Config{
 		Prompt:          color.HiGreenString("❯ "),
 		HistoryFile:     historyFile,
 		HistoryLimit:    1000,
 		InterruptPrompt: "^C",
 		EOFPrompt:       "exit",
+		Stdin:           pasteReader,
 	})
 	if err != nil {
 		color.Red("%s", i18n.T("cli_error.general", err))
@@ -198,10 +210,12 @@ func (st *SplitTerminal) Run() bool {
 			HistoryLimit:    1000,
 			InterruptPrompt: "^C",
 			EOFPrompt:       "exit",
+			Stdin:           pasteReader,
 		})
 		if err != nil {
 			color.Red("Failed to initialize readline: %v", err)
 			color.Yellow("Try running 'stty sane' in your terminal and restart.")
+			disableBracketedPaste()
 			return false
 		}
 	}
@@ -455,25 +469,20 @@ func (st *SplitTerminal) runStreamingQuery(input string, currentCancel *context.
 	}
 }
 
-// readMultilineInput reads input with multiline support.
+// readMultilineInput reads input with multiline paste support.
 //
-// CRITICAL: When pasting multiline text, ALL lines must be collected into
-// a SINGLE query. If lines are split into separate queries, the model
-// processes them independently — it may try to "fix" things that were
-// already fixed in earlier lines, corrupting the code.
+// When bracketed paste mode is enabled, pasted text arrives wrapped in
+// \x1b[200~ ... \x1b[201~ escape sequences. The bracketedPasteReader
+// replaces \n with \r inside pastes, so readline treats the entire paste
+// as a single line. We then convert \r back to \n to restore the original
+// multiline content.
 //
-// Paste detection strategy:
-// 1. After reading first line, wait up to 200ms for more data
-// 2. If more data arrives → it's a paste → collect ALL lines until gap > 200ms
-// 3. Join all lines with \n and send as single query
-// 4. Ctrl+C during paste: cancel paste and return empty string
+// For single-line input, behavior is unchanged.
 func (st *SplitTerminal) readMultilineInput(rl *readline.Instance) string {
 	prompt := color.HiGreenString("❯ ")
 	continuation := color.HiGreenString("... ")
 
 	rl.SetPrompt(prompt)
-
-	var lines []string
 
 	// Check if we have a pending line from previous paste detection
 	if st.pendingLine != nil {
@@ -485,7 +494,9 @@ func (st *SplitTerminal) readMultilineInput(rl *readline.Instance) string {
 			}
 			line := strings.TrimSpace(res.line)
 			if line != "" {
-				lines = append(lines, line)
+				// Convert \r back to \n for pasted multiline content
+				line = strings.ReplaceAll(line, "\r", "\n")
+				return line
 			}
 		default:
 			// No pending line, clear it
@@ -493,84 +504,57 @@ func (st *SplitTerminal) readMultilineInput(rl *readline.Instance) string {
 		}
 	}
 
-	for {
-		line, err := rl.Readline()
-		if err != nil {
-			if err == readline.ErrInterrupt {
-				if len(lines) > 0 {
-					// Ctrl+C during input — cancel everything
-					fmt.Printf("\n  %s\n", i18n.T("cli.paste_cancelled"))
-					lines = nil
-					return ""
-				}
-				return ""
-			}
-			// EOF — return what we have
-			result := strings.Join(lines, "\n")
-			rl.SetPrompt(prompt)
-			return result
+	line, err := rl.Readline()
+	if err != nil {
+		if err == readline.ErrInterrupt {
+			return ""
 		}
-
-		line = strings.TrimSpace(line)
-		if line == "" && len(lines) == 0 {
-			continue
-		}
-
-		lines = append(lines, line)
-
-		// Paste detection: after first line, wait for more data
-		// Use longer timeout (200ms) to reliably detect paste operations
-		if len(lines) == 1 {
-			time.Sleep(100 * time.Millisecond)
-			if !stdinHasData() {
-				// Single line — not a paste
-				// Check for continuation backslash
-				if strings.HasSuffix(line, "\\") {
-					lines[len(lines)-1] = strings.TrimSuffix(line, "\\")
-					rl.SetPrompt(continuation)
-					continue
-				}
-				result := strings.Join(lines, "\n")
-				rl.SetPrompt(prompt)
-				return result
-			}
-			// It's a paste — show indicator and collect all lines
-			fmt.Printf("  %s\n", i18n.T("cli.paste_detected"))
-		}
-
-		// Collecting paste — read all remaining lines until gap > 200ms
-		// This ensures ALL pasted lines are collected into ONE query
-		for {
-			time.Sleep(50 * time.Millisecond)
-			if !stdinHasData() {
-				// Wait a bit longer — large pastes may have small gaps
-				time.Sleep(150 * time.Millisecond)
-				if !stdinHasData() {
-					break // No more data — paste complete
-				}
-			}
-			nextLine, nextErr := rl.Readline()
-			if nextErr != nil {
-				if nextErr == readline.ErrInterrupt {
-					// Ctrl+C during paste — cancel everything
-					fmt.Printf("\n  %s\n", i18n.T("cli.paste_cancelled"))
-					lines = nil
-					return ""
-				}
-				break // EOF or other error
-			}
-			nextLine = strings.TrimSpace(nextLine)
-			if nextLine != "" {
-				lines = append(lines, nextLine)
-			}
-		}
-
-		// Paste complete — join ALL lines into single query
-		result := strings.Join(lines, "\n")
-		rl.SetPrompt(prompt)
-		fmt.Printf("  %s (%d %s)\n", i18n.T("cli.paste_complete"), len(lines), i18n.T("cli.paste_lines"))
-		return result
+		// EOF
+		return ""
 	}
+
+	line = strings.TrimSpace(line)
+
+	// Convert \r back to \n — this handles bracketed paste content
+	// where the bracketedPasteReader replaced \n with \r
+	if strings.Contains(line, "\r") {
+		line = strings.ReplaceAll(line, "\r", "\n")
+		// Show paste indicator
+		lineCount := strings.Count(line, "\n") + 1
+		fmt.Printf("  %s (%d %s)\n", i18n.T("cli.paste_detected"), lineCount, i18n.T("cli.paste_lines"))
+		return line
+	}
+
+	// Single line — check for continuation backslash
+	if strings.HasSuffix(line, "\\") {
+		line = strings.TrimSuffix(line, "\\")
+		// Read continuation lines
+		rl.SetPrompt(continuation)
+		var lines []string
+		lines = append(lines, line)
+		for {
+			contLine, contErr := rl.Readline()
+			if contErr != nil {
+				break
+			}
+			contLine = strings.TrimSpace(contLine)
+			// Handle pasted content in continuation
+			if strings.Contains(contLine, "\r") {
+				contLine = strings.ReplaceAll(contLine, "\r", "\n")
+			}
+			if strings.HasSuffix(contLine, "\\") {
+				contLine = strings.TrimSuffix(contLine, "\\")
+				lines = append(lines, contLine)
+				continue
+			}
+			lines = append(lines, contLine)
+			break
+		}
+		rl.SetPrompt(prompt)
+		return strings.Join(lines, "\n")
+	}
+
+	return line
 }
 
 // stdinHasData checks if there is data available on stdin.
