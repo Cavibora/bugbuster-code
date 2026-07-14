@@ -583,12 +583,13 @@ func stdinHasData() bool {
 	}
 	// Use select() with zero timeout to check if stdin has data
 	// This is non-blocking — it returns immediately
+	// Platform-specific: macOS returns (error), Linux returns (int, error)
 	var tv syscall.Timeval
 	tv.Usec = 0 // zero timeout = poll
 	var readFds syscall.FdSet
 	readFds.Bits[0] = 1 << 0 // fd 0 = stdin
-	err := syscall.Select(1, &readFds, nil, nil, &tv)
-	return err == nil && readFds.Bits[0] != 0
+	ok, _ := stdinSelect(&tv, &readFds)
+	return ok && readFds.Bits[0] != 0
 }
 
 // saveAndExit saves session and exits
