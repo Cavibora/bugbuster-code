@@ -34,6 +34,7 @@ func NewOpenAICompatProvider(name string, cfg ProviderConfig) (*OpenAICompatProv
 }
 
 func (p *OpenAICompatProvider) Name() string { return p.delegate.Name() }
+func (p *OpenAICompatProvider) Model() string { return p.delegate.Model() }
 
 func (p *OpenAICompatProvider) Complete(messages []Message, tools []ToolDef) (*CompletionResult, error) {
 	return p.delegate.Complete(messages, tools)

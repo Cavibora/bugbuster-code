@@ -58,6 +58,7 @@ func (p *OpenAIProvider) SetRetryPolicy(policy RetryPolicy) {
 }
 
 func (p *OpenAIProvider) Name() string { return p.name }
+func (p *OpenAIProvider) Model() string { return p.model }
 
 // Complete sends synchronous request to OpenAI with retry
 func (p *OpenAIProvider) Complete(messages []Message, tools []ToolDef) (*CompletionResult, error) {

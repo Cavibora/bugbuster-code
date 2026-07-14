@@ -54,6 +54,9 @@ type Provider interface {
 	// Name returns provider name (openai, anthropic, ollama, etc.)
 	Name() string
 
+	// Model returns the model name
+	Model() string
+
 	// Complete sends request and receives full response
 	Complete(messages []Message, tools []ToolDef) (*CompletionResult, error)
 

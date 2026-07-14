@@ -68,6 +68,7 @@ func NewOllamaProvider(name string, cfg ProviderConfig) (*OllamaProvider, error)
 }
 
 func (p *OllamaProvider) Name() string { return p.name }
+func (p *OllamaProvider) Model() string { return p.model }
 
 // Complete sends synchronous request to Ollama
 func (p *OllamaProvider) Complete(messages []Message, tools []ToolDef) (*CompletionResult, error) {

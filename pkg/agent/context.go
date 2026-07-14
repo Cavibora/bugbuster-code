@@ -112,6 +112,13 @@ func (c *ConversationContext) MaxTokensValue() int {
 	return c.MaxTokens
 }
 
+// MessageCount returns the number of messages in context.
+func (c *ConversationContext) MessageCount() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return len(c.Messages)
+}
+
 // GetMessages returns a copy of messages.
 // Thread-safe: acquires read lock.
 func (c *ConversationContext) GetMessages() []provider.Message {

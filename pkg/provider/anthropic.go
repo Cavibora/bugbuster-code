@@ -61,6 +61,7 @@ func NewAnthropicProvider(name string, cfg ProviderConfig) (*AnthropicProvider, 
 }
 
 func (p *AnthropicProvider) Name() string { return p.name }
+func (p *AnthropicProvider) Model() string { return p.model }
 
 // Complete sends synchronous request to Anthropic with retry
 func (p *AnthropicProvider) Complete(messages []Message, tools []ToolDef) (*CompletionResult, error) {

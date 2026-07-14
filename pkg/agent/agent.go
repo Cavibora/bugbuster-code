@@ -86,6 +86,17 @@ func NewAgentLoop(p provider.Provider) *AgentLoop {
 	// (needs CompactForceContext interface, which is the ConversationContext)
 	a.RegisterTool(tools.NewCompactForceTool(a.Context))
 
+	// self_info — model can query its own identity and environment
+	a.RegisterTool(tools.NewSelfInfoTool(&tools.SelfInfoWrapper{
+		Provider: p,
+		Ctx: &tools.SelfInfoCtxAdapter{
+			TokenCountFn:      a.Context.TokenCount,
+			MaxTokensValueFn:  a.Context.MaxTokensValue,
+			GetSystemPromptFn: a.Context.GetSystemPrompt,
+			MessageCountFn:    a.Context.MessageCount,
+		},
+	}))
+
 	return a
 }
 

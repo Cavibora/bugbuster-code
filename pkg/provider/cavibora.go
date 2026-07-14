@@ -59,6 +59,7 @@ func NewCaviboraProvider(name string, cfg ProviderConfig) (*CaviboraProvider, er
 }
 
 func (p *CaviboraProvider) Name() string { return p.name }
+func (p *CaviboraProvider) Model() string { return p.model }
 
 // Complete delegates to OpenAI-compatible API
 func (p *CaviboraProvider) Complete(messages []Message, tools []ToolDef) (*CompletionResult, error) {
