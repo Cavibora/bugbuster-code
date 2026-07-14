@@ -8,8 +8,9 @@ import (
 
 // ToolResult — execution result tool
 type ToolResult struct {
-	Output string // text result
-	Error  string // error (empty line if not)
+	Output   string         // text result
+	Error    string         // error (empty line if not)
+	Metadata map[string]any // optional metadata (e.g., image_base64 for screenshots)
 }
 
 // Success returns successful result with translation via i18n.T()

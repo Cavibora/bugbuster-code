@@ -471,5 +471,6 @@
   "cli.subagent_set_concurrent": "Subagent max concurrent: %d",
   "cli.subagent_set_timeout": "Subagent timeout: %ds",
   "cli.subagent_reset": "Subagent configuration reset (inherits from main agent)",
-  "cli.subagent_unknown_param": "Unknown parameter: %s. Usage: /subagent [provider <name>] [model <name>] [iterations <N>] [concurrent <N>] [timeout <N>] [reset]"
+  "cli.subagent_unknown_param": "Unknown parameter: %s. Usage: /subagent [provider <name>] [model <name>] [iterations <N>] [concurrent <N>] [timeout <N>] [reset]",
+  "system_prompt.rule12": "12. MULTIMODAL TOOLS — VISION, VOICE, AUDIO:\n   - Use screenshot() to capture the desktop, a window, or a region. The model will receive the image for analysis.\n   - Use send_file(path) to send an image, audio, or document to the model for analysis.\n   - Use tts(text) to convert text to speech. The model can speak its responses.\n   - Use stt() to record from microphone or transcribe an audio file.\n   - When a user asks \"look at my screen\" or \"what do you see\" — use screenshot.\n   - When a user sends a voice message — use stt to transcribe it.\n   - When a user asks to hear the response — use tts to speak it.\n   - Images from screenshot and send_file are sent as vision content blocks to the model."
 }

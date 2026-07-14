@@ -16,6 +16,8 @@ type mockProvider struct {
 
 func (m *mockProvider) Name() string { return "mock" }
 
+func (m *mockProvider) Model() string { return "mock-model" }
+
 func (m *mockProvider) Complete(_ []Message, _ []ToolDef) (*CompletionResult, error) {
 	return m.completeResult, m.completeErr
 }

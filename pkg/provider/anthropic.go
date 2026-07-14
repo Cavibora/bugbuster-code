@@ -365,6 +365,25 @@ func (p *AnthropicProvider) convertMessage(msg Message) []map[string]any {
 				"type": "thinking",
 				"text": block.Text,
 			})
+		case "image":
+			// Anthropic image format: {type: "image", source: {type: "base64", media_type: "...", data: "..."}}
+			mediaType := "image/png"
+			switch block.ImageFormat {
+			case "jpeg", "jpg":
+				mediaType = "image/jpeg"
+			case "gif":
+				mediaType = "image/gif"
+			case "webp":
+				mediaType = "image/webp"
+			}
+			content = append(content, map[string]any{
+				"type": "image",
+				"source": map[string]any{
+					"type":       "base64",
+					"media_type": mediaType,
+					"data":       block.ImageSource,
+				},
+			})
 		case "tool_use":
 			content = append(content, map[string]any{
 				"type":  "tool_use",

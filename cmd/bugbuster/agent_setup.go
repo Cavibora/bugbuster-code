@@ -266,6 +266,12 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 	// Subagents (task delegation)
 	subagentConfig := agent.DefaultSubagentConfig()
 	subagentConfig.Compactor = loop.Context.Compactor
+
+	// TTS/STT tools — use OpenAI-compatible API key from provider config
+	ttsTool := tools.NewTTSTool(provCfg.APIKey, provCfg.GetBaseURL())
+	sttTool := tools.NewSTTTool(provCfg.APIKey, provCfg.GetBaseURL())
+	loop.RegisterTool(ttsTool)
+	loop.RegisterTool(sttTool)
 	// Inherit context window from parent agent
 	subagentConfig.ContextTokens = loop.Context.MaxTokens
 	subagentConfig.ContextKeepRecent = loop.Context.KeepRecent

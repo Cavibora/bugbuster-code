@@ -652,6 +652,11 @@ func truncateStr(s string, maxLen int) string {
 	return s[:maxLen] + "..."
 }
 
+// truncate is an alias for truncateStr for convenience
+func truncate(s string, maxLen int) string {
+	return truncateStr(s, maxLen)
+}
+
 func findSimilarMemoryKey(facts []MemoryFact, key string) string {
 	keyLower := strings.ToLower(key)
 	for _, f := range facts {

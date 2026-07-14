@@ -7,13 +7,17 @@ import (
 
 // ContentBlock is a structured content block in message
 type ContentBlock struct {
-	Type      string         // "text", "thinking", "tool_use", "tool_result"
+	Type      string         // "text", "thinking", "tool_use", "tool_result", "image"
 	Text      string         // for type="text" and type="thinking"
 	ToolUseID string         // for tool_use and tool_result
 	ToolName  string         // for tool_use
 	Input     map[string]any // parameters tool_use
 	Output    string         // result tool_result
 	IsError   bool           // for tool_result
+
+	// Image fields (for type="image")
+	ImageSource string // base64-encoded image data
+	ImageFormat string // "png", "jpeg", "gif", "webp"
 }
 
 // Message — message in conversation context
@@ -61,6 +65,38 @@ func AssistantToolCalls(blocks []ContentBlock) Message {
 	}
 }
 
+// UserImageMsg creates a user message with an image (base64)
+func UserImageMsg(base64Data, format string) Message {
+	return Message{
+		Role: "user",
+		Content: []ContentBlock{
+			{
+				Type:        "image",
+				ImageSource: base64Data,
+				ImageFormat: format,
+			},
+		},
+	}
+}
+
+// UserImageTextMsg creates a user message with both text and image
+func UserImageTextMsg(text, base64Data, format string) Message {
+	return Message{
+		Role: "user",
+		Content: []ContentBlock{
+			{
+				Type: "text",
+				Text: text,
+			},
+			{
+				Type:        "image",
+				ImageSource: base64Data,
+				ImageFormat: format,
+			},
+		},
+	}
+}
+
 // ToolResultMsg creates message with tool result
 func ToolResultMsg(toolUseID, toolName, output string, isError bool) Message {
 	return Message{
@@ -95,6 +131,8 @@ func (m Message) GetText() string {
 				} else {
 					parts = append(parts, fmt.Sprintf("[%s]\n%s", prefix, block.Output))
 				}
+			case "image":
+				parts = append(parts, "[Image]")
 			}
 		}
 		return strings.Join(parts, "\n")

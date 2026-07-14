@@ -478,9 +478,38 @@ func (a *AgentLoop) handleStreamToolCalls(
 				tc.ToolUseID, tc.ToolName, "ERROR: "+errorMsg, true,
 			))
 		} else {
-			a.Context.Messages = append(a.Context.Messages, provider.ToolResultMsg(
-				tc.ToolUseID, tc.ToolName, toolResult.Output, false,
-			))
+			// Check if tool result contains image data (e.g., screenshot)
+			if base64Data, format, ok := tools.ExtractImageFromResult(toolResult); ok {
+				imageBlock := provider.ContentBlock{
+					Type:        "image",
+					ImageSource: base64Data,
+					ImageFormat: format,
+				}
+				textBlock := provider.ContentBlock{
+					Type: "text",
+					Text: toolResult.Output,
+				}
+				a.Context.Messages = append(a.Context.Messages, provider.Message{
+					Role: "user",
+					Content: []provider.ContentBlock{
+						{
+							Type:      "tool_result",
+							ToolUseID: tc.ToolUseID,
+							Output:    toolResult.Output,
+						},
+						textBlock,
+						imageBlock,
+					},
+				})
+				a.Context.Messages = append(a.Context.Messages, provider.UserImageTextMsg(
+					fmt.Sprintf("[Screenshot from tool %s]", tc.ToolName),
+					base64Data, format,
+				))
+			} else {
+				a.Context.Messages = append(a.Context.Messages, provider.ToolResultMsg(
+					tc.ToolUseID, tc.ToolName, toolResult.Output, false,
+				))
+			}
 		}
 
 		// Check for loop

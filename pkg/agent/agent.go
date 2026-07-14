@@ -81,6 +81,8 @@ func NewAgentLoop(p provider.Provider) *AgentLoop {
 	a.RegisterTool(tools.NewBashTool())
 	a.RegisterTool(tools.NewGrepTool())
 	a.RegisterTool(tools.NewGlobTool())
+	a.RegisterTool(tools.NewScreenshotTool())
+	a.RegisterTool(tools.NewSendFileTool(nil))
 
 	// compact_force — registered later when context is fully initialized
 	// (needs CompactForceContext interface, which is the ConversationContext)
@@ -546,12 +548,44 @@ func (a *AgentLoop) runLoop() (string, error) {
 					tc.ToolUseID, tc.ToolName, "ERROR: "+toolResult.Error, true,
 				))
 			} else {
-				if a.verbose {
-					logger.Debug("tool_result", "tool", tc.ToolName, "duration", elapsed, "output", truncate(toolResult.Output, 500))
+				// Check if tool result contains image data (e.g., screenshot)
+				if base64Data, format, ok := tools.ExtractImageFromResult(toolResult); ok {
+					// Create a tool_result with image content block
+					imageBlock := provider.ContentBlock{
+						Type:        "image",
+						ImageSource: base64Data,
+						ImageFormat: format,
+					}
+					textBlock := provider.ContentBlock{
+						Type: "text",
+						Text: toolResult.Output,
+					}
+					// For Anthropic: tool_result can contain content blocks
+					a.Context.Messages = append(a.Context.Messages, provider.Message{
+						Role: "user",
+						Content: []provider.ContentBlock{
+							{
+								Type:      "tool_result",
+								ToolUseID: tc.ToolUseID,
+								Output:    toolResult.Output,
+							},
+							textBlock,
+							imageBlock,
+						},
+					})
+					// Also add image as separate user message for models that need it
+					a.Context.Messages = append(a.Context.Messages, provider.UserImageTextMsg(
+						fmt.Sprintf("[Screenshot from tool %s]", tc.ToolName),
+						base64Data, format,
+					))
+				} else {
+					if a.verbose {
+						logger.Debug("tool_result", "tool", tc.ToolName, "duration", elapsed, "output", truncate(toolResult.Output, 500))
+					}
+					a.Context.Messages = append(a.Context.Messages, provider.ToolResultMsg(
+						tc.ToolUseID, tc.ToolName, toolResult.Output, false,
+					))
 				}
-				a.Context.Messages = append(a.Context.Messages, provider.ToolResultMsg(
-					tc.ToolUseID, tc.ToolName, toolResult.Output, false,
-				))
 			}
 
 			// Check for loop
@@ -840,6 +874,7 @@ func BuildSystemPrompt(projectDir string, toolList map[string]tools.Tool) string
 	sb.WriteString(i18n.T("system_prompt.rule9"))
 	sb.WriteString(i18n.T("system_prompt.rule10"))
 	sb.WriteString(i18n.T("system_prompt.rule11"))
+	sb.WriteString(i18n.T("system_prompt.rule12"))
 
 	// Load agent instructions from AGENT.md, CLAUDE.md, .cursorrules, etc.
 	if projectDir != "" {

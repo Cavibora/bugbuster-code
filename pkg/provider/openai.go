@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -411,6 +412,24 @@ func (p *OpenAIProvider) convertMessage(msg Message) []map[string]any {
 			textParts = append(textParts, map[string]any{
 				"type": "text",
 				"text": block.Text,
+			})
+		case "image":
+			// OpenAI image format: {type: "image_url", image_url: {url: "data:image/png;base64,..."}}
+			mediaType := "image/png"
+			switch block.ImageFormat {
+			case "jpeg", "jpg":
+				mediaType = "image/jpeg"
+			case "gif":
+				mediaType = "image/gif"
+			case "webp":
+				mediaType = "image/webp"
+			}
+			imageURL := fmt.Sprintf("data:%s;base64,%s", mediaType, block.ImageSource)
+			textParts = append(textParts, map[string]any{
+				"type":     "image_url",
+				"image_url": map[string]any{
+					"url": imageURL,
+				},
 			})
 		case "tool_use":
 			// Serialize Input to JSON string for OpenAI/Ollama compatibility
