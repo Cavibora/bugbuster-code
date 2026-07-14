@@ -122,6 +122,7 @@ type AgentConfig struct {
 	KeepRecent      int                 `yaml:"keep_recent"` // how many recent messages to keep during compaction
 	Verbose         bool                `yaml:"verbose"`
 	PermissionMode  string              `yaml:"permission_mode"`  // auto-approve, ask, deny
+	Permissions     PermissionsConfig    `yaml:"permissions"`      // per-tool permission overrides
 	Language        string              `yaml:"language"`         // interface language (en, ru, es, fr, de, ja, zh, pt)
 	RequestTimeout  int                 `yaml:"request_timeout"`  // max time for a single LLM request in seconds (0 = default 2400 = 40 min)
 	ThinkingTimeout int                 `yaml:"thinking_timeout"` // max time without tokens from model in seconds (0 = default 600 = 10 min)
@@ -129,6 +130,17 @@ type AgentConfig struct {
 	AutoContinue    bool                `yaml:"auto_continue"`    // auto-continue when model responds with text only (default: true)
 	LoopDetection   LoopDetectionConfig `yaml:"loop_detection"`   // loop detection settings
 	Subagent        SubagentYAMLConfig  `yaml:"subagent"`         // subagent configuration
+	Fallback        FallbackConfig      `yaml:"fallback"`         // fallback provider configuration
+}
+
+// FallbackConfig — fallback provider settings
+// When the primary provider fails (network error, rate limit, etc.),
+// the agent automatically switches to the fallback provider.
+type FallbackConfig struct {
+	Provider       string `yaml:"provider"`        // fallback provider name (from providers map)
+	MaxRetries     int    `yaml:"max_retries"`     // max retries on primary before fallback (default: 2)
+	RetryDelayMs   int    `yaml:"retry_delay_ms"`  // delay between retries in ms (default: 1000)
+	AutoSwitchBack bool   `yaml:"auto_switch_back"` // switch back to primary when it recovers (default: true)
 }
 
 // SubagentYAMLConfig — subagent configuration in YAML
@@ -203,6 +215,157 @@ type SecurityConfig struct {
 	SandboxDir      string   `yaml:"sandbox_dir"`
 }
 
+// PermissionsConfig — granular per-tool permissions
+// Each tool can have its own permission mode: "auto-approve", "ask", "deny"
+// If not set, the global agent.permission_mode is used
+type PermissionsConfig struct {
+	Bash       string `yaml:"bash"`        // bash command execution
+	Write      string `yaml:"write"`      // file write
+	Edit       string `yaml:"edit"`       // file edit
+	Read       string `yaml:"read"`       // file read (outside allowed_dirs)
+	Grep       string `yaml:"grep"`       // search in files
+	Glob       string `yaml:"glob"`       // file search by pattern
+	WebFetch   string `yaml:"web_fetch"`  // HTTP requests
+	Browse     string `yaml:"browse"`      // web browsing/search
+	Ask        string `yaml:"ask"`        // ask external LLM
+	Learn      string `yaml:"learn"`       // teach/train model
+	Memory     string `yaml:"memory"`     // persistent memory
+	Background string `yaml:"background"`  // background processes
+	Kill       string `yaml:"kill"`        // kill processes
+	Screenshot string `yaml:"screenshot"` // screenshot capture
+	SendFile   string `yaml:"send_file"`   // send files to model
+	TTS        string `yaml:"tts"`         // text-to-speech
+	STT        string `yaml:"stt"`         // speech-to-text
+	LSP        string `yaml:"lsp"`         // language server
+	MCP        string `yaml:"mcp"`         // MCP tools
+	Delegate   string `yaml:"delegate"`    // subagent delegation
+}
+
+// EffectivePermission returns the effective permission mode for a tool.
+// If per-tool override is set, it's used; otherwise falls back to global mode.
+func (p *PermissionsConfig) EffectivePermission(toolName, globalMode string) string {
+	toolPerm := ""
+	switch toolName {
+	case "bash":
+		toolPerm = p.Bash
+	case "write":
+		toolPerm = p.Write
+	case "edit":
+		toolPerm = p.Edit
+	case "read":
+		toolPerm = p.Read
+	case "grep":
+		toolPerm = p.Grep
+	case "glob":
+		toolPerm = p.Glob
+	case "web_fetch":
+		toolPerm = p.WebFetch
+	case "browse":
+		toolPerm = p.Browse
+	case "ask":
+		toolPerm = p.Ask
+	case "learn":
+		toolPerm = p.Learn
+	case "memory":
+		toolPerm = p.Memory
+	case "background":
+		toolPerm = p.Background
+	case "ps":
+		toolPerm = p.Background // ps is part of background process management
+	case "logs":
+		toolPerm = p.Background // logs is part of background process management
+	case "kill":
+		toolPerm = p.Kill
+	case "screenshot":
+		toolPerm = p.Screenshot
+	case "send_file":
+		toolPerm = p.SendFile
+	case "tts":
+		toolPerm = p.TTS
+	case "stt":
+		toolPerm = p.STT
+	case "lsp":
+		toolPerm = p.LSP
+	case "mcp":
+		toolPerm = p.MCP
+	case "delegate_task":
+		toolPerm = p.Delegate
+	}
+	if toolPerm != "" {
+		return toolPerm
+	}
+	return globalMode
+}
+
+// EffectiveMap returns a map of tool name → permission mode for all non-empty overrides.
+// This is used to populate the DefaultPermissionChecker.
+func (p *PermissionsConfig) EffectiveMap() map[string]string {
+	result := make(map[string]string)
+	if p.Bash != "" {
+		result["bash"] = p.Bash
+	}
+	if p.Write != "" {
+		result["write"] = p.Write
+	}
+	if p.Edit != "" {
+		result["edit"] = p.Edit
+	}
+	if p.Read != "" {
+		result["read"] = p.Read
+	}
+	if p.Grep != "" {
+		result["grep"] = p.Grep
+	}
+	if p.Glob != "" {
+		result["glob"] = p.Glob
+	}
+	if p.WebFetch != "" {
+		result["web_fetch"] = p.WebFetch
+	}
+	if p.Browse != "" {
+		result["browse"] = p.Browse
+	}
+	if p.Ask != "" {
+		result["ask"] = p.Ask
+	}
+	if p.Learn != "" {
+		result["learn"] = p.Learn
+	}
+	if p.Memory != "" {
+		result["memory"] = p.Memory
+	}
+	if p.Background != "" {
+		result["background"] = p.Background
+		result["ps"] = p.Background
+		result["logs"] = p.Background
+	}
+	if p.Kill != "" {
+		result["kill"] = p.Kill
+	}
+	if p.Screenshot != "" {
+		result["screenshot"] = p.Screenshot
+	}
+	if p.SendFile != "" {
+		result["send_file"] = p.SendFile
+	}
+	if p.TTS != "" {
+		result["tts"] = p.TTS
+	}
+	if p.STT != "" {
+		result["stt"] = p.STT
+	}
+	if p.LSP != "" {
+		result["lsp"] = p.LSP
+	}
+	if p.MCP != "" {
+		result["mcp"] = p.MCP
+	}
+	if p.Delegate != "" {
+		result["delegate_task"] = p.Delegate
+	}
+	return result
+}
+
 // DefaultConfig returns configuration default
 func DefaultConfig() *BugBusterConfig {
 	return &BugBusterConfig{
@@ -221,6 +384,11 @@ func DefaultConfig() *BugBusterConfig {
 				MaxConcurrent:  3,
 				MaxIterations:  15,
 				Timeout:        600,
+			},
+			Fallback: FallbackConfig{
+				MaxRetries:     2,
+				RetryDelayMs:   1000,
+				AutoSwitchBack: true,
 			},
 			LoopDetection: LoopDetectionConfig{
 				RepeatThreshold:         6,
@@ -429,6 +597,20 @@ func MergeConfigs(configs ...*BugBusterConfig) *BugBusterConfig {
 		}
 		if cfg.Agent.Subagent.ContextKeepRecent > 0 {
 			result.Agent.Subagent.ContextKeepRecent = cfg.Agent.Subagent.ContextKeepRecent
+		}
+		// Fallback
+		if cfg.Agent.Fallback.Provider != "" {
+			result.Agent.Fallback.Provider = cfg.Agent.Fallback.Provider
+		}
+		if cfg.Agent.Fallback.MaxRetries > 0 {
+			result.Agent.Fallback.MaxRetries = cfg.Agent.Fallback.MaxRetries
+		}
+		if cfg.Agent.Fallback.RetryDelayMs > 0 {
+			result.Agent.Fallback.RetryDelayMs = cfg.Agent.Fallback.RetryDelayMs
+		}
+		// AutoSwitchBack: true always wins (if any config enables — enable)
+		if cfg.Agent.Fallback.AutoSwitchBack {
+			result.Agent.Fallback.AutoSwitchBack = true
 		}
 		// LoopDetection
 		if cfg.Agent.LoopDetection.RepeatThreshold > 0 {

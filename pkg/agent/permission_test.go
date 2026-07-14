@@ -178,6 +178,86 @@ func TestIsDangerousTool(t *testing.T) {
 	}
 }
 
+func TestPerToolPermissionOverrides(t *testing.T) {
+	// Global mode: auto-approve, but bash is denied
+	checker := NewDefaultPermissionChecker(PermissionAutoApprove, "/tmp")
+	checker.SetToolPermission("bash", PermissionDeny)
+
+	// bash should be denied (per-tool override)
+	result := checker.CheckPermission(PermissionRequest{
+		ToolName: "bash",
+		Level:    PermDangerFullAccess,
+	})
+	if result != PermDenied {
+		t.Errorf("bash with per-tool deny should be denied, got %s", result)
+	}
+
+	// write should be approved (global auto-approve)
+	result = checker.CheckPermission(PermissionRequest{
+		ToolName: "write",
+		Level:    PermWorkspaceWrite,
+	})
+	if result != PermApproved {
+		t.Errorf("write with global auto-approve should be approved, got %s", result)
+	}
+}
+
+func TestPerToolPermissionOverridesFromConfig(t *testing.T) {
+	// Global mode: deny, but read and write are auto-approve
+	checker := NewDefaultPermissionChecker(PermissionDeny, "/tmp")
+	checker.SetPermissionsFromConfig(map[string]string{
+		"read":  "auto-approve",
+		"write": "auto-approve",
+	})
+
+	// bash should be denied (global deny, no override)
+	result := checker.CheckPermission(PermissionRequest{
+		ToolName: "bash",
+		Level:    PermDangerFullAccess,
+	})
+	if result != PermDenied {
+		t.Errorf("bash with global deny should be denied, got %s", result)
+	}
+
+	// read should be approved (per-tool override)
+	result = checker.CheckPermission(PermissionRequest{
+		ToolName: "read",
+		Level:    PermReadOnly,
+	})
+	if result != PermApproved {
+		t.Errorf("read with per-tool auto-approve should be approved, got %s", result)
+	}
+
+	// write should be approved (per-tool override)
+	result = checker.CheckPermission(PermissionRequest{
+		ToolName: "write",
+		Level:    PermWorkspaceWrite,
+	})
+	if result != PermApproved {
+		t.Errorf("write with per-tool auto-approve should be approved, got %s", result)
+	}
+}
+
+func TestEffectiveMode(t *testing.T) {
+	checker := NewDefaultPermissionChecker(PermissionAsk, "/tmp")
+
+	// No overrides — should return global mode
+	if mode := checker.effectiveMode("bash"); mode != PermissionAsk {
+		t.Errorf("effectiveMode(bash) with no overrides = %s, want %s", mode, PermissionAsk)
+	}
+
+	// Set override for bash
+	checker.SetToolPermission("bash", PermissionDeny)
+	if mode := checker.effectiveMode("bash"); mode != PermissionDeny {
+		t.Errorf("effectiveMode(bash) with override = %s, want %s", mode, PermissionDeny)
+	}
+
+	// Other tools still use global mode
+	if mode := checker.effectiveMode("write"); mode != PermissionAsk {
+		t.Errorf("effectiveMode(write) without override = %s, want %s", mode, PermissionAsk)
+	}
+}
+
 func TestFormatPermissionRequest(t *testing.T) {
 	req := PermissionRequest{
 		ToolName: "bash",

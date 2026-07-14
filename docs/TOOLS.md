@@ -876,3 +876,13 @@ All tools are subject to security checks:
 
 4. **File Size Limits**
    - `max_file_size` limits read/write operations (default: 10MB)
+
+5. **Granular Permissions** (`permissions` in config)
+   - Per-tool permission overrides: `auto-approve`, `ask`, `deny`
+   - Overrides global `permission_mode` for specific tools
+   - Example: `bash: ask` requires confirmation for every command, while `memory: auto-approve` always allows
+
+6. **Fallback Providers** (`fallback` in config)
+   - When primary provider fails (network error, rate limit), automatically switches to fallback
+   - Configurable retries, delay, and auto-switch-back behavior
+   - Example: use OpenAI as primary, Ollama as fallback for offline resilience

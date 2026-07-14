@@ -62,6 +62,7 @@ type DefaultPermissionChecker struct {
 	Mode         PermissionMode
 	WorkspaceDir string
 	AskUser      AskFunc // interactive request to user (nil = fallback)
+	Permissions  map[string]PermissionMode // per-tool overrides (tool name → mode)
 }
 
 // NewDefaultPermissionChecker creates a permission checker
@@ -69,7 +70,37 @@ func NewDefaultPermissionChecker(mode PermissionMode, workspaceDir string) *Defa
 	return &DefaultPermissionChecker{
 		Mode:         mode,
 		WorkspaceDir: workspaceDir,
+		Permissions:  make(map[string]PermissionMode),
 	}
+}
+
+// SetToolPermission sets permission override for a specific tool
+func (c *DefaultPermissionChecker) SetToolPermission(toolName string, mode PermissionMode) {
+	if c.Permissions == nil {
+		c.Permissions = make(map[string]PermissionMode)
+	}
+	c.Permissions[toolName] = mode
+}
+
+// SetPermissionsFromConfig sets per-tool permissions from config
+func (c *DefaultPermissionChecker) SetPermissionsFromConfig(perms map[string]string) {
+	if c.Permissions == nil {
+		c.Permissions = make(map[string]PermissionMode)
+	}
+	for tool, mode := range perms {
+		if mode != "" {
+			c.Permissions[tool] = PermissionMode(mode)
+		}
+	}
+}
+
+// effectiveMode returns the effective permission mode for a tool.
+// If per-tool override exists, it's used; otherwise falls back to global mode.
+func (c *DefaultPermissionChecker) effectiveMode(toolName string) PermissionMode {
+	if perm, ok := c.Permissions[toolName]; ok {
+		return perm
+	}
+	return c.Mode
 }
 
 // SetAskFunc sets function for interactive permission request
@@ -79,7 +110,10 @@ func (c *DefaultPermissionChecker) SetAskFunc(fn AskFunc) {
 
 // CheckPermission checks permission for tool execution
 func (c *DefaultPermissionChecker) CheckPermission(req PermissionRequest) PermissionResult {
-	switch c.Mode {
+	// Use per-tool override if set, otherwise global mode
+	mode := c.effectiveMode(req.ToolName)
+
+	switch mode {
 	case PermissionAutoApprove:
 		return PermApproved
 	case PermissionDeny:

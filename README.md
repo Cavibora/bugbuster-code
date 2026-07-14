@@ -17,6 +17,8 @@
 - 💥 **Aggressive Compaction** — `/compact!` for emergency context reduction; auto-triggers on 3x slowdown
 - 🧠 **Self-Awareness** — `self_info` tool lets the model know its provider, context usage, and environment
 - 🔒 **Security** — path traversal protection, secret file blocking, sandbox mode, command blocking
+- 🔐 **Granular Permissions** — per-tool permission overrides (auto-approve/ask/deny per tool)
+- 🔄 **Fallback Providers** — automatic switch to backup provider when primary fails
 - 🌍 **8 Languages** — English, Russian, Spanish, French, German, Japanese, Chinese, Portuguese
 - 🤖 **5 LLM Providers** — OpenAI, Anthropic, Ollama, Cavibora, OpenAI-compatible
 - 🔄 **Smart Context** — LLM summarization + simple fallback + archiving + auto-compact on slowdown
@@ -120,6 +122,22 @@ agent:
   request_timeout: 2400
   thinking_timeout: 600
   idle_timeout: 120
+
+  # Per-tool permission overrides (override global permission_mode)
+  # Each tool can have: "auto-approve", "ask", or "deny"
+  permissions:
+    bash: ask          # always ask before running commands
+    web_fetch: deny     # block all HTTP requests
+    browse: deny        # block web browsing
+    kill: deny          # block process killing
+    memory: auto-approve  # memory always allowed
+
+  # Fallback provider — switch when primary fails
+  fallback:
+    provider: ollama    # use ollama when openai/anthropic fails
+    max_retries: 2       # retry primary N times before fallback
+    retry_delay_ms: 1000 # delay between retries
+    auto_switch_back: true  # switch back to primary when it recovers
 ```
 
 ### CLI Flags

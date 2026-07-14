@@ -22,6 +22,10 @@ type AgentLoop struct {
 	Tools             map[string]tools.Tool
 	Context           *ConversationContext
 	provider          provider.Provider
+	fallbackProvider  provider.Provider // fallback provider when primary fails
+	fallbackMaxRetries int              // max retries on primary before fallback (default: 2)
+	fallbackRetryDelay time.Duration    // delay between retries (default: 1s)
+	fallbackAutoSwitchBack bool         // switch back to primary when it recovers (default: true)
 	verbose           bool
 	debug             bool   // debug mode: log request/response JSON
 	debugDir          string // directory for debug logs (.bugbuster)
@@ -151,6 +155,22 @@ func (a *AgentLoop) SetKeepRecent(n int) {
 // SetProvider sets the provider
 func (a *AgentLoop) SetProvider(p provider.Provider) {
 	a.provider = p
+}
+
+// SetFallbackProvider sets the fallback provider (used when primary fails)
+func (a *AgentLoop) SetFallbackProvider(p provider.Provider) {
+	a.fallbackProvider = p
+}
+
+// SetFallbackConfig configures fallback behavior
+func (a *AgentLoop) SetFallbackConfig(maxRetries int, retryDelay time.Duration, autoSwitchBack bool) {
+	if maxRetries > 0 {
+		a.fallbackMaxRetries = maxRetries
+	}
+	if retryDelay > 0 {
+		a.fallbackRetryDelay = retryDelay
+	}
+	a.fallbackAutoSwitchBack = autoSwitchBack
 }
 
 // GetProvider returns the current provider
@@ -332,10 +352,20 @@ func (a *AgentLoop) runLoop() (string, error) {
 			})
 		}
 
-		// Get response from provider with retry
+		// Get response from provider with retry and fallback
 		var result *provider.CompletionResult
 		var err error
-		for retry := 0; retry < 3; retry++ {
+		maxRetries := a.fallbackMaxRetries
+		if maxRetries <= 0 {
+			maxRetries = 2
+		}
+		retryDelay := a.fallbackRetryDelay
+		if retryDelay <= 0 {
+			retryDelay = time.Second
+		}
+
+		// Try primary provider
+		for retry := 0; retry < maxRetries; retry++ {
 			result, err = a.provider.Complete(a.Context.Messages, toolDefs)
 			if err == nil {
 				break
@@ -343,11 +373,26 @@ func (a *AgentLoop) runLoop() (string, error) {
 			if a.verbose {
 				logger.Debug("retry", "attempt", retry+1, "provider", a.provider.Name(), "error", err)
 			}
-			// Exponential backoff: 200ms -> 400ms -> 800ms + jitter
-			backoff := time.Duration(200*(1<<retry)) * time.Millisecond
-			jitter := time.Duration(retry*100) * time.Millisecond
-			time.Sleep(backoff + jitter)
+			time.Sleep(retryDelay)
 		}
+
+		// Primary failed — try fallback provider
+		if err != nil && a.fallbackProvider != nil {
+			if a.verbose {
+				logger.Debug("fallback_switch", "from", a.provider.Name(), "to", a.fallbackProvider.Name())
+			}
+			for retry := 0; retry < maxRetries; retry++ {
+				result, err = a.fallbackProvider.Complete(a.Context.Messages, toolDefs)
+				if err == nil {
+					break
+				}
+				if a.verbose {
+					logger.Debug("fallback_retry", "attempt", retry+1, "provider", a.fallbackProvider.Name(), "error", err)
+				}
+				time.Sleep(retryDelay)
+			}
+		}
+
 		if err != nil {
 			return "", i18n.E("errors_provider.request", a.provider.Name(), err)
 		}

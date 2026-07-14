@@ -25,20 +25,50 @@ type streamResult struct {
 	maxTokens bool  // true = response was truncated by max_tokens limit
 }
 
-// streamRetryRequest receives streaming response from provider with retry (3 attempts).
+// streamRetryRequest receives streaming response from provider with retry and fallback.
+// If primary provider fails after maxRetries, switches to fallback provider.
 func (a *AgentLoop) streamRetryRequest(ctx context.Context) (<-chan provider.StreamEvent, error) {
+	maxRetries := a.fallbackMaxRetries
+	if maxRetries <= 0 {
+		maxRetries = 2
+	}
+	retryDelay := a.fallbackRetryDelay
+	if retryDelay <= 0 {
+		retryDelay = time.Second
+	}
+
 	var stream <-chan provider.StreamEvent
 	var err error
-	for retry := 0; retry < 3; retry++ {
+
+	// Try primary provider
+	for retry := 0; retry < maxRetries; retry++ {
 		stream, err = a.provider.StreamWithCtx(ctx, a.Context.Messages, a.buildToolDefs())
 		if err == nil {
 			return stream, nil
 		}
 		if a.verbose {
-			logger.Debug("stream_retry", "attempt", retry+1, "max", 3, "provider", a.provider.Name(), "error", err)
+			logger.Debug("stream_retry", "attempt", retry+1, "max", maxRetries, "provider", a.provider.Name(), "error", err)
 		}
-		time.Sleep(time.Duration(retry+1) * time.Second)
+		time.Sleep(retryDelay)
 	}
+
+	// Primary failed — try fallback provider
+	if a.fallbackProvider != nil {
+		if a.verbose {
+			logger.Debug("fallback_switch", "from", a.provider.Name(), "to", a.fallbackProvider.Name())
+		}
+		for retry := 0; retry < maxRetries; retry++ {
+			stream, err = a.fallbackProvider.StreamWithCtx(ctx, a.Context.Messages, a.buildToolDefs())
+			if err == nil {
+				return stream, nil
+			}
+			if a.verbose {
+				logger.Debug("fallback_retry", "attempt", retry+1, "max", maxRetries, "provider", a.fallbackProvider.Name(), "error", err)
+			}
+			time.Sleep(retryDelay)
+		}
+	}
+
 	return nil, err
 }
 

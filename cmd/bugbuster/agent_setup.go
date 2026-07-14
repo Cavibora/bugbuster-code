@@ -124,6 +124,32 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 		loop.Context.SkipCompaction = true
 	}
 
+	// Fallback provider — if primary fails, switch to fallback
+	if cfg.Agent.Fallback.Provider != "" {
+		if fallbackCfg, ok := cfg.Providers[cfg.Agent.Fallback.Provider]; ok {
+			fallbackProvider, err := provider.NewFromConfig(cfg.Agent.Fallback.Provider, fallbackCfg)
+			if err != nil {
+				if verbose {
+					color.Yellow("[Fallback] Failed to create fallback provider %s: %v", cfg.Agent.Fallback.Provider, err)
+				}
+			} else {
+				loop.SetFallbackProvider(fallbackProvider)
+				loop.SetFallbackConfig(
+					cfg.Agent.Fallback.MaxRetries,
+					time.Duration(cfg.Agent.Fallback.RetryDelayMs)*time.Millisecond,
+					cfg.Agent.Fallback.AutoSwitchBack,
+				)
+				if verbose {
+					color.Green("[Fallback] Using %s as fallback provider", cfg.Agent.Fallback.Provider)
+				}
+			}
+		} else {
+			if verbose {
+				color.Yellow("[Fallback] Provider '%s' not found in providers config", cfg.Agent.Fallback.Provider)
+			}
+		}
+	}
+
 	// Create all tools
 	readTool := tools.NewReadTool()
 	readTool.AllowedDirs = cfg.Tools.AllowedDirs
@@ -368,6 +394,8 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 		permMode = agent.PermissionAutoApprove
 	}
 	permChecker := agent.NewDefaultPermissionChecker(permMode, dir)
+	// Apply per-tool permission overrides from config
+	permChecker.SetPermissionsFromConfig(cfg.Agent.Permissions.EffectiveMap())
 	// In "ask" mode — connect interactive permission request
 	if permMode == agent.PermissionAsk {
 		permChecker.SetAskFunc(func(req agent.PermissionRequest) bool {
