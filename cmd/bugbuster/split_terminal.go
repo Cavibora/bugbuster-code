@@ -715,7 +715,7 @@ func switchToTUICleanup(rl *readline.Instance, pendingLine chan lineResult) {
 	// because /dev/null always returns EOF immediately.
 	devNull, err := os.OpenFile("/dev/null", os.O_RDONLY, 0)
 	if err == nil {
-		syscall.Dup2(int(devNull.Fd()), 0)
+		dupFd(int(devNull.Fd()), 0)
 		devNull.Close()
 	}
 
@@ -730,7 +730,7 @@ func switchToTUICleanup(rl *readline.Instance, pendingLine chan lineResult) {
 	// This gives Bubble Tea a fresh stdin connected to the real terminal.
 	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err == nil {
-		syscall.Dup2(int(tty.Fd()), 0)
+		dupFd(int(tty.Fd()), 0)
 		tty.Close()
 	}
 

@@ -77,16 +77,16 @@ func setupCrashHandler() (cleanup func(), prevCrashPath string) {
 	f.Sync()
 
 	// Save original stderr fd
-	origStderrFd, _ := syscall.Dup(syscall.Stderr)
+	origStderrFd, _ := dupFdInt(syscall.Stderr)
 
 	// Redirect stderr (fd 2) to crash log file
-	syscall.Dup2(int(f.Fd()), syscall.Stderr)
+	dupFd(int(f.Fd()), syscall.Stderr)
 
 	// Start goroutine to also copy stderr to terminal
 	reader, writer, _ := os.Pipe()
 
 	// Redirect fd 2 to writer end of pipe
-	syscall.Dup2(int(writer.Fd()), syscall.Stderr)
+	dupFd(int(writer.Fd()), syscall.Stderr)
 	writer.Close()
 
 	var wg sync.WaitGroup
@@ -133,7 +133,7 @@ func setupCrashHandler() (cleanup func(), prevCrashPath string) {
 	cleanup = func() {
 		// Restore original stderr
 		if origStderrFd >= 0 {
-			syscall.Dup2(origStderrFd, syscall.Stderr)
+			dupFd(origStderrFd, syscall.Stderr)
 			syscall.Close(origStderrFd)
 		}
 
