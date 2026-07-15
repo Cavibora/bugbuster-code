@@ -471,9 +471,10 @@ func (a *AgentLoop) runLoop() (string, error) {
 							return text, errors.New(msg)
 						}
 					}
-					// Auto-continue: model responded without tool calls (max 3 times)
-					// Only when auto-continue is enabled (TUI mode)
-					if a.autoContinue && a.autoContinueCount < 3 && a.Context != nil {
+				// Auto-continue: model responded without tool calls (max 3 times)
+				// Only when auto-continue is enabled (TUI mode)
+				// Skip if the response looks like a genuine completion (recap, "done", short answer)
+				if a.autoContinue && a.autoContinueCount < 3 && a.Context != nil && !looksLikeCompletion(text) {
 						a.autoContinueCount++
 						continueHint := "Continue working. Use tools to read files, run commands, or search code. Do not just describe what to do — actually do it using tools."
 						if a.Context.OriginalTask != "" {
@@ -1216,4 +1217,54 @@ func (a *AgentLoop) debugLog(prefix string, data map[string]any) {
 
 	// Fallback — console
 	logger.Debug("debug_log", "prefix", prefix, "data", string(jsonData))
+}
+
+// looksLikeCompletion checks if the model's text response indicates
+// that the task is genuinely complete and auto-continue would be wasteful.
+// This prevents spending tokens on unnecessary continuation after:
+// - Recap summaries (※ Recap:)
+// - Explicit completion signals ("Готово", "Done", etc.)
+// - Short answers to informational questions
+func looksLikeCompletion(text string) bool {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return false
+	}
+
+	// Check for recap/summary markers — model has finished and summarized
+	if strings.Contains(text, "※ Recap:") || strings.Contains(text, "※ Recap:") {
+		return true
+	}
+
+	// Check for explicit completion signals in various languages
+	lower := strings.ToLower(text)
+	completionPhrases := []string{
+		"всё готово", "всё сделано", "задача выполнена",
+		"всё работает", "всё работает корректно",
+		"готово!", "готово.", "сделано!",
+		"all done", "task complete", "everything works",
+	}
+	for _, phrase := range completionPhrases {
+		if strings.Contains(lower, phrase) {
+			return true
+		}
+	}
+
+	// Short answers (< 200 chars) to informational questions — likely just an answer
+	// Check if it looks like a direct answer (starts with common answer patterns)
+	if len(text) < 200 {
+		answerPrefixes := []string{"да", "нет", "yes", "no", "ok", "ок"}
+		firstLine := text
+		if idx := strings.Index(text, "\n"); idx >= 0 {
+			firstLine = text[:idx]
+		}
+		firstLine = strings.TrimSpace(strings.ToLower(firstLine))
+		for _, prefix := range answerPrefixes {
+			if strings.HasPrefix(firstLine, prefix) {
+				return true
+			}
+		}
+	}
+
+	return false
 }
