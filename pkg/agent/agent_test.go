@@ -818,15 +818,26 @@ func TestLooksLikeCompletion(t *testing.T) {
 		text     string
 		expected bool
 	}{
-		// Recap markers
+		// Recap markers (various formats)
 		{"※ Recap: Fixed the bug", true},
 		{"Some text\n※ Recap: Done", true},
+		{"※ Итог: Исправлен баг", true},
+		{"Recap: all changes applied", true},
+		{"итог: задача выполнена", true},
+		{"Summary: fixed 3 bugs", true},
 		// Explicit completion signals
 		{"Всё готово!", true},
 		{"Всё сделано", true},
 		{"Готово!", true},
 		{"All done!", true},
 		{"Everything works correctly", true},
+		{"Task is complete", true},
+		{"Task is done", true},
+		{"Work is done", true},
+		{"Nothing more to do", true},
+		{"No more changes needed", true},
+		{"No further action required", true},
+		{"All changes have been applied", true},
 		// Short answers
 		{"Да", true},
 		{"Нет, это не так", true},

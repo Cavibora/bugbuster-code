@@ -1222,7 +1222,7 @@ func (a *AgentLoop) debugLog(prefix string, data map[string]any) {
 // looksLikeCompletion checks if the model's text response indicates
 // that the task is genuinely complete and auto-continue would be wasteful.
 // This prevents spending tokens on unnecessary continuation after:
-// - Recap summaries (※ Recap:)
+// - Recap summaries (※ Recap:, Recap:, Итог:, Summary:)
 // - Explicit completion signals ("Готово", "Done", etc.)
 // - Short answers to informational questions
 func looksLikeCompletion(text string) bool {
@@ -1232,17 +1232,30 @@ func looksLikeCompletion(text string) bool {
 	}
 
 	// Check for recap/summary markers — model has finished and summarized
-	if strings.Contains(text, "※ Recap:") {
-		return true
+	// Match various formats: "※ Recap:", "Recap:", "Итог:", "Summary:"
+	recapMarkers := []string{
+		"※ Recap:",
+		"※ Итог:",
+		"recap:",
+		"итог:",
+		"summary:",
+	}
+	lower := strings.ToLower(text)
+	for _, marker := range recapMarkers {
+		if strings.Contains(lower, strings.ToLower(marker)) {
+			return true
+		}
 	}
 
 	// Check for explicit completion signals in various languages
-	lower := strings.ToLower(text)
 	completionPhrases := []string{
 		"всё готово", "всё сделано", "задача выполнена",
 		"всё работает", "всё работает корректно",
 		"готово!", "готово.", "сделано!",
 		"all done", "task complete", "everything works",
+		"task is complete", "task is done", "work is done",
+		"nothing more to do", "no more changes needed",
+		"no further action", "all changes have been",
 	}
 	for _, phrase := range completionPhrases {
 		if strings.Contains(lower, phrase) {
