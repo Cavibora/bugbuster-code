@@ -282,8 +282,9 @@ func (c *ConversationContext) CompactForce() {
 		}
 	}
 
-	// 4. Keep only last 4 messages (2 exchanges)
-	keepCount := 4
+	// 4. Keep last 8 messages (4 exchanges) — enough to maintain working context
+	// Too few (4) causes model to lose track and re-analyze, triggering repeated compaction
+	keepCount := 8
 	if keepCount > len(cleaned) {
 		keepCount = len(cleaned)
 	}

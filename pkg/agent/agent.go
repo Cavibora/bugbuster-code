@@ -63,8 +63,10 @@ type AgentLoop struct {
 	autoContinue bool
 
 	// Speed mirror — tracks iteration durations for self-awareness
-	iterDurations []time.Duration
-	lastMirrorAt  int // iteration when mirror was last injected
+	iterDurations       []time.Duration
+	lastMirrorAt        int // iteration when mirror was last injected
+	lastAutoCompactAt   int // iteration when last auto-compact happened
+	autoCompactCooldown int // iterations to skip after auto-compact (prevents loop)
 }
 
 // NewAgentLoop creates a new agent loop
@@ -1082,22 +1084,30 @@ func (a *AgentLoop) injectSpeedMirror(iteration int, iterDuration time.Duration)
 
 	// Auto-compact when slowdown is critical (>3x) and context is large (>50%)
 	// This handles the case when model is "in the flow" and ignores mirror warnings
+	// Cooldown: skip auto-compact for 10 iterations after last one to prevent loops
 	if slowdownRatio > 3.0 && contextUsage > 50 && maxTokens > 0 {
-		a.Context.CompactForce()
-		compactedTokens := a.Context.TokenCount()
-		compactedUsage := 0
-		if maxTokens > 0 {
-			compactedUsage = compactedTokens * 100 / maxTokens
+		iterationsSinceLastCompact := iteration - a.lastAutoCompactAt
+		if a.lastAutoCompactAt == 0 || iterationsSinceLastCompact >= 10 {
+			a.lastAutoCompactAt = iteration
+			a.Context.CompactForce()
+			compactedTokens := a.Context.TokenCount()
+			compactedUsage := 0
+			if maxTokens > 0 {
+				compactedUsage = compactedTokens * 100 / maxTokens
+			}
+			a.Context.Add(provider.SystemMsg(fmt.Sprintf(
+				"[Auto-compacted] Context was critically slow (%.1fx degradation, %d%% usage). "+
+					"Compacted from %d%% to %d%%. Continue working on your task.",
+				slowdownRatio, contextUsage, contextUsage, compactedUsage,
+			)))
+			// Reset speed tracking after compaction, keep last 3 for baseline
+			if len(a.iterDurations) > 3 {
+				a.iterDurations = a.iterDurations[len(a.iterDurations)-3:]
+			}
+			a.lastMirrorAt = iteration
+			return
 		}
-		a.Context.Add(provider.SystemMsg(fmt.Sprintf(
-			"[Auto-compacted] Context was critically slow (%.1fx degradation, %d%% usage). "+
-				"Compacted from %d%% to %d%%. Continue working on your task.",
-			slowdownRatio, contextUsage, contextUsage, compactedUsage,
-		)))
-		// Reset speed tracking after compaction to avoid false positives
-		a.iterDurations = nil
-		a.lastMirrorAt = iteration
-		return
+		// Cooldown active — don't auto-compact again yet
 	}
 
 	var sb strings.Builder
