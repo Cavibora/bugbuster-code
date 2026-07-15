@@ -609,7 +609,17 @@ func (a *AgentLoop) handleStreamFinalResponse(
 	// prompt it to continue working with tools (max 3 times)
 	// Only when auto-continue is enabled (TUI mode)
 	// Skip if the response looks like a genuine completion (recap, "done", short answer)
-	if a.autoContinue && a.autoContinueCount < 3 && a.Context != nil && len(a.Context.Messages) > 0 && !looksLikeCompletion(text) {
+	completionDetected := looksLikeCompletion(text)
+	if a.verbose {
+		logger.Debug("auto_continue_check",
+			"autoContinue", a.autoContinue,
+			"count", a.autoContinueCount,
+			"textLen", len(text),
+			"completionDetected", completionDetected,
+			"textPreview", truncate(text, 100),
+		)
+	}
+	if a.autoContinue && a.autoContinueCount < 3 && a.Context != nil && len(a.Context.Messages) > 0 && !completionDetected {
 		lastMsg := a.Context.Messages[len(a.Context.Messages)-1]
 		if lastMsg.Role == "assistant" && len(text) > 0 {
 			// Model responded with text only, no tool calls

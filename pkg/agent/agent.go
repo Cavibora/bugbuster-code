@@ -474,7 +474,17 @@ func (a *AgentLoop) runLoop() (string, error) {
 				// Auto-continue: model responded without tool calls (max 3 times)
 				// Only when auto-continue is enabled (TUI mode)
 				// Skip if the response looks like a genuine completion (recap, "done", short answer)
-				if a.autoContinue && a.autoContinueCount < 3 && a.Context != nil && !looksLikeCompletion(text) {
+				completionDetected := looksLikeCompletion(text)
+				if a.verbose {
+					logger.Debug("auto_continue_check",
+						"autoContinue", a.autoContinue,
+						"count", a.autoContinueCount,
+						"textLen", len(text),
+						"completionDetected", completionDetected,
+						"textPreview", truncate(text, 100),
+					)
+				}
+				if a.autoContinue && a.autoContinueCount < 3 && a.Context != nil && !completionDetected {
 						a.autoContinueCount++
 						continueHint := "Continue working. Use tools to read files, run commands, or search code. Do not just describe what to do — actually do it using tools."
 						if a.Context.OriginalTask != "" {
