@@ -5,6 +5,19 @@ All notable changes to BugBuster Code will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.2] - 2025-07-15
+
+### Fixed
+- **Auto-continue skip on completion** — model no longer wastes tokens continuing after Recap/Done/Готово
+- **i18n completeness** — added 324 missing translation keys to de/es/fr/ja/pt/zh locales
+- **Todo write error handling** — `os.WriteFile` error in todo tool now logged instead of silently ignored
+
+## [1.2.1] - 2025-07-15
+
+### Fixed
+- **CompactForce infinite loop** — increased keepCount 4→8, added 10-iteration cooldown, preserved baseline context
+- **Cross-platform Dup2/Dup** — replaced `syscall.Dup2` with `unix.Dup2` for Linux ARM64 support
+
 ## [1.2.0] - 2025-07-14
 
 ### Added
