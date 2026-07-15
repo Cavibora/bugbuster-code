@@ -682,6 +682,7 @@ func (m TUI) handleSend() (retModel tea.Model, retCmd tea.Cmd) {
 		m.output.WriteString(color.YellowString("  💥 Force compacting...") + fmt.Sprintf(" (%d tokens)...\n", tokensBefore))
 		m.loop.Context.CompactForce()
 		m.loop.ResetSpeedTracking()
+		m.loop.SetLastAutoCompactAt()
 		tokensAfter := m.loop.Context.TokenCount()
 		saved := tokensBefore - tokensAfter
 		m.output.WriteString(color.GreenString("  ✓ Force compacted") + fmt.Sprintf(" %d → %d (saved: %d)\n", tokensBefore, tokensAfter, saved))

@@ -67,6 +67,7 @@ type AgentLoop struct {
 	lastMirrorAt        int // iteration when mirror was last injected
 	lastAutoCompactAt   int // iteration when last auto-compact happened
 	autoCompactCooldown int // iterations to skip after auto-compact (prevents loop)
+	currentIteration    int // tracks current iteration for cooldown calculations
 }
 
 // NewAgentLoop creates a new agent loop
@@ -336,6 +337,7 @@ func (a *AgentLoop) runLoop() (string, error) {
 	toolDefs := a.buildToolDefs()
 
 	for iteration := 1; ; iteration++ {
+		a.currentIteration = iteration
 		// Check iteration limit (for subagents)
 		if a.maxIterations > 0 && iteration > a.maxIterations {
 			lastText := ""
@@ -693,6 +695,7 @@ func (a *AgentLoop) streamLoopWithCtx(ctx context.Context) (<-chan provider.Stre
 		totalStart := time.Now()
 
 		for iteration := 1; ; iteration++ {
+			a.currentIteration = iteration
 			// Check iteration limit (for subagents)
 			if a.maxIterations > 0 && iteration > a.maxIterations && iteration <= a.maxIterations+1 {
 				// Instead of just taking last message text,
@@ -1157,8 +1160,15 @@ func (a *AgentLoop) injectSpeedMirror(iteration int, iterDuration time.Duration)
 func (a *AgentLoop) ResetSpeedTracking() {
 	a.iterDurations = nil
 	a.lastMirrorAt = 0
-	a.lastAutoCompactAt = 0
+	// Note: don't reset lastAutoCompactAt — it's used for cooldown in injectSpeedMirror.
+	// The OnCompactForce callback will set it to the current iteration if needed.
 	a.autoCompactCooldown = 3 // skip maybeCompact for 3 iterations after CompactForce
+}
+
+// SetLastAutoCompactAt marks the current iteration as the last auto-compact time.
+// Used by OnCompactForce callback to enforce cooldown after CompactForce tool call.
+func (a *AgentLoop) SetLastAutoCompactAt() {
+	a.lastAutoCompactAt = a.currentIteration
 }
 
 // checkStaleProcesses checks for long-running background processes

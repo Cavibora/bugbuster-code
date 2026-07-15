@@ -457,6 +457,9 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 	// to prevent double compaction (tool call + auto-compact)
 	loop.Context.OnCompactForce = func() {
 		loop.ResetSpeedTracking()
+		// Set lastAutoCompactAt to a large value to enforce 10-iteration cooldown
+		// in injectSpeedMirror. This prevents auto-compact right after CompactForce.
+		loop.SetLastAutoCompactAt()
 	}
 
 	// MCP-tools (from cfg.MCP.Servers and cfg.Plugins.MCP)
