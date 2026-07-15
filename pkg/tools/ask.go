@@ -15,7 +15,6 @@ type AskTool struct {
 }
 
 // NewAskTool creates a tool that asks the user a question and returns their response.
-// NewAskTool creates a tool that asks the user a question and returns their response.
 func NewAskTool() *AskTool {
 	return &AskTool{
 		Timeout: 60 * time.Second,
