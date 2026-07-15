@@ -2,6 +2,7 @@ package tools
 
 import (
 	"encoding/json"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -161,7 +162,9 @@ func (t *TodoWriteTool) saveToFileLocked() {
 		return
 	}
 
-	os.WriteFile(t.filePath, data, 0644)
+	if err := os.WriteFile(t.filePath, data, 0644); err != nil {
+		log.Printf("todo: failed to write file: %v", err)
+	}
 }
 
 // TodoFilePathForProject returns the path to the todo file for a session,
