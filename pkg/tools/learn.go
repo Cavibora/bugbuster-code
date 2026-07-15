@@ -50,9 +50,17 @@ func (t *LearnTool) Execute(params map[string]string) ToolResult {
 	// Tool returns "scheduled" confirmation without real HTTP request.
 	switch strings.ToLower(learnType) {
 	case "code":
-		return Success("tools.learn.code_scheduled", input[:min(len(input), 50)], len(output))
+		truncated := input
+		if len(truncated) > 50 {
+			truncated = truncated[:50]
+		}
+		return Success("tools.learn.code_scheduled", truncated, len(output))
 	default:
-		return Success("tools.learn.scheduled", input[:min(len(input), 50)], len(output))
+		truncated := input
+		if len(truncated) > 50 {
+			truncated = truncated[:50]
+		}
+		return Success("tools.learn.scheduled", truncated, len(output))
 	}
 }
 
@@ -75,11 +83,4 @@ func (t *LearnTool) Parameters() map[string]any {
 		},
 		"required": []string{"input", "output"},
 	}
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
