@@ -24,6 +24,7 @@ type Session struct {
 	CreatedAt    time.Time          `json:"created_at"`
 	UpdatedAt    time.Time          `json:"updated_at"`
 	Messages     []provider.Message `json:"messages"`
+	InputHistory []string           `json:"input_history,omitempty"`
 }
 
 // SessionManager is the session manager (save/load)
@@ -111,6 +112,15 @@ func (sm *SessionManager) SaveSessionMessages(session *Session) error {
 	metaData, _ := json.Marshal(meta)
 	fmt.Fprintf(f, "%s\n", metaData)
 
+	// Write input history as second line (if present)
+	if len(session.InputHistory) > 0 {
+		historyData, _ := json.Marshal(map[string]any{
+			"type":    "input_history",
+			"history": session.InputHistory,
+		})
+		fmt.Fprintf(f, "%s\n", historyData)
+	}
+
 	// Write each message as a separate line
 	for _, msg := range session.Messages {
 		msgData, err := json.Marshal(msg)
@@ -194,6 +204,16 @@ func (sm *SessionManager) parseJSONL(data []byte) (*Session, error) {
 				}
 				continue
 			}
+		}
+
+		// Check for input_history line
+		var historyLine struct {
+			Type    string   `json:"type"`
+			History []string `json:"history"`
+		}
+		if err := json.Unmarshal([]byte(line), &historyLine); err == nil && historyLine.Type == "input_history" {
+			session.InputHistory = historyLine.History
+			continue
 		}
 
 		// Remaining lines — messages

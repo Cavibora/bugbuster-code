@@ -382,6 +382,7 @@ func (m TUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Auto-save session every 30 seconds during streaming
 		if m.streaming && m.session != nil && m.sessionMgr != nil {
 			m.session.Messages = m.loop.Context.GetMessages()
+			m.session.InputHistory = m.history
 			if err := m.sessionMgr.SaveSessionMessages(m.session); err == nil {
 				m.lastSaveTime = time.Now()
 			}
@@ -1365,6 +1366,7 @@ func runTUI(cfg *config.BugBusterConfig, loop *agent.AgentLoop, ct *ChangeTracke
 	globalSession = currentSession
 	globalSessionMgr = sessionMgr
 	globalLoop = loop
+	globalTUI = &m
 	// Update SessionID in SearchContextTool
 	if searchTool, ok := loop.Tools["search_context"].(*agent.SearchContextTool); ok {
 		searchTool.SessionID = currentSession.ID
@@ -1378,6 +1380,11 @@ func runTUI(cfg *config.BugBusterConfig, loop *agent.AgentLoop, ct *ChangeTracke
 	if currentSession.Messages != nil && len(currentSession.Messages) > 0 {
 		// Skip system message (usually first)
 		renderSessionHistory(currentSession.Messages, m.output, m.mdRenderer)
+	}
+
+	// Restore input history from session
+	if currentSession.InputHistory != nil {
+		m.history = currentSession.InputHistory
 	}
 
 	// Open /dev/tty directly for Bubble Tea input.

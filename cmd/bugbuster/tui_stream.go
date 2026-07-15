@@ -134,8 +134,8 @@ func (m *TUI) addToHistory(input string) {
 	if len(m.history) > 0 && m.history[len(m.history)-1] == input {
 		return
 	}
-	// Limit history to 100 elements
-	if len(m.history) >= 100 {
+	// Limit history to 10000 elements (persisted in session)
+	if len(m.history) >= 10000 {
 		m.history = m.history[1:]
 	}
 	m.history = append(m.history, input)

@@ -157,6 +157,7 @@ func sessionsInfoString(mgr *agent.SessionManager, current *agent.Session) strin
 func saveSessionTUI(m TUI) {
 	if m.session != nil && m.sessionMgr != nil {
 		m.session.Messages = m.loop.Context.GetMessages()
+		m.session.InputHistory = m.history
 		if err := m.sessionMgr.SaveSessionMessages(m.session); err != nil {
 			// Only log errors, don't spam on successful incremental saves
 		}

@@ -206,6 +206,59 @@ func TestRenameSession_NotFound(t *testing.T) {
 	}
 }
 
+func TestSaveAndLoadSession_InputHistory(t *testing.T) {
+	tmpDir := t.TempDir()
+	sm := NewSessionManager(tmpDir)
+
+	session := sm.NewSession()
+	session.Messages = append(session.Messages, provider.SystemMsg("Ты помощник"))
+	session.Messages = append(session.Messages, provider.UserMsg("Привет"))
+	session.InputHistory = []string{"Привет", "Как дела?", "Расскажи о себе", "Помоги с кодом"}
+
+	// Save
+	if err := sm.SaveSessionMessages(session); err != nil {
+		t.Fatalf("SaveSessionMessages error: %v", err)
+	}
+
+	// Load
+	loaded, err := sm.LoadSession(session.ID)
+	if err != nil {
+		t.Fatalf("LoadSession error: %v", err)
+	}
+
+	if len(loaded.InputHistory) != 4 {
+		t.Errorf("Expected 4 input history items, got %d", len(loaded.InputHistory))
+	}
+	if loaded.InputHistory[0] != "Привет" {
+		t.Errorf("Expected first history item='Привет', got %q", loaded.InputHistory[0])
+	}
+	if loaded.InputHistory[3] != "Помоги с кодом" {
+		t.Errorf("Expected last history item='Помоги с кодом', got %q", loaded.InputHistory[3])
+	}
+}
+
+func TestSaveAndLoadSession_EmptyInputHistory(t *testing.T) {
+	tmpDir := t.TempDir()
+	sm := NewSessionManager(tmpDir)
+
+	session := sm.NewSession()
+	session.Messages = append(session.Messages, provider.UserMsg("test"))
+	// InputHistory is nil — should not be saved
+
+	if err := sm.SaveSessionMessages(session); err != nil {
+		t.Fatalf("SaveSessionMessages error: %v", err)
+	}
+
+	loaded, err := sm.LoadSession(session.ID)
+	if err != nil {
+		t.Fatalf("LoadSession error: %v", err)
+	}
+
+	if len(loaded.InputHistory) != 0 {
+		t.Errorf("Expected 0 input history items for empty history, got %d", len(loaded.InputHistory))
+	}
+}
+
 func TestLoadSession_LargeToolResult(t *testing.T) {
 	// Тест: tool_result длиннее 64KB (буфер bufio.Scanner по умолчанию)
 	// должен загружаться полностью, а не теряться

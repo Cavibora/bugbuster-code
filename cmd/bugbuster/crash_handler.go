@@ -32,6 +32,7 @@ var (
 	globalSession    *agent.Session
 	globalSessionMgr *agent.SessionManager
 	globalLoop       *agent.AgentLoop
+	globalTUI        *TUI
 )
 
 // crashCleanup is called on normal exit to restore stderr and close crash log
@@ -204,6 +205,10 @@ func writeCrashLog(r interface{}) {
 				}()
 				globalSession.Messages = globalLoop.Context.GetMessages()
 			}()
+		}
+		// Save input history from global TUI reference
+		if globalTUI != nil {
+			globalSession.InputHistory = globalTUI.history
 		}
 		if err := globalSessionMgr.SaveSessionMessages(globalSession); err == nil {
 			fmt.Fprintf(os.Stdout, "\n  ✅ %s\n", i18n.T("cli_success.session_saved", globalSession.ID))
