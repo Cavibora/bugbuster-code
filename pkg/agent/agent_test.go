@@ -821,7 +821,9 @@ func TestLooksLikeCompletion(t *testing.T) {
 		// Recap markers (various formats)
 		{"※ Recap: Fixed the bug", true},
 		{"Some text\n※ Recap: Done", true},
+		{"※ Recap — fixed the bug", true},  // without colon
 		{"※ Итог: Исправлен баг", true},
+		{"※ Итог — исправлен баг", true},   // without colon
 		{"Recap: all changes applied", true},
 		{"итог: задача выполнена", true},
 		{"Summary: fixed 3 bugs", true},

@@ -1243,16 +1243,19 @@ func looksLikeCompletion(text string) bool {
 
 	// Check for recap/summary markers — model has finished and summarized
 	// Match various formats: "※ Recap:", "Recap:", "Итог:", "Summary:"
+	// Also match without colon: "※ Recap", "Recap", etc.
 	recapMarkers := []string{
-		"※ Recap:",
-		"※ Итог:",
+		"※ recap:",
+		"※ recap",
+		"※ итог:",
+		"※ итог",
 		"recap:",
 		"итог:",
 		"summary:",
 	}
 	lower := strings.ToLower(text)
 	for _, marker := range recapMarkers {
-		if strings.Contains(lower, strings.ToLower(marker)) {
+		if strings.Contains(lower, marker) {
 			return true
 		}
 	}
