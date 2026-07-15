@@ -20,6 +20,7 @@ type ConversationContext struct {
 	AutoCompact         bool              // automatically compact on Add() (default: true)
 	OnCompact           func()            // callback before compaction (for UI notification)
 	AfterCompact        func()            // callback after compaction (for memory injection)
+	OnCompactForce      func()            // callback after CompactForce (to reset speed tracking)
 	Ctx                 context.Context   // cancellation context for compaction (nil = context.Background())
 	Archive             *ArchiveStore     // context archive (nil = archiving disabled)
 	Optimizer           *ArchiveOptimizer // archive optimizer (nil = optimization disabled)
@@ -345,6 +346,11 @@ func (c *ConversationContext) CompactForce() {
 		c.lastCompactionRatio = float64(tokensBefore-tokensAfter) / float64(tokensBefore)
 	}
 	c.lowSaveCount = 0
+
+	// Notify agent loop that CompactForce was called (to reset speed tracking)
+	if c.OnCompactForce != nil {
+		c.OnCompactForce()
+	}
 }
 
 // findRemovedMessages returns messages that were in before but not in after

@@ -263,6 +263,7 @@ func handleCommand(input string, loop *agent.AgentLoop, cfg *config.BugBusterCon
 		tokensBefore := loop.Context.TokenCount()
 		color.Yellow("💥 Force compacting... (%d tokens)", tokensBefore)
 		loop.Context.CompactForce()
+		loop.ResetSpeedTracking()
 		tokensAfter := loop.Context.TokenCount()
 		saved := tokensBefore - tokensAfter
 		color.Green("💥 Force compacted: %d → %d (saved: %d)", tokensBefore, tokensAfter, saved)

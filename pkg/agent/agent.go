@@ -957,6 +957,12 @@ func (a *AgentLoop) maybeCompact(eventCh chan<- provider.StreamEvent, ctx contex
 		return
 	default:
 	}
+	// Cooldown after CompactForce — skip compaction for 3 iterations
+	// to prevent double compaction (tool call + auto-compact)
+	if a.autoCompactCooldown > 0 {
+		a.autoCompactCooldown--
+		return
+	}
 	// Check if compaction is needed
 	tokenCount := a.Context.TokenCount()
 	if tokenCount <= a.Context.MaxTokens {
@@ -1116,6 +1122,7 @@ func (a *AgentLoop) injectSpeedMirror(iteration int, iterDuration time.Duration)
 				a.iterDurations = a.iterDurations[len(a.iterDurations)-3:]
 			}
 			a.lastMirrorAt = iteration
+			a.autoCompactCooldown = 3 // skip maybeCompact for 3 iterations
 			return
 		}
 		// Cooldown active — don't auto-compact again yet
@@ -1143,6 +1150,15 @@ func (a *AgentLoop) injectSpeedMirror(iteration int, iterDuration time.Duration)
 	}
 
 	a.Context.Add(provider.SystemMsg(sb.String()))
+}
+
+// ResetSpeedTracking resets speed tracking after CompactForce.
+// This prevents double compaction (tool call + auto-compact).
+func (a *AgentLoop) ResetSpeedTracking() {
+	a.iterDurations = nil
+	a.lastMirrorAt = 0
+	a.lastAutoCompactAt = 0
+	a.autoCompactCooldown = 3 // skip maybeCompact for 3 iterations after CompactForce
 }
 
 // checkStaleProcesses checks for long-running background processes

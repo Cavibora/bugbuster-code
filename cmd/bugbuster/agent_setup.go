@@ -453,6 +453,12 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 		loop.Context.Messages = msgs
 	}
 
+	// OnCompactForce callback — reset speed tracking after CompactForce
+	// to prevent double compaction (tool call + auto-compact)
+	loop.Context.OnCompactForce = func() {
+		loop.ResetSpeedTracking()
+	}
+
 	// MCP-tools (from cfg.MCP.Servers and cfg.Plugins.MCP)
 	mcpServers := cfg.MCP.Servers
 	if cfg.Plugins.MCP != nil {
