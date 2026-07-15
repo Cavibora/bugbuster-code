@@ -812,3 +812,38 @@ func TestStreamWithCancel_NoMaxIterations(t *testing.T) {
 		t.Error("Expected at least one event from StreamWithCancel")
 	}
 }
+
+func TestLooksLikeCompletion(t *testing.T) {
+	tests := []struct {
+		text     string
+		expected bool
+	}{
+		// Recap markers
+		{"※ Recap: Fixed the bug", true},
+		{"Some text\n※ Recap: Done", true},
+		// Explicit completion signals
+		{"Всё готово!", true},
+		{"Всё сделано", true},
+		{"Готово!", true},
+		{"All done!", true},
+		{"Everything works correctly", true},
+		// Short answers
+		{"Да", true},
+		{"Нет, это не так", true},
+		{"Yes", true},
+		{"No", true},
+		{"OK", true},
+		// Not completion
+		{"Let me check the code and fix the bug", false},
+		{"I'll continue working on this", false},
+		{"", false},
+		{"Here's what I found:\n1. Bug in line 5\n2. Need to fix", false},
+	}
+
+	for _, tt := range tests {
+		result := looksLikeCompletion(tt.text)
+		if result != tt.expected {
+			t.Errorf("looksLikeCompletion(%q) = %v, want %v", tt.text, result, tt.expected)
+		}
+	}
+}

@@ -1232,7 +1232,7 @@ func looksLikeCompletion(text string) bool {
 	}
 
 	// Check for recap/summary markers — model has finished and summarized
-	if strings.Contains(text, "※ Recap:") || strings.Contains(text, "※ Recap:") {
+	if strings.Contains(text, "※ Recap:") {
 		return true
 	}
 
