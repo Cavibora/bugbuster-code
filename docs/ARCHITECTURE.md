@@ -1,6 +1,6 @@
 # Architecture
 
-BugBuster Code is a model-agnostic CLI agent for software development, written in Go (~21K lines of application code, ~19K lines of tests across 66 test files).
+BugBuster Code is a model-agnostic CLI agent for software development, written in Go (~30K lines of application code, ~28K lines of tests across 86 test files).
 
 ## High-Level Architecture
 
@@ -24,11 +24,11 @@ BugBuster Code is a model-agnostic CLI agent for software development, written i
 │         │              │              │                          │
 │         ▼              ▼              ▼                          │
 │    Provider        Tool Registry   Compactor                    │
-│    Interface       (16 tools)      (LLM/simple)                │
+│    Interface       (22 tools)      (LLM/simple)                │
 │         │              │                                         │
 │    ┌────┼────┐    ┌────┼────┐                                   │
 │    │    │    │    │    │    │                                    │
-│  OpenAI Anthr. ... bash read write edit grep glob ...           │
+│  OpenAI Anthr. ... bash read write edit grep glob memory browse ...           │
 │  Ollama Cavibora   MCP plugins  Sub-agents                     │
 └─────────────────────────────────────────────────────────────────┘
 ```
