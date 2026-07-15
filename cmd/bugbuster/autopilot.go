@@ -38,7 +38,13 @@ func NewAutoPilotState(maxIterations int) *AutoPilotState {
 // Checks last 500 characters of assistant messages.
 // Markers are loaded from i18n — ALL languages are checked concurrently,
 // to correctly detect completion regardless of agent response language.
+// Also checks for recap/summary markers (※ Recap:, Recap:, Итог:, Summary:).
 func isPlanCompleted(text string) bool {
+	// First check recap markers — these are strong completion signals
+	if agent.LooksLikeCompletion(text) {
+		return true
+	}
+
 	markers := getCompletionMarkers()
 	lower := strings.ToLower(text)
 	if len(lower) > 500 {

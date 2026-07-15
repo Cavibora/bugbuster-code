@@ -474,7 +474,7 @@ func (a *AgentLoop) runLoop() (string, error) {
 				// Auto-continue: model responded without tool calls (max 3 times)
 				// Only when auto-continue is enabled (TUI mode)
 				// Skip if the response looks like a genuine completion (recap, "done", short answer)
-				completionDetected := looksLikeCompletion(text)
+				completionDetected := LooksLikeCompletion(text)
 				if a.verbose {
 					logger.Debug("auto_continue_check",
 						"autoContinue", a.autoContinue,
@@ -1229,13 +1229,13 @@ func (a *AgentLoop) debugLog(prefix string, data map[string]any) {
 	logger.Debug("debug_log", "prefix", prefix, "data", string(jsonData))
 }
 
-// looksLikeCompletion checks if the model's text response indicates
+// LooksLikeCompletion checks if the model's text response indicates
 // that the task is genuinely complete and auto-continue would be wasteful.
 // This prevents spending tokens on unnecessary continuation after:
 // - Recap summaries (※ Recap:, Recap:, Итог:, Summary:)
 // - Explicit completion signals ("Готово", "Done", etc.)
 // - Short answers to informational questions
-func looksLikeCompletion(text string) bool {
+func LooksLikeCompletion(text string) bool {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return false

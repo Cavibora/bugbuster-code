@@ -854,9 +854,9 @@ func TestLooksLikeCompletion(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		result := looksLikeCompletion(tt.text)
+		result := LooksLikeCompletion(tt.text)
 		if result != tt.expected {
-			t.Errorf("looksLikeCompletion(%q) = %v, want %v", tt.text, result, tt.expected)
+			t.Errorf("LooksLikeCompletion(%q) = %v, want %v", tt.text, result, tt.expected)
 		}
 	}
 }

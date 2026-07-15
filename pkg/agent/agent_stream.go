@@ -609,7 +609,7 @@ func (a *AgentLoop) handleStreamFinalResponse(
 	// prompt it to continue working with tools (max 3 times)
 	// Only when auto-continue is enabled (TUI mode)
 	// Skip if the response looks like a genuine completion (recap, "done", short answer)
-	completionDetected := looksLikeCompletion(text)
+	completionDetected := LooksLikeCompletion(text)
 	if a.verbose {
 		logger.Debug("auto_continue_check",
 			"autoContinue", a.autoContinue,
