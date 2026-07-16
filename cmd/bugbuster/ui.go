@@ -474,17 +474,18 @@ func FormatToolCallStart(name string, params map[string]string) string {
 	var parts []string
 	displayKeys := []string{"path", "command", "pattern", "query", "prompt", "url", "file", "dir", "lines", "task"}
 	shown := make(map[string]bool)
-	// bash, write, edit — не обрезать параметры вообще
+	// bash, write, edit — показывать параметры полностью, без обрезки
+	// Это критично для безопасности: пользователь должен видеть полную команду
 	noTruncate := name == "bash" || name == "write" || name == "edit"
 
 	for _, key := range displayKeys {
 		if v, ok := params[key]; ok {
 			display := v
 			if noTruncate {
-				// Только убираем переводы строк для первой строки
-				if idx := strings.Index(v, "\n"); idx >= 0 {
-					display = v[:idx]
-				}
+				// Показываем полную команду/путь/код без обрезки
+				// Для многострочных — заменяем \n на ⏎ для однострочного отображения
+				display = strings.ReplaceAll(display, "\n", " ⏎ ")
+				display = strings.ReplaceAll(display, "\r", "")
 			} else if key == "command" {
 				if idx := strings.Index(v, "\n"); idx >= 0 {
 					display = v[:idx]
@@ -612,11 +613,10 @@ func formatBashSummary(result string, params map[string]string) string {
 		return appTheme.ToolSummary.ANSICode() + "empty output" + ansiReset
 	}
 	if cmd, ok := params["command"]; ok {
-		// bash — не обрезать команду вообще
-		display := cmd
-		if idx := strings.Index(display, "\n"); idx >= 0 {
-			display = display[:idx]
-		}
+		// bash — показываем полную команду без обрезки
+		// Это критично для безопасности: пользователь должен видеть что именно выполняется
+		display := strings.ReplaceAll(cmd, "\n", " ⏎ ")
+		display = strings.ReplaceAll(display, "\r", "")
 		return appTheme.ToolSummary.ANSICode() + display + ansiReset
 	}
 	display := result
@@ -1084,16 +1084,15 @@ func formatToolSummary(toolName string, params map[string]string) string {
 	var parts []string
 	displayKeys := []string{"path", "command", "pattern", "query", "prompt", "url", "file", "dir", "lines", "task"}
 	shown := make(map[string]bool)
-	// bash, write, edit — не обрезать параметры вообще
+	// bash, write, edit — показывать параметры полностью, без обрезки
 	noTruncate := toolName == "bash" || toolName == "write" || toolName == "edit"
 	for _, key := range displayKeys {
 		if v, ok := params[key]; ok {
 			display := v
 			if noTruncate {
-				// Только убираем переводы строк для первой строки
-				if idx := strings.Index(v, "\n"); idx >= 0 {
-					display = v[:idx]
-				}
+				// Показываем полную команду/путь/код без обрезки
+				display = strings.ReplaceAll(display, "\n", " ⏎ ")
+				display = strings.ReplaceAll(display, "\r", "")
 			} else if key == "task" {
 				// Tasks can be very long — truncate aggressively
 				if idx := strings.Index(v, "\n"); idx >= 0 {

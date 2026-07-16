@@ -1227,15 +1227,18 @@ func (m TUI) View() tea.View {
 		if m.showProgress && m.toolInProgress != "" {
 			spinner := tuiSpinnerFrames[m.spinnerFrame%len(tuiSpinnerFrames)]
 			elapsed := time.Since(m.toolStartTime).Round(100 * time.Millisecond)
-			// Truncate toolInProgress to fit terminal width (reserve 20 for spinner+elapsed)
+			// Don't truncate bash/write/edit commands — user must see full command for security
 			toolText := m.toolInProgress
-			maxToolLen := m.width - 20
-			if maxToolLen < 40 {
-				maxToolLen = 40
-			}
-			if utf8.RuneCountInString(toolText) > maxToolLen {
-				runes := []rune(toolText)
-				toolText = string(runes[:maxToolLen-3]) + "..."
+			noTruncateTool := m.currentToolName == "bash" || m.currentToolName == "write" || m.currentToolName == "edit"
+			if !noTruncateTool {
+				maxToolLen := m.width - 20
+				if maxToolLen < 40 {
+					maxToolLen = 40
+				}
+				if utf8.RuneCountInString(toolText) > maxToolLen {
+					runes := []rune(toolText)
+					toolText = string(runes[:maxToolLen-3]) + "..."
+				}
 			}
 			// Header: spinner + tool name + time + line count
 			toolHeader := fmt.Sprintf("  %s ⏺ %s  %s", spinner, toolText, elapsed)

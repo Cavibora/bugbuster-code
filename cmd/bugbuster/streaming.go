@@ -454,14 +454,18 @@ streamLoop:
 					params := parsePartialToolInput(toolInputBuf.String())
 					if len(params) > 0 {
 						summary := formatToolSummary(currentToolName, params)
-						width := terminalWidth()
-						maxLen := width - 10
-						if maxLen < 40 {
-							maxLen = 40
-						}
-						runes := []rune(summary)
-						if len(runes) > maxLen {
-							summary = string(runes[:maxLen-3]) + "..."
+						// Don't truncate bash/write/edit commands — user must see full command for security
+						noTruncate := currentToolName == "bash" || currentToolName == "write" || currentToolName == "edit"
+						if !noTruncate {
+							width := terminalWidth()
+							maxLen := width - 10
+							if maxLen < 40 {
+								maxLen = 40
+							}
+							runes := []rune(summary)
+							if len(runes) > maxLen {
+								summary = string(runes[:maxLen-3]) + "..."
+							}
 						}
 						spinner.UpdateMessage(fmt.Sprintf("⏺ %s", summary))
 					}

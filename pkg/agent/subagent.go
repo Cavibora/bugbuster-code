@@ -343,12 +343,18 @@ func formatDuration(d time.Duration) string {
 }
 
 // formatSubagentToolSummary formats brief summary of subagent tool call.
+// bash commands are shown in full for security — user must see what's being executed.
 func formatSubagentToolSummary(toolName string, params map[string]string) string {
 	displayKeys := []string{"path", "command", "pattern", "query", "prompt", "url", "file", "dir"}
+	noTruncate := toolName == "bash" || toolName == "write" || toolName == "edit"
 	for _, key := range displayKeys {
 		if v, ok := params[key]; ok {
 			display := v
-			if len(display) > 60 {
+			if noTruncate {
+				// Show full command/path for security
+				display = strings.ReplaceAll(display, "\n", " ⏎ ")
+				display = strings.ReplaceAll(display, "\r", "")
+			} else if len(display) > 60 {
 				display = display[:57] + "..."
 			}
 			return fmt.Sprintf("  ⏺ %s(%s)", toolName, display)
