@@ -455,11 +455,15 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 
 	// OnCompactForce callback — reset speed tracking after CompactForce
 	// to prevent double compaction (tool call + auto-compact)
+	// Also reset auto-continue count — model may want to summarize after compact
 	loop.Context.OnCompactForce = func() {
 		loop.ResetSpeedTracking()
 		// Set lastAutoCompactAt to a large value to enforce 10-iteration cooldown
 		// in injectSpeedMirror. This prevents auto-compact right after CompactForce.
 		loop.SetLastAutoCompactAt()
+		// Reset auto-continue count — after compact, model often outputs
+		// a summary/recap, and we don't want auto-continue to force more tool calls
+		loop.ResetAutoContinue()
 	}
 
 	// MCP-tools (from cfg.MCP.Servers and cfg.Plugins.MCP)

@@ -132,3 +132,66 @@ func TestBuildToolResultSummary(t *testing.T) {
 		t.Errorf("Expected summary to truncate long results, got %q", result)
 	}
 }
+
+func TestCompactForceCooldown(t *testing.T) {
+	a := NewAgentLoop(nil)
+
+	// Initially no cooldown
+	if a.IsCompactForceCooldown() {
+		t.Error("Expected no cooldown initially")
+	}
+
+	// Set cooldown
+	a.SetCompactForceCooldown()
+	if !a.IsCompactForceCooldown() {
+		t.Error("Expected cooldown after SetCompactForceCooldown")
+	}
+
+	// Cooldown should expire after 60 seconds — test by checking the internal field
+	// We can't wait 60s in a test, so just verify the field was set
+	if a.compactForceCooldownUntil.IsZero() {
+		t.Error("Expected compactForceCooldownUntil to be set")
+	}
+}
+
+func TestResetAutoContinue(t *testing.T) {
+	a := NewAgentLoop(nil)
+
+	// Increment auto-continue count
+	a.autoContinueCount = 2
+	a.ResetAutoContinue()
+	if a.autoContinueCount != 0 {
+		t.Errorf("Expected autoContinueCount=0 after ResetAutoContinue, got %d", a.autoContinueCount)
+	}
+}
+
+func TestLooksLikeCompletion_CompactionAck(t *testing.T) {
+	tests := []struct {
+		text     string
+		expected bool
+	}{
+		// Compaction acknowledgment — model is re-establishing context
+		{"[Context was compacted to save space. Your original task: fix the bug]", true},
+		{"Context was compacted — let me check the current state", true},
+		{"Let me check the current state of the project", true},
+		{"Let me re-establish what was happening", true},
+		{"I'll check the current situation", true},
+		{"Позвольте мне проверить текущее состояние проекта", true},
+		{"Давайте проверю текущее состояние", true},
+		// Recap without colon
+		{"※ Recap — fixed the bug", true},
+		{"Recap — all changes applied", true},
+		{"Итог — задача выполнена", true},
+		{"Summary — fixed 3 bugs", true},
+		// Not completion
+		{"I will now fix the bug by editing main.go", false},
+		{"Let me read the file first", false},
+	}
+
+	for _, tt := range tests {
+		result := LooksLikeCompletion(tt.text)
+		if result != tt.expected {
+			t.Errorf("LooksLikeCompletion(%q) = %v, want %v", tt.text, result, tt.expected)
+		}
+	}
+}

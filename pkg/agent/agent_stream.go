@@ -609,17 +609,30 @@ func (a *AgentLoop) handleStreamFinalResponse(
 	// prompt it to continue working with tools (max 3 times)
 	// Only when auto-continue is enabled (TUI mode)
 	// Skip if the response looks like a genuine completion (recap, "done", short answer)
+	// Skip if the last user message is a compact notification — model is re-establishing context
 	completionDetected := LooksLikeCompletion(text)
+	lastUserMsgIsCompact := false
+	for i := len(a.Context.Messages) - 1; i >= 0; i-- {
+		if a.Context.Messages[i].Role == "user" {
+			msgText := a.Context.Messages[i].GetText()
+			if strings.Contains(msgText, "[Context was compacted") ||
+				strings.Contains(msgText, "[Auto-compacted]") {
+				lastUserMsgIsCompact = true
+			}
+			break
+		}
+	}
 	if a.verbose {
 		logger.Debug("auto_continue_check",
 			"autoContinue", a.autoContinue,
 			"count", a.autoContinueCount,
 			"textLen", len(text),
 			"completionDetected", completionDetected,
+			"lastUserMsgIsCompact", lastUserMsgIsCompact,
 			"textPreview", truncate(text, 100),
 		)
 	}
-	if a.autoContinue && a.autoContinueCount < 3 && a.Context != nil && len(a.Context.Messages) > 0 && !completionDetected {
+	if a.autoContinue && a.autoContinueCount < 3 && a.Context != nil && len(a.Context.Messages) > 0 && !completionDetected && !lastUserMsgIsCompact {
 		lastMsg := a.Context.Messages[len(a.Context.Messages)-1]
 		if lastMsg.Role == "assistant" && len(text) > 0 {
 			// Model responded with text only, no tool calls

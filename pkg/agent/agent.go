@@ -68,6 +68,9 @@ type AgentLoop struct {
 	lastAutoCompactAt   int // iteration when last auto-compact happened
 	autoCompactCooldown int // iterations to skip after auto-compact (prevents loop)
 	currentIteration    int // tracks current iteration for cooldown calculations
+
+	// CompactForce cooldown — prevents repeated compaction calls
+	compactForceCooldownUntil time.Time // time until which compact_force is blocked
 }
 
 // NewAgentLoop creates a new agent loop
@@ -91,7 +94,9 @@ func NewAgentLoop(p provider.Provider) *AgentLoop {
 
 	// compact_force — registered later when context is fully initialized
 	// (needs CompactForceContext interface, which is the ConversationContext)
-	a.RegisterTool(tools.NewCompactForceTool(a.Context))
+	compactForceTool := tools.NewCompactForceTool(a.Context)
+	compactForceTool.SetCooldown(a) // set cooldown interface to prevent repeated calls
+	a.RegisterTool(compactForceTool)
 
 	// self_info — model can query its own identity and environment
 	a.RegisterTool(tools.NewSelfInfoTool(&tools.SelfInfoWrapper{
@@ -290,6 +295,13 @@ func (a *AgentLoop) effectiveMaxTokens() int {
 // Only enabled in TUI mode, not in sync mode (Run).
 func (a *AgentLoop) SetAutoContinue(v bool) {
 	a.autoContinue = v
+}
+
+// ResetAutoContinue resets the auto-continue counter.
+// Called after CompactForce — model may want to summarize after compact,
+// and we don't want auto-continue to force more tool calls.
+func (a *AgentLoop) ResetAutoContinue() {
+	a.autoContinueCount = 0
 }
 
 // EnableSubagents registers the delegate_task tool and configures
@@ -1105,10 +1117,13 @@ func (a *AgentLoop) injectSpeedMirror(iteration int, iterDuration time.Duration)
 	// Auto-compact when slowdown is critical (>3x) and context is large (>50%)
 	// This handles the case when model is "in the flow" and ignores mirror warnings
 	// Cooldown: skip auto-compact for 10 iterations after last one to prevent loops
-	if slowdownRatio > 3.0 && contextUsage > 50 && maxTokens > 0 {
+	// Also check time-based cooldown to prevent double compaction (tool + auto)
+		if slowdownRatio > 3.0 && contextUsage > 50 && maxTokens > 0 && !a.IsCompactForceCooldown() {
 		iterationsSinceLastCompact := iteration - a.lastAutoCompactAt
 		if a.lastAutoCompactAt == 0 || iterationsSinceLastCompact >= 10 {
 			a.lastAutoCompactAt = iteration
+			a.SetCompactForceCooldown() // block compact_force tool for 60s
+			a.autoContinueCount = 0     // reset auto-continue after compact — model may want to summarize
 			a.Context.CompactForce()
 			compactedTokens := a.Context.TokenCount()
 			compactedUsage := 0
@@ -1169,6 +1184,19 @@ func (a *AgentLoop) ResetSpeedTracking() {
 // Used by OnCompactForce callback to enforce cooldown after CompactForce tool call.
 func (a *AgentLoop) SetLastAutoCompactAt() {
 	a.lastAutoCompactAt = a.currentIteration
+}
+
+// IsCompactForceCooldown returns true if compact_force is currently in cooldown period.
+// This prevents the model from calling compact_force multiple times in a row.
+func (a *AgentLoop) IsCompactForceCooldown() bool {
+	return time.Now().Before(a.compactForceCooldownUntil)
+}
+
+// SetCompactForceCooldown sets the cooldown period for compact_force.
+// After any compact_force call (tool or auto-compact), subsequent calls are blocked
+// for 60 seconds to prevent excessive context reduction.
+func (a *AgentLoop) SetCompactForceCooldown() {
+	a.compactForceCooldownUntil = time.Now().Add(60 * time.Second)
 }
 
 // checkStaleProcesses checks for long-running background processes
@@ -1268,19 +1296,42 @@ func LooksLikeCompletion(text string) bool {
 	}
 
 	// Check for recap/summary markers — model has finished and summarized
-	// Match various formats: "※ Recap:", "Recap:", "Итог:", "Summary:"
+	// Match various formats: "※ Recap:", "※ Recap —", "Recap:", "Итог:", "Summary:"
 	// Also match without colon: "※ Recap", "Recap", etc.
 	recapMarkers := []string{
 		"※ recap:",
+		"※ recap —",
 		"※ recap",
 		"※ итог:",
+		"※ итог —",
 		"※ итог",
 		"recap:",
+		"recap —",
 		"итог:",
+		"итог —",
 		"summary:",
+		"summary —",
 	}
 	lower := strings.ToLower(text)
 	for _, marker := range recapMarkers {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+
+	// Check for context compaction acknowledgment — model responding to compact
+	// These indicate the model is acknowledging compaction, not continuing work
+	compactionAckMarkers := []string{
+		"[context was compacted",
+		"context was compacted",
+		"let me check the current state",
+		"let me re-establish",
+		"let me re-establish what",
+		"i'll check the current",
+		"позвольте мне проверить текущее",
+		"давайте проверю текущее",
+	}
+	for _, marker := range compactionAckMarkers {
 		if strings.Contains(lower, marker) {
 			return true
 		}
