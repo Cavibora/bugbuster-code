@@ -1229,7 +1229,7 @@ func (m TUI) View() tea.View {
 			elapsed := time.Since(m.toolStartTime).Round(100 * time.Millisecond)
 			// Don't truncate bash/write/edit commands — user must see full command for security
 			toolText := m.toolInProgress
-			noTruncateTool := m.currentToolName == "bash" || m.currentToolName == "write" || m.currentToolName == "edit"
+			noTruncateTool := m.currentToolName == "bash" || m.currentToolName == "write" || m.currentToolName == "edit" || m.currentToolName == "delegate_task"
 			if !noTruncateTool {
 				maxToolLen := m.width - 20
 				if maxToolLen < 40 {

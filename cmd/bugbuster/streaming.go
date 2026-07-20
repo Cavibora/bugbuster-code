@@ -455,7 +455,7 @@ streamLoop:
 					if len(params) > 0 {
 						summary := formatToolSummary(currentToolName, params)
 						// Don't truncate bash/write/edit commands — user must see full command for security
-						noTruncate := currentToolName == "bash" || currentToolName == "write" || currentToolName == "edit"
+						noTruncate := currentToolName == "bash" || currentToolName == "write" || currentToolName == "edit" || currentToolName == "delegate_task"
 						if !noTruncate {
 							width := terminalWidth()
 							maxLen := width - 10

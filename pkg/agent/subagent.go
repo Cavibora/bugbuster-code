@@ -346,7 +346,7 @@ func formatDuration(d time.Duration) string {
 // bash commands are shown in full for security — user must see what's being executed.
 func formatSubagentToolSummary(toolName string, params map[string]string) string {
 	displayKeys := []string{"path", "command", "pattern", "query", "prompt", "url", "file", "dir"}
-	noTruncate := toolName == "bash" || toolName == "write" || toolName == "edit"
+	noTruncate := toolName == "bash" || toolName == "write" || toolName == "edit" || toolName == "delegate_task"
 	for _, key := range displayKeys {
 		if v, ok := params[key]; ok {
 			display := v

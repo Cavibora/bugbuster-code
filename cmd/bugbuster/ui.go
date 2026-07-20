@@ -474,9 +474,9 @@ func FormatToolCallStart(name string, params map[string]string) string {
 	var parts []string
 	displayKeys := []string{"path", "command", "pattern", "query", "prompt", "url", "file", "dir", "lines", "task"}
 	shown := make(map[string]bool)
-	// bash, write, edit — показывать параметры полностью, без обрезки
-	// Это критично для безопасности: пользователь должен видеть полную команду
-	noTruncate := name == "bash" || name == "write" || name == "edit"
+	// bash, write, edit, delegate_task — показывать параметры полностью, без обрезки
+	// Это критично для безопасности: пользователь должен видеть полную команду/задачу
+	noTruncate := name == "bash" || name == "write" || name == "edit" || name == "delegate_task"
 
 	for _, key := range displayKeys {
 		if v, ok := params[key]; ok {
@@ -1085,7 +1085,7 @@ func formatToolSummary(toolName string, params map[string]string) string {
 	displayKeys := []string{"path", "command", "pattern", "query", "prompt", "url", "file", "dir", "lines", "task"}
 	shown := make(map[string]bool)
 	// bash, write, edit — показывать параметры полностью, без обрезки
-	noTruncate := toolName == "bash" || toolName == "write" || toolName == "edit"
+	noTruncate := toolName == "bash" || toolName == "write" || toolName == "edit" || toolName == "delegate_task"
 	for _, key := range displayKeys {
 		if v, ok := params[key]; ok {
 			display := v
