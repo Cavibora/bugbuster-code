@@ -824,9 +824,16 @@ func TestLooksLikeCompletion(t *testing.T) {
 		{"※ Recap — fixed the bug", true},  // without colon
 		{"※ Итог: Исправлен баг", true},
 		{"※ Итог — исправлен баг", true},   // without colon
+		{"※ Итоги: Исправлены баги", true},
+		{"※ Итоги — исправлены баги", true}, // without colon
 		{"Recap: all changes applied", true},
 		{"итог: задача выполнена", true},
+		{"итоги: задачи выполнены", true},
 		{"Summary: fixed 3 bugs", true},
+		{"резюме: всё сделано", true},
+		{"результаты: применены", true},
+		// ※ symbol alone means recap
+		{"※ Fixed the bug and updated the file", true},
 		// Explicit completion signals
 		{"Всё готово!", true},
 		{"Всё сделано", true},

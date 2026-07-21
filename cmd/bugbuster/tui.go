@@ -1094,6 +1094,15 @@ func (m TUI) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 				Render("  ↳ comment added to context") + "\n",
 		)
 		m.syncViewport()
+	case provider.EventAutoContinue:
+		// Show as dim system message (not as model text)
+		m.output.WriteString(
+			lipgloss.NewStyle().
+				Foreground(appTheme.Dim.LipglossColor()).
+				Italic(true).
+				Render("  ↻ auto-continue") + "\n",
+		)
+		m.syncViewport()
 	case provider.EventCompaction:
 		m.compacting = true
 		m.output.WriteString(

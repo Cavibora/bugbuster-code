@@ -1305,18 +1305,32 @@ func LooksLikeCompletion(text string) bool {
 		"※ итог:",
 		"※ итог —",
 		"※ итог",
+		"※ итоги:",
+		"※ итоги",
 		"recap:",
 		"recap —",
 		"итог:",
 		"итог —",
+		"итоги:",
+		"итоги —",
 		"summary:",
 		"summary —",
+		"резюме:",
+		"резюме —",
+		"результаты:",
+		"результаты —",
 	}
 	lower := strings.ToLower(text)
 	for _, marker := range recapMarkers {
 		if strings.Contains(lower, marker) {
 			return true
 		}
+	}
+
+	// Check for "※" symbol — it's used exclusively for Recap/Summary markers
+	// If the text contains "※", it's almost certainly a recap
+	if strings.Contains(text, "※") {
+		return true
 	}
 
 	// Check for context compaction acknowledgment — model responding to compact
@@ -1341,11 +1355,17 @@ func LooksLikeCompletion(text string) bool {
 	completionPhrases := []string{
 		"всё готово", "всё сделано", "задача выполнена",
 		"всё работает", "всё работает корректно",
-		"готово!", "готово.", "сделано!",
+		"готово!", "готово.", "готово\n", "готово ",
+		"сделано!", "сделано.",
+		"изменения внесены", "изменения применены",
+		"исправлено", "исправлено!", "исправлено.",
+		"файл обновлён", "файл обновлен",
 		"all done", "task complete", "everything works",
 		"task is complete", "task is done", "work is done",
 		"nothing more to do", "no more changes needed",
 		"no further action", "all changes have been",
+		"changes applied", "changes made",
+		"fixed the issue", "fixed the bug",
 	}
 	for _, phrase := range completionPhrases {
 		if strings.Contains(lower, phrase) {

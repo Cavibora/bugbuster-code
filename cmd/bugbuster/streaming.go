@@ -547,6 +547,10 @@ streamLoop:
 				color.HiYellow("  💬 %s", event.Text)
 				color.Yellow("  ↳ comment added to context")
 
+			case provider.EventAutoContinue:
+				// Show as dim system message
+				spinner.UpdateMessage("↻ auto-continue")
+
 			case provider.EventCompaction:
 				oldSpinner := spinner
 				spinner = stopActiveSpinner(spinner)

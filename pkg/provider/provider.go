@@ -24,6 +24,7 @@ const (
 	EventUserInjected    = "user_injected"    // user comment during agent execution
 	EventCompaction      = "compaction"       // context compaction started
 	EventCompactionDone  = "compaction_done"  // context compaction completed
+	EventAutoContinue    = "auto_continue"    // auto-continue prompt (not shown to user)
 	EventThinkingTimeout = "thinking_timeout" // model thinking too long without tokens
 )
 

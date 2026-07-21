@@ -210,6 +210,11 @@ func runExecStream(ctx context.Context, loop *agent.AgentLoop, cfg *config.BugBu
 				}
 				fmt.Fprintf(os.Stderr, "  ⎿ %s %s\n", status, event.ToolName)
 			}
+		case provider.EventAutoContinue:
+			// Show as dim system message in CLI
+			if !execJSON {
+				fmt.Fprintf(os.Stderr, "  ↻ auto-continue\n")
+			}
 		case provider.EventDone:
 			if execJSON {
 				emitJSONL(map[string]any{

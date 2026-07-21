@@ -649,7 +649,7 @@ func (a *AgentLoop) handleStreamFinalResponse(
 				)
 			}
 			a.Context.Add(provider.UserMsg(continueHint))
-			eventCh <- provider.StreamEvent{Type: provider.EventTextDelta, Text: "\n[Auto-continue: prompting model to use tools]\n"}
+			eventCh <- provider.StreamEvent{Type: provider.EventAutoContinue, Text: "[Auto-continue: prompting model to use tools]"}
 			return true, nil // continue loop — don't send EventDone
 		}
 	}
