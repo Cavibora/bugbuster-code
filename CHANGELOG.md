@@ -5,7 +5,7 @@ All notable changes to BugBuster Code will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.2.3] - 2025-07-15
+## [1.2.3] - 2026-07-15
 
 ### Added
 - **`/system` command** — show/set system prompt in TUI, CLI, and interactive modes. `/system` shows current prompt, `/system <text>` sets inline, `/system <file>` loads from file
@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **[Auto-continue] after Recap** — `EventTextDelta` replaced with `EventAutoContinue` so auto-continue messages no longer appear as model text in chat
 - **More completion markers** — `LooksLikeCompletion` now recognizes `※ Итоги`, `итоги`, `резюме`, `результаты`, `※` symbol alone, `Готово`/`Сделано`/`Исправлено` without punctuation, `Changes applied`, `Fixed the issue`
 - **Auto-continue in TUI** — shown as dim `↻ auto-continue` instead of full `[Auto-continue: prompting model to use tools]` text
+- **Nil pointer crash** — `Spinner.UpdateMessage` crash on `EventAutoContinue` when spinner was nil after `stopActiveSpinner`
 
 ## [1.2.2] - 2025-07-15
 
