@@ -1259,6 +1259,7 @@ func showHelp() {
 	fmt.Fprintln(cmdOutput, "    /cli           — " + i18n.T("cli.help_cli"))
 	fmt.Fprintln(cmdOutput, "    /auto          — " + i18n.T("cli.help_auto"))
 	fmt.Fprintln(cmdOutput, "    /compact       — " + i18n.T("cli.help_compact"))
+	fmt.Fprintln(cmdOutput, "    /system        — " + i18n.T("cli.help_system"))
 	fmt.Fprintln(cmdOutput, "    /clear         — " + i18n.T("cli.help_clear"))
 	fmt.Fprintln(cmdOutput, "    /model <name>  — " + i18n.T("cli.help_model"))
 	fmt.Fprintln(cmdOutput, "    /provider <n>  — " + i18n.T("cli.help_provider"))

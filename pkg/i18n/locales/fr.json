@@ -489,5 +489,7 @@
   "tools.write.param_content_desc": "File content",
   "tools.write.param_path": "paramètre 'path' obligatoire",
   "tools.write.param_path_desc": "Path to file",
-  "tools.write.success": "fichier %s écrit (%d octets)"
+  "tools.write.success": "fichier %s écrit (%d octets)",
+  "cli_help.system": "/system — Afficher/définir le prompt système, ou /system <fichier> pour charger depuis un fichier",
+  "cli.help_system": "/system — Afficher/définir le prompt système, ou /system <fichier> pour charger depuis un fichier"
 }

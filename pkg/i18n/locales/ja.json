@@ -489,5 +489,7 @@
   "tools.write.param_content_desc": "File content",
   "tools.write.param_path": "パラメータ 'path' は必須です",
   "tools.write.param_path_desc": "Path to file",
-  "tools.write.success": "ファイル %s を書き込みました (%d バイト)"
+  "tools.write.success": "ファイル %s を書き込みました (%d バイト)",
+  "cli_help.system": "/system — システムプロンプトの表示/設定、または /system <ファイル> でファイルから読み込み",
+  "cli.help_system": "/system — システムプロンプトの表示/設定、または /system <ファイル> でファイルから読み込み"
 }

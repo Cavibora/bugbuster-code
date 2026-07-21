@@ -489,5 +489,7 @@
   "tools.write.param_content_desc": "File content",
   "tools.write.param_path": "参数 'path' 是必需的",
   "tools.write.param_path_desc": "Path to file",
-  "tools.write.success": "文件 %s 已写入（%d 字节）"
+  "tools.write.success": "文件 %s 已写入（%d 字节）",
+  "cli_help.system": "/system — 显示/设置系统提示词，或 /system <文件> 从文件加载",
+  "cli.help_system": "/system — 显示/设置系统提示词，或 /system <文件> 从文件加载"
 }

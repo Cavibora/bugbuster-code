@@ -489,5 +489,7 @@
   "tools.write.param_content_desc": "File content",
   "tools.write.param_path": "parameter 'path' is required",
   "tools.write.param_path_desc": "Path to file",
-  "tools.write.success": "file %s written (%d bytes)"
+  "tools.write.success": "file %s written (%d bytes)",
+  "cli_help.system": "/system — Show/set system prompt, or /system <file> to load from file",
+  "cli.help_system": "/system — Show/set system prompt, or /system <file> to load from file"
 }

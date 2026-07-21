@@ -489,5 +489,7 @@
   "tools.write.param_content_desc": "Содержимое файла",
   "tools.write.param_path": "параметр 'path' обязателен",
   "tools.write.param_path_desc": "Путь к файлу",
-  "tools.write.success": "файл %s записан (%d байт)"
+  "tools.write.success": "файл %s записан (%d байт)",
+  "cli_help.system": "/system — Показать/задать системный промпт, или /system <файл> для загрузки из файла",
+  "cli.help_system": "/system — Показать/задать системный промпт, или /system <файл> для загрузки из файла"
 }

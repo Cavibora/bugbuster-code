@@ -62,6 +62,9 @@ func printHelpString() string {
 			    /diff     — Show changes
 			    /context  — Context info
 			    /tools    — List tools
+			    /compact  — Force context compaction
+			    /compact! — Force compact: strip all tool calls, errors, thinking
+			    /system   — Show/set system prompt (or /system <file> to load from file)
 		    /mcp      — MCP servers and auto-scanning
 		    /sessions — List sessions
 			    /model    — Switch model

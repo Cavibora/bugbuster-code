@@ -692,6 +692,39 @@ func (m TUI) handleSend() (retModel tea.Model, retCmd tea.Cmd) {
 		m.syncViewport()
 		m.textarea.Reset()
 		return m, nil
+	case "/system":
+		arg := strings.TrimSpace(strings.TrimPrefix(input, "/system"))
+		if arg == "" {
+			// Show current system prompt
+			currentPrompt := m.loop.Context.GetSystemPrompt()
+			if currentPrompt == "" {
+				m.output.WriteString(color.YellowString("  No system prompt set") + "\n")
+			} else {
+				m.output.WriteString(color.CyanString("Current system prompt:") + "\n")
+				m.output.WriteString(currentPrompt + "\n")
+			}
+		} else {
+			// Check if arg is a file path
+			var promptText string
+			if _, err := os.Stat(arg); err == nil {
+				data, err := os.ReadFile(arg)
+				if err != nil {
+					m.output.WriteString(errorStyle.Render(fmt.Sprintf("  ✗ Error reading file %s: %v", arg, err)) + "\n")
+				} else {
+					promptText = string(data)
+					m.output.WriteString(color.HiBlackString("  Loaded system prompt from file: %s (%d bytes)", arg, len(data)) + "\n")
+				}
+			} else {
+				promptText = arg
+			}
+			if promptText != "" {
+				m.loop.Context.SetSystemPrompt(promptText)
+				m.output.WriteString(color.GreenString("  ✓ System prompt set (%d chars)", len(promptText)) + "\n")
+			}
+		}
+		m.syncViewport()
+		m.textarea.Reset()
+		return m, nil
 	case "/context":
 		if m.streaming {
 			// During streaming use cached values (no data race)

@@ -76,6 +76,22 @@ func (c *ConversationContext) GetSystemPrompt() string {
 	return ""
 }
 
+// SetSystemPrompt replaces the system prompt in the context.
+// If no system message exists, it prepends one.
+// Thread-safe: acquires write lock.
+func (c *ConversationContext) SetSystemPrompt(prompt string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for i, m := range c.Messages {
+		if m.Role == "system" {
+			c.Messages[i] = provider.SystemMsg(prompt)
+			return
+		}
+	}
+	// No system message found — prepend
+	c.Messages = append([]provider.Message{provider.SystemMsg(prompt)}, c.Messages...)
+}
+
 // Reset clears context keeping system prompt.
 // Thread-safe: acquires write lock.
 func (c *ConversationContext) Reset() {

@@ -233,6 +233,47 @@ func handleCommand(input string, loop *agent.AgentLoop, cfg *config.BugBusterCon
 	case input == "/help":
 		printHelp()
 		return true, "", ""
+	case strings.HasPrefix(input, "/system "):
+		arg := strings.TrimSpace(strings.TrimPrefix(input, "/system"))
+		if arg == "" {
+			// Show current system prompt
+			currentPrompt := loop.Context.GetSystemPrompt()
+			if currentPrompt == "" {
+				color.Yellow("No system prompt set")
+			} else {
+				color.Cyan("Current system prompt:")
+				fmt.Fprintln(cmdOutput, currentPrompt)
+			}
+			return true, "", ""
+		}
+		// Check if arg is a file path
+		var promptText string
+		if _, err := os.Stat(arg); err == nil {
+			// It's a file — read it
+			data, err := os.ReadFile(arg)
+			if err != nil {
+				color.Red("Error reading file %s: %v", arg, err)
+				return true, "", ""
+			}
+			promptText = string(data)
+			color.HiBlack("Loaded system prompt from file: %s (%d bytes)", arg, len(data))
+		} else {
+			// It's inline text
+			promptText = arg
+		}
+		loop.Context.SetSystemPrompt(promptText)
+		color.Green("✓ System prompt set (%d chars)", len(promptText))
+		return true, "", ""
+	case input == "/system":
+		// Show current system prompt
+		currentPrompt := loop.Context.GetSystemPrompt()
+		if currentPrompt == "" {
+			color.Yellow("No system prompt set")
+		} else {
+			color.Cyan("Current system prompt:")
+			fmt.Fprintln(cmdOutput, currentPrompt)
+		}
+		return true, "", ""
 	case input == "/reset":
 		loop.Context.Reset()
 		if loop.LoopDetector != nil {
