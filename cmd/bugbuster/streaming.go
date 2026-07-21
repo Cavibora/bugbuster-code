@@ -549,7 +549,9 @@ streamLoop:
 
 			case provider.EventAutoContinue:
 				// Show as dim system message
-				spinner.UpdateMessage("↻ auto-continue")
+				if spinner != nil && spinner.IsActive() {
+					spinner.UpdateMessage("↻ auto-continue")
+				}
 
 			case provider.EventCompaction:
 				oldSpinner := spinner
