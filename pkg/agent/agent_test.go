@@ -834,6 +834,22 @@ func TestLooksLikeCompletion(t *testing.T) {
 		{"результаты: применены", true},
 		// ※ symbol alone means recap
 		{"※ Fixed the bug and updated the file", true},
+		// Standalone recap words at start of text (without colon/dash)
+		{"Recap\nFixed the bug", true},
+		{"Recap Fixed the bug", true},
+		{"Recap. Here's what was done.", true},
+		{"Итог\nИсправлен баг", true},
+		{"Итоги\nИсправлены баги", true},
+		{"Summary\nAll changes applied", true},
+		{"Резюме\nВсё сделано", true},
+		{"Результаты\nПрименены", true},
+		// Recap word NOT at start should NOT match (unless with colon/dash)
+		{"Here is the recap of what we did", false},
+		// Context compaction acknowledgment
+		{"[Context was compacted to save space]", true},
+		{"Context was compacted, let me continue", true},
+		{"Let me check the current state of the project", true},
+		{"Let me re-establish what we were working on", true},
 		// Explicit completion signals
 		{"Всё готово!", true},
 		{"Всё сделано", true},
@@ -847,6 +863,27 @@ func TestLooksLikeCompletion(t *testing.T) {
 		{"No more changes needed", true},
 		{"No further action required", true},
 		{"All changes have been applied", true},
+		// Additional completion phrases
+		{"That's all for now", true},
+		{"That is all", true},
+		{"That's it, the task is done", true},
+		{"Nothing else to do here", true},
+		{"No more work needed", true},
+		{"The task is finished", true},
+		{"Work complete", true},
+		{"Mission accomplished", true},
+		{"Всё", true},
+		{"Конец", true},
+		{"Завершено", true},
+		{"Выполнено", true},
+		{"Changes applied successfully", true},
+		{"Changes made to the file", true},
+		{"Fixed the issue", true},
+		{"Fixed the bug", true},
+		{"Исправлено", true},
+		{"Исправлено!", true},
+		{"Изменения внесены", true},
+		{"Изменения применены", true},
 		// Short answers
 		{"Да", true},
 		{"Нет, это не так", true},
@@ -858,6 +895,8 @@ func TestLooksLikeCompletion(t *testing.T) {
 		{"I'll continue working on this", false},
 		{"", false},
 		{"Here's what I found:\n1. Bug in line 5\n2. Need to fix", false},
+		{"The bug is in the main function", false},
+		{"I need to read the file first", false},
 	}
 
 	for _, tt := range tests {

@@ -488,32 +488,45 @@ func (a *AgentLoop) runLoop() (string, error) {
 				// Auto-continue: model responded without tool calls (max 3 times)
 				// Only when auto-continue is enabled (TUI mode)
 				// Skip if the response looks like a genuine completion (recap, "done", short answer)
+				// Skip if the last user message is a compact notification — model is re-establishing context
 				completionDetected := LooksLikeCompletion(text)
+				lastUserMsgIsCompact := false
+				for i := len(a.Context.Messages) - 1; i >= 0; i-- {
+					if a.Context.Messages[i].Role == "user" {
+						msgText := a.Context.Messages[i].GetText()
+						if strings.Contains(msgText, "[Context was compacted") ||
+							strings.Contains(msgText, "[Auto-compacted]") {
+							lastUserMsgIsCompact = true
+						}
+						break
+					}
+				}
 				if a.verbose {
 					logger.Debug("auto_continue_check",
 						"autoContinue", a.autoContinue,
 						"count", a.autoContinueCount,
 						"textLen", len(text),
 						"completionDetected", completionDetected,
+						"lastUserMsgIsCompact", lastUserMsgIsCompact,
 						"textPreview", truncate(text, 100),
 					)
 				}
-				if a.autoContinue && a.autoContinueCount < 3 && a.Context != nil && !completionDetected {
-						a.autoContinueCount++
-						continueHint := "Continue working. Use tools to read files, run commands, or search code. Do not just describe what to do — actually do it using tools."
-						if a.Context.OriginalTask != "" {
-							continueHint = fmt.Sprintf(
-								"You responded with text only, but your task is not done yet.\n"+
-									"Original task: %s\n\n"+
-									"Continue working — use tools (read, bash, grep, edit, etc.) to make progress. "+
-									"Do NOT just describe what needs to be done. Actually DO it.",
-								a.Context.OriginalTask,
-							)
-						}
-						a.Context.Add(provider.UserMsg(continueHint))
-						continue
+				if a.autoContinue && a.autoContinueCount < 3 && a.Context != nil && !completionDetected && !lastUserMsgIsCompact {
+					a.autoContinueCount++
+					continueHint := "Continue working. Use tools to read files, run commands, or search code. Do not just describe what to do — actually do it using tools."
+					if a.Context.OriginalTask != "" {
+						continueHint = fmt.Sprintf(
+							"You responded with text only, but your task is not done yet.\n"+
+								"Original task: %s\n\n"+
+								"Continue working — use tools (read, bash, grep, edit, etc.) to make progress. "+
+								"Do NOT just describe what needs to be done. Actually DO it.",
+							a.Context.OriginalTask,
+						)
 					}
-					return text, nil
+					a.Context.Add(provider.UserMsg(continueHint))
+					continue
+				}
+				return text, nil
 				}
 				// toolCalls exist but with empty parameters — and no XML fallback
 				// Leave as is, tools will return an error
@@ -1295,10 +1308,19 @@ func LooksLikeCompletion(text string) bool {
 		return false
 	}
 
+	lower := strings.ToLower(text)
+
+	// Check for "※" symbol — it's used exclusively for Recap/Summary markers
+	// If the text contains "※", it's almost certainly a recap
+	if strings.Contains(text, "※") {
+		return true
+	}
+
 	// Check for recap/summary markers — model has finished and summarized
 	// Match various formats: "※ Recap:", "※ Recap —", "Recap:", "Итог:", "Summary:"
 	// Also match without colon: "※ Recap", "Recap", etc.
 	recapMarkers := []string{
+		// With ※ prefix
 		"※ recap:",
 		"※ recap —",
 		"※ recap",
@@ -1307,6 +1329,7 @@ func LooksLikeCompletion(text string) bool {
 		"※ итог",
 		"※ итоги:",
 		"※ итоги",
+		// Without ※ — standalone markers
 		"recap:",
 		"recap —",
 		"итог:",
@@ -1320,17 +1343,31 @@ func LooksLikeCompletion(text string) bool {
 		"результаты:",
 		"результаты —",
 	}
-	lower := strings.ToLower(text)
 	for _, marker := range recapMarkers {
 		if strings.Contains(lower, marker) {
 			return true
 		}
 	}
 
-	// Check for "※" symbol — it's used exclusively for Recap/Summary markers
-	// If the text contains "※", it's almost certainly a recap
-	if strings.Contains(text, "※") {
-		return true
+	// Check if text starts with "Recap" or "Итог" as a standalone word
+	// This catches cases like "Recap\n..." or "Итог\n..." without colon/dash
+	firstLine := text
+	if idx := strings.Index(text, "\n"); idx >= 0 {
+		firstLine = text[:idx]
+	}
+	firstLineLower := strings.TrimSpace(strings.ToLower(firstLine))
+	recapStartWords := []string{
+		"recap",
+		"итог",
+		"итоги",
+		"summary",
+		"резюме",
+		"результаты",
+	}
+	for _, word := range recapStartWords {
+		if firstLineLower == word || strings.HasPrefix(firstLineLower, word+" ") || strings.HasPrefix(firstLineLower, word+".") || strings.HasPrefix(firstLineLower, word+",") || strings.HasPrefix(firstLineLower, word+"!") {
+			return true
+		}
 	}
 
 	// Check for context compaction acknowledgment — model responding to compact
@@ -1366,6 +1403,16 @@ func LooksLikeCompletion(text string) bool {
 		"no further action", "all changes have been",
 		"changes applied", "changes made",
 		"fixed the issue", "fixed the bug",
+		// Additional common completion phrases
+		"that's all", "that is all",
+		"that's it", "that is it",
+		"nothing else to do", "nothing else needed",
+		"no more work needed", "no more work to do",
+		"the task is finished", "task finished",
+		"the work is complete", "work complete",
+		"mission accomplished",
+		"всё", "конец", "завершено",
+		"выполнено", "сделано",
 	}
 	for _, phrase := range completionPhrases {
 		if strings.Contains(lower, phrase) {
