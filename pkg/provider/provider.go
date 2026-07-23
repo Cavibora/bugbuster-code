@@ -93,17 +93,19 @@ type Usage struct {
 
 // ProviderConfig — provider configuration (from YAML)
 type ProviderConfig struct {
-	Type          string           `yaml:"type"`           // "openai", "anthropic", "ollama", "cavibora", "openai_compat"
-	BaseURL       string           `yaml:"base_url"`       // API URL (optional, default by type)
-	APIKey        string           `yaml:"api_key"`        // API key (optional)
-	Model         string           `yaml:"model"`          // model name
-	MaxTokens     int              `yaml:"max_tokens"`     // max_tokens for API request (output tokens), 0 = provider default
-	ContextWindow int              `yaml:"context_window"` // model context window size (for compaction), 0 = agent.max_tokens
-	BudgetTokens  int              `yaml:"budget_tokens"`  // budget_tokens for thinking (Anthropic), 0 = default 4096
-	Temperature   float64          `yaml:"temperature"`    // sampling temperature (0.0-2.0), 0 = provider default
-	TopP          float64          `yaml:"top_p"`          // top-p sampling (0.0-1.0), 0 = provider default
-	TopK          int              `yaml:"top_k"`          // top-k sampling, 0 = provider default
-	Security      ProviderSecurity `yaml:"security"`       // settings security provider
+	Type          string           `yaml:"type"`            // "openai", "anthropic", "ollama", "cavibora", "openai_compat"
+	BaseURL       string           `yaml:"base_url"`        // API URL (optional, default by type)
+	APIKey        string           `yaml:"api_key"`         // API key (optional)
+	Model         string           `yaml:"model"`           // model name
+	MaxTokens     int              `yaml:"max_tokens"`      // max_tokens for API request (output tokens), 0 = provider default
+	ContextWindow int              `yaml:"context_window"`  // model context window size (for compaction), 0 = agent.max_tokens
+	BudgetTokens  int              `yaml:"budget_tokens"`   // budget_tokens for thinking (Anthropic), 0 = default 4096
+	Temperature   float64          `yaml:"temperature"`     // sampling temperature (0.0-2.0), 0 = provider default
+	TopP          float64          `yaml:"top_p"`           // top-p sampling (0.0-1.0), 0 = provider default
+	TopK          int              `yaml:"top_k"`           // top-k sampling, 0 = provider default
+	Security      ProviderSecurity `yaml:"security"`        // settings security provider
+	SystemPrompt  string           `yaml:"system_prompt"`   // per-provider system prompt override (appended to default)
+	Skills        []string         `yaml:"skills"`           // per-provider skill names to activate (e.g., ["debug", "refactor"])
 }
 
 // ProviderSecurity — settings security provider

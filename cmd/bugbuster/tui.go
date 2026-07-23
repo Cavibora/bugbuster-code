@@ -1550,6 +1550,8 @@ func switchProviderTUI(cfg *config.BugBusterConfig, providerName string, loop *a
 	}
 
 	loop.SetProvider(p)
+	// Rebuild system prompt with per-provider settings
+	rebuildSystemPrompt(loop, cfg, providerName)
 	return p, nil
 }
 

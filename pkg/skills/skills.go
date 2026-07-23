@@ -139,6 +139,25 @@ func (m *Manager) Activate(name string) (string, error) {
 	return fmt.Sprintf("## Active Skill: %s\n\n%s", s.Name, s.Content), nil
 }
 
+// Active returns the names of all currently active (available) skills.
+func (m *Manager) Active() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	names := make([]string, 0, len(m.skills))
+	for name := range m.skills {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// Deactivate removes a skill from the manager.
+func (m *Manager) Deactivate(name string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.skills, name)
+}
+
 // extractDescription gets the first line after # heading from markdown.
 func extractDescription(content string) string {
 	lines := strings.Split(content, "\n")

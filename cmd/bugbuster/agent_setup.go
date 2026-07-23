@@ -417,6 +417,11 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 		systemPrompt += "\n\n" + memoryContent
 	}
 
+	// Per-provider system prompt override (appended to default)
+	if provCfg.SystemPrompt != "" {
+		systemPrompt += "\n\n" + provCfg.SystemPrompt
+	}
+
 	// Skill system — reusable instruction sets for complex tasks
 	skillMgr := skills.NewManager()
 	skillMgr.LoadBuiltins()
@@ -427,6 +432,18 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 	home, _ := os.UserHomeDir()
 	globalSkillsDir := filepath.Join(home, ".bugbuster", "skills")
 	skillMgr.LoadFromDir(globalSkillsDir, "global")
+
+	// Per-provider skills — activate skills specified in provider config
+	for _, skillName := range provCfg.Skills {
+		if _, err := skillMgr.Activate(skillName); err != nil {
+			if verbose {
+				color.Yellow("[Skill] Failed to activate per-provider skill %q: %v", skillName, err)
+			}
+		} else if verbose {
+			color.Green("[Skill] Activated per-provider skill: %s", skillName)
+		}
+	}
+
 	loop.SkillManager = skillMgr
 
 	loop.SetSystemPrompt(systemPrompt)
@@ -568,6 +585,57 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 	return loop
 }
 
+// rebuildSystemPrompt rebuilds the system prompt when switching providers/models.
+// It re-applies the base system prompt, memory facts, per-provider system_prompt,
+// and per-provider skills from the new provider config.
+func rebuildSystemPrompt(loop *agent.AgentLoop, cfg *config.BugBusterConfig, providerName string) {
+	provCfg, ok := cfg.Providers[providerName]
+	if !ok {
+		return
+	}
+
+	dir := projectDir
+	if dir == "" {
+		dir, _ = os.Getwd()
+	}
+
+	// Rebuild base system prompt
+	systemPrompt := agent.BuildSystemPrompt(dir, loop.Tools)
+
+	// Re-inject memory facts
+	memTool, ok := loop.Tools["memory"].(*tools.MemoryTool)
+	if ok {
+		memoryContent := memTool.LoadAllFacts()
+		if memoryContent != "" {
+			systemPrompt += "\n\n" + memoryContent
+		}
+	}
+
+	// Per-provider system prompt override (appended to default)
+	if provCfg.SystemPrompt != "" {
+		systemPrompt += "\n\n" + provCfg.SystemPrompt
+	}
+
+	// Per-provider skills — activate skills specified in provider config
+	if loop.SkillManager != nil {
+		// Deactivate all skills first, then activate per-provider skills
+		for _, skillName := range loop.SkillManager.Active() {
+			loop.SkillManager.Deactivate(skillName)
+		}
+		for _, skillName := range provCfg.Skills {
+			if _, err := loop.SkillManager.Activate(skillName); err != nil {
+				if verbose {
+					color.Yellow("[Skill] Failed to activate per-provider skill %q: %v", skillName, err)
+				}
+			} else if verbose {
+				color.Green("[Skill] Activated per-provider skill: %s", skillName)
+			}
+		}
+	}
+
+	loop.SetSystemPrompt(systemPrompt)
+}
+
 // switchModel switches model. Returns the provider name if successful.
 func switchModel(loop *agent.AgentLoop, cfg *config.BugBusterConfig, modelName string) string {
 	for name, prov := range cfg.Providers {
@@ -578,6 +646,8 @@ func switchModel(loop *agent.AgentLoop, cfg *config.BugBusterConfig, modelName s
 				return ""
 			}
 			loop.SetProvider(p)
+			// Rebuild system prompt with per-provider settings
+			rebuildSystemPrompt(loop, cfg, name)
 			color.Green("%s", i18n.T("cli_success.model_switched", modelName, name))
 			return name
 		}
@@ -607,6 +677,8 @@ func switchProvider(loop *agent.AgentLoop, cfg *config.BugBusterConfig, provider
 	}
 
 	loop.SetProvider(p)
+	// Rebuild system prompt with per-provider settings
+	rebuildSystemPrompt(loop, cfg, providerName)
 	color.Green("%s", i18n.T("cli_success.provider_switched", providerName, provCfg.Model))
 	return providerName
 }

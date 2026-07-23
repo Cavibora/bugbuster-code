@@ -31,6 +31,14 @@ providers:
     temperature: 0.7
     security:
       allow_network: true
+    # Per-provider system prompt (appended to default system prompt)
+    # system_prompt: |
+    #   You are an expert in Rust and systems programming.
+    #   Always use idiomatic Rust patterns and provide detailed explanations.
+    # Per-provider skills to activate (available: debug, refactor, review, migrate, test)
+    # skills:
+    #   - debug
+    #   - review
 
   # OpenAI-compatible endpoint (any provider with OpenAI API)
   openai_compat:

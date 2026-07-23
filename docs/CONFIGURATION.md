@@ -302,6 +302,44 @@ All found files are loaded and appended to the system prompt.
 
 ## Provider Types
 
+### Per-Provider System Prompt & Skills
+
+Each provider can have its own system prompt and skills that are appended to the default system prompt when that provider is active. When you switch providers, the system prompt is rebuilt with the new provider's settings.
+
+```yaml
+providers:
+  openai:
+    type: openai
+    api_key: ${OPENAI_API_KEY}
+    model: gpt-4o
+    # Per-provider system prompt (appended to default system prompt)
+    system_prompt: |
+      You are an expert in Rust and systems programming.
+      Always use idiomatic Rust patterns and provide detailed explanations.
+      Focus on safety and performance.
+    # Per-provider skills to activate (available: debug, refactor, review, migrate, test)
+    skills:
+      - debug
+      - review
+
+  anthropic:
+    type: anthropic
+    api_key: ${ANTHROPIC_API_KEY}
+    model: claude-sonnet-4-20250514
+    system_prompt: |
+      You are a senior Python developer.
+      Follow PEP 8 style guide and write comprehensive type hints.
+    skills:
+      - refactor
+      - test
+```
+
+**How it works:**
+- `system_prompt` — text appended to the default system prompt. Use it to add provider-specific instructions, coding style preferences, or domain expertise.
+- `skills` — list of skill names to activate automatically when this provider is selected. Available built-in skills: `debug`, `refactor`, `review`, `migrate`, `test`. You can also create custom skills in `.bugbuster/skills/` (project) or `~/.bugbuster/skills/` (global).
+- When switching providers with `/provider` or `/model`, the system prompt is rebuilt with the new provider's `system_prompt` and `skills`.
+- When switching back, the previous provider's `system_prompt` and `skills` are removed and the new ones are applied.
+
 ### OpenAI
 
 ```yaml

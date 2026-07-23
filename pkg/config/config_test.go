@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"bugbuster-code/pkg/provider"
@@ -421,5 +422,130 @@ func TestMergeConfigs_AllowNetwork(t *testing.T) {
 	merged2 := MergeConfigs(base, override, override2)
 	if !merged2.Security.AllowNetwork {
 		t.Errorf("Expected AllowNetwork=true (true wins over false), got %v", merged2.Security.AllowNetwork)
+	}
+}
+
+func TestProviderConfig_SystemPromptAndSkills(t *testing.T) {
+	// Test that SystemPrompt and Skills fields are properly loaded from YAML
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".bugbuster.yaml")
+
+	yamlContent := `
+default_provider: openai
+providers:
+  openai:
+    type: openai
+    api_key: sk-test
+    model: gpt-4o
+    system_prompt: |
+      You are an expert in Rust and systems programming.
+      Always use idiomatic Rust patterns.
+    skills:
+      - debug
+      - review
+  anthropic:
+    type: anthropic
+    api_key: sk-test2
+    model: claude-sonnet-4-20250514
+`
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig error: %v", err)
+	}
+
+	// Check openai provider has system_prompt and skills
+	openai, ok := cfg.Providers["openai"]
+	if !ok {
+		t.Fatal("Expected 'openai' provider")
+	}
+	if openai.SystemPrompt == "" {
+		t.Error("Expected SystemPrompt to be set for openai provider")
+	}
+	if !strings.Contains(openai.SystemPrompt, "Rust") {
+		t.Errorf("Expected SystemPrompt to contain 'Rust', got '%s'", openai.SystemPrompt)
+	}
+	if len(openai.Skills) != 2 {
+		t.Errorf("Expected 2 skills for openai provider, got %d", len(openai.Skills))
+	}
+	if openai.Skills[0] != "debug" || openai.Skills[1] != "review" {
+		t.Errorf("Expected skills ['debug', 'review'], got %v", openai.Skills)
+	}
+
+	// Check anthropic provider has no system_prompt or skills
+	anthropic, ok := cfg.Providers["anthropic"]
+	if !ok {
+		t.Fatal("Expected 'anthropic' provider")
+	}
+	if anthropic.SystemPrompt != "" {
+		t.Errorf("Expected empty SystemPrompt for anthropic provider, got '%s'", anthropic.SystemPrompt)
+	}
+	if len(anthropic.Skills) != 0 {
+		t.Errorf("Expected 0 skills for anthropic provider, got %d", len(anthropic.Skills))
+	}
+}
+
+func TestProviderConfig_SystemPromptAndSkills_SaveLoad(t *testing.T) {
+	// Test that SystemPrompt and Skills survive save/load cycle
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".bugbuster.yaml")
+
+	cfg := DefaultConfig()
+	cfg.Providers["openai"] = provider.ProviderConfig{
+		Type:         "openai",
+		APIKey:       "sk-test",
+		Model:        "gpt-4o",
+		SystemPrompt: "You are a Python expert.\nAlways follow PEP 8.",
+		Skills:       []string{"refactor", "test"},
+	}
+
+	if err := cfg.SaveConfig(configPath); err != nil {
+		t.Fatalf("SaveConfig error: %v", err)
+	}
+
+	loaded, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig error: %v", err)
+	}
+
+	openai := loaded.Providers["openai"]
+	if openai.SystemPrompt != cfg.Providers["openai"].SystemPrompt {
+		t.Errorf("SystemPrompt mismatch: got '%s', want '%s'", openai.SystemPrompt, cfg.Providers["openai"].SystemPrompt)
+	}
+	if len(openai.Skills) != 2 {
+		t.Errorf("Expected 2 skills, got %d", len(openai.Skills))
+	}
+	if openai.Skills[0] != "refactor" || openai.Skills[1] != "test" {
+		t.Errorf("Skills mismatch: got %v", openai.Skills)
+	}
+}
+
+func TestMergeConfigs_SystemPromptAndSkills(t *testing.T) {
+	// Test that SystemPrompt and Skills are properly merged
+	base := DefaultConfig()
+
+	override := &BugBusterConfig{
+		Providers: map[string]provider.ProviderConfig{
+			"openai": {
+				Type:         "openai",
+				APIKey:       "sk-test",
+				Model:        "gpt-4o",
+				SystemPrompt: "Custom prompt for OpenAI",
+				Skills:       []string{"debug"},
+			},
+		},
+	}
+
+	merged := MergeConfigs(base, override)
+
+	openai := merged.Providers["openai"]
+	if openai.SystemPrompt != "Custom prompt for OpenAI" {
+		t.Errorf("Expected SystemPrompt='Custom prompt for OpenAI', got '%s'", openai.SystemPrompt)
+	}
+	if len(openai.Skills) != 1 || openai.Skills[0] != "debug" {
+		t.Errorf("Expected skills=['debug'], got %v", openai.Skills)
 	}
 }

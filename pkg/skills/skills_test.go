@@ -209,3 +209,87 @@ func containsStr(s, substr string) bool {
 	}
 	return false
 }
+
+func TestActive(t *testing.T) {
+	m := NewManager()
+	m.LoadBuiltins()
+
+	// Initially, all builtins are "active" (available)
+	active := m.Active()
+	if len(active) == 0 {
+		t.Error("Expected at least one active skill after LoadBuiltins")
+	}
+
+	// Check that built-in skills are listed
+	found := false
+	for _, name := range active {
+		if name == "debug" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Expected 'debug' in active skills, got %v", active)
+	}
+}
+
+func TestDeactivate(t *testing.T) {
+	m := NewManager()
+	m.LoadBuiltins()
+
+	// Verify debug exists
+	_, ok := m.Get("debug")
+	if !ok {
+		t.Fatal("Expected 'debug' skill to exist")
+	}
+
+	// Deactivate debug
+	m.Deactivate("debug")
+
+	// Verify debug is gone
+	_, ok = m.Get("debug")
+	if ok {
+		t.Error("Expected 'debug' skill to be deactivated (removed)")
+	}
+
+	// Verify other skills still exist
+	_, ok = m.Get("refactor")
+	if !ok {
+		t.Error("Expected 'refactor' skill to still exist after deactivating 'debug'")
+	}
+}
+
+func TestDeactivateNonExistent(t *testing.T) {
+	m := NewManager()
+	m.LoadBuiltins()
+
+	// Deactivating a non-existent skill should not panic
+	m.Deactivate("nonexistent")
+
+	// Built-in skills should still be there
+	_, ok := m.Get("debug")
+	if !ok {
+		t.Error("Expected 'debug' skill to still exist after deactivating nonexistent")
+	}
+}
+
+func TestActiveAfterDeactivate(t *testing.T) {
+	m := NewManager()
+	m.LoadBuiltins()
+
+	// Deactivate some skills
+	m.Deactivate("debug")
+	m.Deactivate("refactor")
+
+	active := m.Active()
+
+	// Verify deactivated skills are not in active list
+	for _, name := range active {
+		if name == "debug" {
+			t.Error("Expected 'debug' to be deactivated and not in active list")
+		}
+		if name == "refactor" {
+			t.Error("Expected 'refactor' to be deactivated and not in active list")
+		}
+	}
+}
