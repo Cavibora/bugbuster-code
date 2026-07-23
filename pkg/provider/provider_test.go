@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -149,6 +150,82 @@ func TestNewFromConfig(t *testing.T) {
 		if !tt.shouldError && err != nil {
 			t.Errorf("Unexpected error for provider type '%s': %v", tt.providerType, err)
 		}
+	}
+}
+
+func TestLoadSystemPromptFile_Empty(t *testing.T) {
+	cfg := ProviderConfig{SystemPromptFile: ""}
+	result := cfg.LoadSystemPromptFile()
+	if result != "" {
+		t.Errorf("Expected empty string for empty SystemPromptFile, got '%s'", result)
+	}
+}
+
+func TestLoadSystemPromptFile_NotFound(t *testing.T) {
+	cfg := ProviderConfig{SystemPromptFile: "/nonexistent/path/prompt.md"}
+	result := cfg.LoadSystemPromptFile()
+	if result != "" {
+		t.Errorf("Expected empty string for nonexistent file, got '%s'", result)
+	}
+}
+
+func TestLoadSystemPromptFile_Valid(t *testing.T) {
+	// Create a temp file with content
+	tmpFile, err := os.CreateTemp("", "system_prompt_*.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	content := "# Custom System Prompt\n\nYou are a Rust expert.\nAlways follow best practices."
+	if _, err := tmpFile.WriteString(content); err != nil {
+		t.Fatal(err)
+	}
+	tmpFile.Close()
+
+	cfg := ProviderConfig{SystemPromptFile: tmpFile.Name()}
+	result := cfg.LoadSystemPromptFile()
+	if result != content {
+		t.Errorf("Expected '%s', got '%s'", content, result)
+	}
+}
+
+func TestLoadSystemPromptFile_TrimsWhitespace(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "system_prompt_*.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	content := "  \n  Hello World  \n  "
+	if _, err := tmpFile.WriteString(content); err != nil {
+		t.Fatal(err)
+	}
+	tmpFile.Close()
+
+	cfg := ProviderConfig{SystemPromptFile: tmpFile.Name()}
+	result := cfg.LoadSystemPromptFile()
+	if result != "Hello World" {
+		t.Errorf("Expected trimmed 'Hello World', got '%s'", result)
+	}
+}
+
+func TestProviderConfig_SystemPromptFileAndSkillsDir(t *testing.T) {
+	// Test that SystemPromptFile and SkillsDir fields are properly set
+	cfg := ProviderConfig{
+		Type:             "openai",
+		SystemPromptFile: "/path/to/prompt.md",
+		SkillsDir:        "/path/to/skills",
+		Skills:           []string{"debug", "refactor"},
+	}
+	if cfg.SystemPromptFile != "/path/to/prompt.md" {
+		t.Errorf("Expected SystemPromptFile='/path/to/prompt.md', got '%s'", cfg.SystemPromptFile)
+	}
+	if cfg.SkillsDir != "/path/to/skills" {
+		t.Errorf("Expected SkillsDir='/path/to/skills', got '%s'", cfg.SkillsDir)
+	}
+	if len(cfg.Skills) != 2 {
+		t.Errorf("Expected 2 skills, got %d", len(cfg.Skills))
 	}
 }
 

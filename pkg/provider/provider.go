@@ -2,6 +2,8 @@ package provider
 
 import (
 	"context"
+	"os"
+	"strings"
 	"time"
 )
 
@@ -104,8 +106,10 @@ type ProviderConfig struct {
 	TopP          float64          `yaml:"top_p"`           // top-p sampling (0.0-1.0), 0 = provider default
 	TopK          int              `yaml:"top_k"`           // top-k sampling, 0 = provider default
 	Security      ProviderSecurity `yaml:"security"`        // settings security provider
-	SystemPrompt  string           `yaml:"system_prompt"`   // per-provider system prompt override (appended to default)
-	Skills        []string         `yaml:"skills"`           // per-provider skill names to activate (e.g., ["debug", "refactor"])
+	SystemPrompt     string           `yaml:"system_prompt"`      // per-provider system prompt override (appended to default)
+	SystemPromptFile string           `yaml:"system_prompt_file"` // per-provider system prompt from file (appended after system_prompt)
+	Skills           []string         `yaml:"skills"`              // per-provider skill names to activate (e.g., ["debug", "refactor"])
+	SkillsDir        string           `yaml:"skills_dir"`           // per-provider skills directory (loaded in addition to builtins/project/global)
 }
 
 // ProviderSecurity — settings security provider
@@ -136,4 +140,17 @@ func (c ProviderConfig) GetBaseURL() string {
 		return c.BaseURL
 	}
 	return c.DefaultBaseURL()
+}
+
+// LoadSystemPromptFile reads the system prompt from file if system_prompt_file is set.
+// Returns the file content or empty string if not set or file not found.
+func (c ProviderConfig) LoadSystemPromptFile() string {
+	if c.SystemPromptFile == "" {
+		return ""
+	}
+	data, err := os.ReadFile(c.SystemPromptFile)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }

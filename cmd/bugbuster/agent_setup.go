@@ -422,6 +422,11 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 		systemPrompt += "\n\n" + provCfg.SystemPrompt
 	}
 
+	// Per-provider system prompt from file (appended after system_prompt)
+	if filePrompt := provCfg.LoadSystemPromptFile(); filePrompt != "" {
+		systemPrompt += "\n\n" + filePrompt
+	}
+
 	// Skill system — reusable instruction sets for complex tasks
 	skillMgr := skills.NewManager()
 	skillMgr.LoadBuiltins()
@@ -432,6 +437,10 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 	home, _ := os.UserHomeDir()
 	globalSkillsDir := filepath.Join(home, ".bugbuster", "skills")
 	skillMgr.LoadFromDir(globalSkillsDir, "global")
+	// Per-provider skills directory (loaded in addition to builtins/project/global)
+	if provCfg.SkillsDir != "" {
+		skillMgr.LoadFromDir(provCfg.SkillsDir, "provider")
+	}
 
 	// Per-provider skills — activate skills specified in provider config
 	for _, skillName := range provCfg.Skills {
@@ -616,11 +625,29 @@ func rebuildSystemPrompt(loop *agent.AgentLoop, cfg *config.BugBusterConfig, pro
 		systemPrompt += "\n\n" + provCfg.SystemPrompt
 	}
 
+	// Per-provider system prompt from file (appended after system_prompt)
+	if filePrompt := provCfg.LoadSystemPromptFile(); filePrompt != "" {
+		systemPrompt += "\n\n" + filePrompt
+	}
+
 	// Per-provider skills — activate skills specified in provider config
 	if loop.SkillManager != nil {
 		// Deactivate all skills first, then activate per-provider skills
 		for _, skillName := range loop.SkillManager.Active() {
 			loop.SkillManager.Deactivate(skillName)
+		}
+		// Reload builtins first
+		loop.SkillManager.LoadBuiltins()
+		// Reload project-specific skills
+		projectSkillsDir := filepath.Join(getProjectDir(cfg), ".bugbuster", "skills")
+		loop.SkillManager.LoadFromDir(projectSkillsDir, "project")
+		// Reload global skills
+		home, _ := os.UserHomeDir()
+		globalSkillsDir := filepath.Join(home, ".bugbuster", "skills")
+		loop.SkillManager.LoadFromDir(globalSkillsDir, "global")
+		// Per-provider skills directory
+		if provCfg.SkillsDir != "" {
+			loop.SkillManager.LoadFromDir(provCfg.SkillsDir, "provider")
 		}
 		for _, skillName := range provCfg.Skills {
 			if _, err := loop.SkillManager.Activate(skillName); err != nil {

@@ -336,9 +336,32 @@ providers:
 
 **How it works:**
 - `system_prompt` — text appended to the default system prompt. Use it to add provider-specific instructions, coding style preferences, or domain expertise.
+- `system_prompt_file` — path to a Markdown file whose content is appended after `system_prompt`. Useful for long instructions that you want to version-control separately. Supports absolute and relative paths.
 - `skills` — list of skill names to activate automatically when this provider is selected. Available built-in skills: `debug`, `refactor`, `review`, `migrate`, `test`. You can also create custom skills in `.bugbuster/skills/` (project) or `~/.bugbuster/skills/` (global).
-- When switching providers with `/provider` or `/model`, the system prompt is rebuilt with the new provider's `system_prompt` and `skills`.
-- When switching back, the previous provider's `system_prompt` and `skills` are removed and the new ones are applied.
+- `skills_dir` — path to a directory with custom `.md` skill files that are loaded in addition to builtins, project, and global skills. Each `.md` file becomes a skill named after the filename (without extension).
+- When switching providers with `/provider` or `/model`, the system prompt is rebuilt with the new provider's `system_prompt`, `system_prompt_file`, and `skills`.
+- When switching back, the previous provider's settings are removed and the new ones are applied.
+
+**Example with `system_prompt_file` and `skills_dir`:**
+
+```yaml
+providers:
+  openai:
+    type: openai
+    api_key: ${OPENAI_API_KEY}
+    model: gpt-4o
+    # Short inline prompt
+    system_prompt: |
+      You are an expert in Rust and systems programming.
+    # Long prompt from file (appended after system_prompt)
+    system_prompt_file: ~/.bugbuster/prompts/rust_expert.md
+    # Activate built-in skills
+    skills:
+      - debug
+      - review
+    # Load additional custom skills from directory
+    skills_dir: ~/.bugbuster/skills/rust
+```
 
 ### OpenAI
 

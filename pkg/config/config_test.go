@@ -549,3 +549,87 @@ func TestMergeConfigs_SystemPromptAndSkills(t *testing.T) {
 		t.Errorf("Expected skills=['debug'], got %v", openai.Skills)
 	}
 }
+
+func TestProviderConfig_SystemPromptFileAndSkillsDir(t *testing.T) {
+	// Test that SystemPromptFile and SkillsDir fields are properly loaded from YAML
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".bugbuster.yaml")
+
+	yamlContent := `
+default_provider: openai
+providers:
+  openai:
+    type: openai
+    api_key: sk-test
+    model: gpt-4o
+    system_prompt: |
+      You are an expert in Rust.
+    system_prompt_file: /path/to/custom_prompt.md
+    skills:
+      - debug
+      - review
+    skills_dir: /path/to/custom/skills
+`
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig error: %v", err)
+	}
+
+	openai, ok := cfg.Providers["openai"]
+	if !ok {
+		t.Fatal("Expected 'openai' provider")
+	}
+	if openai.SystemPromptFile != "/path/to/custom_prompt.md" {
+		t.Errorf("Expected SystemPromptFile='/path/to/custom_prompt.md', got '%s'", openai.SystemPromptFile)
+	}
+	if openai.SkillsDir != "/path/to/custom/skills" {
+		t.Errorf("Expected SkillsDir='/path/to/custom/skills', got '%s'", openai.SkillsDir)
+	}
+	if !strings.Contains(openai.SystemPrompt, "Rust") {
+		t.Errorf("Expected SystemPrompt to contain 'Rust', got '%s'", openai.SystemPrompt)
+	}
+	if len(openai.Skills) != 2 {
+		t.Errorf("Expected 2 skills, got %d", len(openai.Skills))
+	}
+}
+
+func TestProviderConfig_SystemPromptFile_SaveLoad(t *testing.T) {
+	// Test that SystemPromptFile and SkillsDir survive save/load cycle
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".bugbuster.yaml")
+
+	cfg := DefaultConfig()
+	cfg.Providers["openai"] = provider.ProviderConfig{
+		Type:             "openai",
+		APIKey:           "sk-test",
+		Model:            "gpt-4o",
+		SystemPrompt:     "You are a Python expert.",
+		SystemPromptFile: "/path/to/prompt.md",
+		Skills:           []string{"refactor", "test"},
+		SkillsDir:        "/path/to/skills",
+	}
+
+	if err := cfg.SaveConfig(configPath); err != nil {
+		t.Fatalf("SaveConfig error: %v", err)
+	}
+
+	loaded, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig error: %v", err)
+	}
+
+	openai := loaded.Providers["openai"]
+	if openai.SystemPromptFile != "/path/to/prompt.md" {
+		t.Errorf("SystemPromptFile mismatch: got '%s', want '/path/to/prompt.md'", openai.SystemPromptFile)
+	}
+	if openai.SkillsDir != "/path/to/skills" {
+		t.Errorf("SkillsDir mismatch: got '%s', want '/path/to/skills'", openai.SkillsDir)
+	}
+	if openai.SystemPrompt != "You are a Python expert." {
+		t.Errorf("SystemPrompt mismatch: got '%s'", openai.SystemPrompt)
+	}
+}

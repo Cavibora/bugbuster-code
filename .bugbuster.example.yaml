@@ -35,10 +35,14 @@ providers:
     # system_prompt: |
     #   You are an expert in Rust and systems programming.
     #   Always use idiomatic Rust patterns and provide detailed explanations.
+    # Per-provider system prompt from file (appended after system_prompt)
+    # system_prompt_file: /path/to/custom_prompt.md
     # Per-provider skills to activate (available: debug, refactor, review, migrate, test)
     # skills:
     #   - debug
     #   - review
+    # Per-provider skills directory (loaded in addition to builtins/project/global)
+    # skills_dir: /path/to/custom/skills
 
   # OpenAI-compatible endpoint (any provider with OpenAI API)
   openai_compat:
