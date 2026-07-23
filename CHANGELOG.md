@@ -5,6 +5,21 @@ All notable changes to BugBuster Code will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.5] - 2026-07-15
+
+### Added
+- **Agent Hub (multi-agent coordination)** — shared workspace for multiple BugBuster Code instances to coordinate work:
+  - `hub_list` — list all registered agents with their model, intelligence level, and status
+  - `hub_message` — send direct messages between agents
+  - `hub_broadcast` — broadcast announcements to all agents
+  - `hub_alert` — send urgent alerts (e.g., "Tests are broken!")
+  - `hub_info` — inspect another agent's profile, role, and system prompt
+  - `hub_history` — view message history between agents
+- **Intelligence hierarchy** — auto-detected from model name or configured per model, with 5 levels (low → superior)
+- **File-based persistence** — hub data stored in `.bugbuster/hub/` for cross-process agent discovery
+- **Per-provider `system_prompt_file`** — load system prompt from a `.md` file (appended after `system_prompt`)
+- **Per-provider `skills_dir`** — load custom skills from a directory (in addition to builtins/project/global)
+
 ## [1.2.4] - 2026-07-15
 
 ### Added

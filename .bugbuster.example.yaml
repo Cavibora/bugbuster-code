@@ -44,6 +44,18 @@ providers:
     # Per-provider skills directory (loaded in addition to builtins/project/global)
     # skills_dir: /path/to/custom/skills
 
+  # Agent Hub — shared workspace for multi-agent coordination
+  # hub:
+  #   enabled: true                    # Enable hub (default: false)
+  #   name: "bugbuster-coder"          # Agent display name (default: "bugbuster-N")
+  #   role: "coder"                    # Agent role: "coder", "reviewer", "tester", "architect"
+  #   intelligence: "expert"           # Intelligence level: "low", "medium", "high", "expert", "superior" (or 1-5)
+  #   heartbeat_seconds: 30            # Heartbeat interval (default: 30, 0 = disabled)
+  #   model_intelligence:              # Model → intelligence mapping (overrides auto-detection)
+  #     gpt-4o: "expert"
+  #     claude-3-opus: "superior"
+  #     qwen3.6:35b: "high"
+
   # OpenAI-compatible endpoint (any provider with OpenAI API)
   openai_compat:
     type: openai_compat

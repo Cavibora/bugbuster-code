@@ -423,3 +423,63 @@ context_window: 128000
 ```
 
 Works with DeepSeek, Together AI, Groq, Fireworks AI, and any OpenAI-compatible API.
+
+## Agent Hub (Multi-Agent Coordination)
+
+The Agent Hub enables multiple BugBuster Code instances to coordinate through a shared workspace. Agents can see each other, exchange messages, broadcast alerts, and view each other's status and system prompts.
+
+### Configuration
+
+```yaml
+hub:
+  enabled: true                    # Enable hub (default: false)
+  name: "bugbuster-coder"          # Agent display name (default: "bugbuster-N")
+  role: "coder"                    # Agent role: "coder", "reviewer", "tester", "architect"
+  intelligence: "expert"           # Intelligence level (see below)
+  heartbeat_seconds: 30            # Heartbeat interval (default: 30, 0 = disabled)
+  model_intelligence:              # Model → intelligence mapping (overrides auto-detection)
+    gpt-4o: "expert"
+    claude-3-opus: "superior"
+    qwen3.6:35b: "high"
+```
+
+### Intelligence Levels
+
+| Level | Value | Description |
+|-------|-------|-------------|
+| ★☆☆☆☆ | 1 / low | Small models, limited reasoning |
+| ★★☆☆☆ | 2 / medium | Mid-range models (Haiku, Flash, 7B) |
+| ★★★☆☆ | 3 / high | Advanced models (Sonnet, DeepSeek-R1) |
+| ★★★★☆ | 4 / expert | Top-tier models (GPT-4o, Claude 3.5 Sonnet) |
+| ★★★★★ | 5 / superior | Most capable models (Claude Opus, o3) |
+
+Intelligence is auto-detected from model name, but can be overridden with `intelligence` or `model_intelligence`.
+
+### Hub Tools
+
+When hub is enabled, these tools become available:
+
+| Tool | Description |
+|------|-------------|
+| `hub_list` | List all agents in the shared workspace |
+| `hub_message` | Send a direct message to another agent |
+| `hub_broadcast` | Broadcast a message to all agents |
+| `hub_alert` | Send an urgent alert (e.g., "Tests are broken!") |
+| `hub_info` | Get detailed info about an agent (model, role, system prompt) |
+| `hub_history` | View message history (optionally filtered by agent) |
+
+### Example Workflow
+
+1. Agent "bugbuster-coder" (GPT-4o, expert) starts working on auth module
+2. Agent "bugbuster-tester" (Claude Haiku, medium) runs tests
+3. Tester discovers broken tests → sends `hub_alert`: "Tests broken in auth module!"
+4. Coder sees the alert → pauses work on auth → sends `hub_message`: "I'll fix the auth tests, give me 5 min"
+5. Tester acknowledges → switches to another task
+
+### Data Storage
+
+Hub data is stored in `.bugbuster/hub/` in the project directory:
+- `agents/` — agent profiles (JSON files)
+- `messages/` — messages (JSON files)
+
+This enables persistence across process restarts and allows agents running in different terminals to discover each other.

@@ -25,6 +25,7 @@ type BugBusterConfig struct {
 	MCPServe        MCPServeConfig                     `yaml:"mcp_serve"`
 	LSP             LSPConfig                          `yaml:"lsp"`
 	ContextArchive  ContextArchiveConfig               `yaml:"context_archive"`
+	Hub             HubConfig                          `yaml:"hub"`
 	UI              string                             `yaml:"ui"` // "auto", "tui", "cli" (default: "auto")
 }
 
@@ -114,6 +115,16 @@ type GoPluginConfig struct {
 	Name   string         `yaml:"name"`   // unique name plugin
 	Path   string         `yaml:"path"`   // path to .so file
 	Config map[string]any `yaml:"config"` // plugin configuration
+}
+
+// HubConfig — agent hub configuration (shared workspace for multi-agent coordination)
+type HubConfig struct {
+	Enabled          bool              `yaml:"enabled"`             // enable hub (default: false)
+	Name             string            `yaml:"name"`                // agent display name (default: "bugbuster-N")
+	Role             string            `yaml:"role"`                // agent role: "coder", "reviewer", "tester", etc.
+	Intelligence     string            `yaml:"intelligence"`         // intelligence level: "low", "medium", "high", "expert", "superior" (or 1-5)
+	HeartbeatSeconds int               `yaml:"heartbeat_seconds"`    // heartbeat interval in seconds (default: 30, 0 = disabled)
+	ModelIntelligence map[string]string `yaml:"model_intelligence"`   // model → intelligence level mapping (overrides auto-detection)
 }
 
 // AgentConfig is agent settings
@@ -438,6 +449,10 @@ func DefaultConfig() *BugBusterConfig {
 			Enabled:      true,
 			MaxBlocks:    50,
 			AutoOptimize: true,
+		},
+		Hub: HubConfig{
+			Enabled:          false,
+			HeartbeatSeconds: 30,
 		},
 		UI: "auto",
 		LSP: LSPConfig{

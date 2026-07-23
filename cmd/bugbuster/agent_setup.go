@@ -10,6 +10,7 @@ import (
 
 	"bugbuster-code/cmd/bugbuster/plugins"
 	"bugbuster-code/pkg/agent"
+	"bugbuster-code/pkg/agenthub"
 	"bugbuster-code/pkg/config"
 	"bugbuster-code/pkg/i18n"
 	"bugbuster-code/pkg/mcp"
@@ -367,6 +368,61 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 		lspTool.SetRootDir(projectDir)
 	}
 	loop.RegisterTool(lspTool)
+
+	// Agent Hub — shared workspace for multi-agent coordination
+	if cfg.Hub.Enabled {
+		hubDir := filepath.Join(getProjectDir(cfg), ".bugbuster", "hub")
+		hub := agenthub.NewHub(hubDir)
+		if err := hub.Init(); err != nil {
+			if verbose {
+				color.Yellow("[Hub] Failed to initialize: %v", err)
+			}
+		} else {
+			// Determine intelligence level
+			intelligence := agenthub.ParseIntelligenceLevel(cfg.Hub.Intelligence)
+			if intelligence == 0 {
+				// Auto-detect from model intelligence mapping or model name
+				intelligence = agenthub.DetectIntelligence(provCfg.Model, cfg.Hub.ModelIntelligence)
+			}
+
+			// Determine agent name
+			agentName := cfg.Hub.Name
+			if agentName == "" {
+				agentName = "bugbuster-" + sessionID[:8]
+			}
+
+			// Register this agent in the hub
+			profile := &agenthub.AgentProfile{
+				ID:               sessionID,
+				Name:             agentName,
+				Provider:         cfg.DefaultProvider,
+				Model:            provCfg.Model,
+				Project:          getProjectDir(cfg),
+				Role:             cfg.Hub.Role,
+				Intelligence:     intelligence,
+				Status:           agenthub.StatusIdle,
+				HeartbeatSeconds: cfg.Hub.HeartbeatSeconds,
+			}
+			if err := hub.Register(profile); err != nil {
+				if verbose {
+					color.Yellow("[Hub] Failed to register: %v", err)
+				}
+			} else if verbose {
+				color.Green("[Hub] Registered as %s (%s/%s, intelligence: %s)", agentName, cfg.DefaultProvider, provCfg.Model, intelligence)
+			}
+
+			// Register hub tools
+			loop.RegisterTool(agenthub.NewHubListTool(hub))
+			loop.RegisterTool(agenthub.NewHubMessageTool(hub))
+			loop.RegisterTool(agenthub.NewHubBroadcastTool(hub))
+			loop.RegisterTool(agenthub.NewHubAlertTool(hub))
+			loop.RegisterTool(agenthub.NewHubInfoTool(hub))
+			loop.RegisterTool(agenthub.NewHubHistoryTool(hub))
+
+			// Store hub for later use (unregister on exit, heartbeat, etc.)
+			_ = hub // TODO: integrate with session lifecycle
+		}
+	}
 
 	// System prompt
 	dir := projectDir
