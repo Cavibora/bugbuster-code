@@ -5,6 +5,21 @@ All notable changes to BugBuster Code will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.4] - 2026-07-15
+
+### Added
+- **Per-provider system prompt** — each provider/model can have its own `system_prompt` appended to the default, allowing provider-specific instructions and coding style preferences
+- **Per-provider skills** — each provider/model can activate specific skills (`debug`, `refactor`, `review`, `migrate`, `test`) via `skills` config field
+- **Automatic system prompt rebuild on provider switch** — switching providers with `/provider` or `/model` now rebuilds the system prompt with the new provider's `system_prompt` and `skills`
+- **SkillManager.Active() and Deactivate()** — new methods for listing active skills and deactivating them
+- **Homebrew, Scoop, and nfpm packages** — restored brew tap, scoop bucket, and deb/rpm/apk packaging in GoReleaser
+- **Windows builds** — added Windows to GoReleaser build targets
+- **Changelog groups** — release notes now grouped by type (Features, Bug Fixes, Documentation, Other)
+
+### Fixed
+- **[Auto-continue] after Recap** — expanded `LooksLikeCompletion` with standalone recap words (Recap, Итог, Summary without colon/dash), more completion phrases (that's all, nothing else to do, task finished, mission accomplished, всё, конец, завершено, выполнено), and context compaction acknowledgment detection
+- **Missing `lastUserMsgIsCompact` check in `Run()`** — non-streaming mode was missing the compaction check that streaming mode had, causing auto-continue after context compaction
+
 ## [1.2.3] - 2026-07-15
 
 ### Added
