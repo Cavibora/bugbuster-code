@@ -110,6 +110,7 @@ brews:
     repository:
       owner: Cavibora
       name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     directory: .
     homepage: "https://github.com/Cavibora/bugbuster-code"
     description: "Model-agnostic AI coding agent for your terminal"
@@ -124,6 +125,7 @@ scoops:
     repository:
       owner: Cavibora
       name: scoop-bucket
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     homepage: "https://github.com/Cavibora/bugbuster-code"
     description: "Model-agnostic AI coding agent for your terminal"
     license: MIT
