@@ -418,6 +418,9 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 			loop.RegisterTool(agenthub.NewHubAlertTool(hub))
 			loop.RegisterTool(agenthub.NewHubInfoTool(hub))
 			loop.RegisterTool(agenthub.NewHubHistoryTool(hub))
+			loop.RegisterTool(agenthub.NewHubRequestTool(hub))
+			loop.RegisterTool(agenthub.NewHubRespondTool(hub))
+			loop.RegisterTool(agenthub.NewHubCheckTool(hub))
 
 			// Store hub for later use (unregister on exit, heartbeat, etc.)
 			_ = hub // TODO: integrate with session lifecycle

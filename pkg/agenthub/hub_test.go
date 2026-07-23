@@ -504,3 +504,242 @@ func containsSubstr(s, substr string) bool {
 	}
 	return false
 }
+
+func TestHubSendRequest(t *testing.T) {
+	dir := t.TempDir()
+	hub := NewHub(dir)
+	if err := hub.Init(); err != nil {
+		t.Fatalf("Init error: %v", err)
+	}
+
+	// Register agent-1 (self)
+	profile1 := &AgentProfile{
+		ID:           "agent-1",
+		Name:         "bugbuster-1",
+		Provider:     "openai",
+		Model:        "gpt-4o",
+		Intelligence: IntelligenceExpert,
+	}
+	hub.Register(profile1)
+
+	// Register agent-2 manually
+	profile2 := &AgentProfile{
+		ID:           "agent-2",
+		Name:         "bugbuster-2",
+		Provider:     "anthropic",
+		Model:        "claude-3-opus",
+		Intelligence: IntelligenceSuperior,
+	}
+	hub.mu.Lock()
+	profile2.RegisteredAt = time.Now()
+	profile2.LastHeartbeat = time.Now()
+	hub.agents["agent-2"] = profile2
+	hub.mu.Unlock()
+	hub.saveAgent(profile2)
+
+	// Send a request
+	msg, err := hub.SendRequest("agent-2", "review", "Please review my PR for the auth module", "high")
+	if err != nil {
+		t.Fatalf("SendRequest error: %v", err)
+	}
+
+	if msg.Type != "request" {
+		t.Errorf("Expected type 'request', got '%s'", msg.Type)
+	}
+	if msg.To != "agent-2" {
+		t.Errorf("Expected To='agent-2', got '%s'", msg.To)
+	}
+	if msg.Action != "review" {
+		t.Errorf("Expected Action='review', got '%s'", msg.Action)
+	}
+	if msg.Priority != "high" {
+		t.Errorf("Expected Priority='high', got '%s'", msg.Priority)
+	}
+}
+
+func TestHubRespondToRequest(t *testing.T) {
+	dir := t.TempDir()
+	hub := NewHub(dir)
+	if err := hub.Init(); err != nil {
+		t.Fatalf("Init error: %v", err)
+	}
+
+	// Register agent-1 (self)
+	profile1 := &AgentProfile{
+		ID:           "agent-1",
+		Name:         "bugbuster-1",
+		Provider:     "openai",
+		Model:        "gpt-4o",
+		Intelligence: IntelligenceExpert,
+	}
+	hub.Register(profile1)
+
+	// Register agent-2 manually
+	profile2 := &AgentProfile{
+		ID:           "agent-2",
+		Name:         "bugbuster-2",
+		Provider:     "anthropic",
+		Model:        "claude-3-opus",
+		Intelligence: IntelligenceSuperior,
+	}
+	hub.mu.Lock()
+	profile2.RegisteredAt = time.Now()
+	profile2.LastHeartbeat = time.Now()
+	hub.agents["agent-2"] = profile2
+	hub.mu.Unlock()
+	hub.saveAgent(profile2)
+
+	// agent-1 sends a request to agent-2
+	req, err := hub.SendRequest("agent-2", "review", "Please review my PR", "high")
+	if err != nil {
+		t.Fatalf("SendRequest error: %v", err)
+	}
+
+	// Now agent-2 responds (simulate by creating a response hub)
+	hub2 := NewHub(dir)
+	if err := hub2.Init(); err != nil {
+		t.Fatalf("Init hub2 error: %v", err)
+	}
+	hub2.Register(profile2)
+
+	// Respond to the request
+	resp, err := hub2.RespondToRequest(req.ID, "I'll review it right away, give me 5 minutes", true)
+	if err != nil {
+		t.Fatalf("RespondToRequest error: %v", err)
+	}
+
+	if resp.Type != "response" {
+		t.Errorf("Expected type 'response', got '%s'", resp.Type)
+	}
+	if resp.To != "agent-1" {
+		t.Errorf("Expected To='agent-1', got '%s'", resp.To)
+	}
+	if resp.Accepted == nil || !*resp.Accepted {
+		t.Error("Expected Accepted=true")
+	}
+	if resp.ReplyTo != req.ID {
+		t.Errorf("Expected ReplyTo='%s', got '%s'", req.ID, resp.ReplyTo)
+	}
+}
+
+func TestHubGetPendingRequests(t *testing.T) {
+	dir := t.TempDir()
+	hub := NewHub(dir)
+	if err := hub.Init(); err != nil {
+		t.Fatalf("Init error: %v", err)
+	}
+
+	// Register agent-1 (self)
+	profile1 := &AgentProfile{
+		ID:           "agent-1",
+		Name:         "bugbuster-1",
+		Provider:     "openai",
+		Model:        "gpt-4o",
+		Intelligence: IntelligenceExpert,
+	}
+	hub.Register(profile1)
+
+	// Register agent-2 manually
+	profile2 := &AgentProfile{
+		ID:           "agent-2",
+		Name:         "bugbuster-2",
+		Provider:     "anthropic",
+		Model:        "claude-3-opus",
+		Intelligence: IntelligenceSuperior,
+	}
+	hub.mu.Lock()
+	profile2.RegisteredAt = time.Now()
+	profile2.LastHeartbeat = time.Now()
+	hub.agents["agent-2"] = profile2
+	hub.mu.Unlock()
+	hub.saveAgent(profile2)
+
+	// Initially no pending requests
+	pending := hub.GetPendingRequests()
+	if len(pending) != 0 {
+		t.Errorf("Expected 0 pending requests, got %d", len(pending))
+	}
+
+	// Send a request from agent-2 to agent-1 (manually create message)
+	msg := &Message{
+		ID:       generateID(),
+		From:     "agent-2",
+		To:       "agent-1",
+		Type:     "request",
+		Content:  "Can you fix the login bug?",
+		Action:   "fix",
+		Priority: "medium",
+	}
+	hub.mu.Lock()
+	hub.messages = append(hub.messages, msg)
+	hub.mu.Unlock()
+	hub.saveMessage(msg)
+
+	// Now agent-1 should have 1 pending request
+	pending = hub.GetPendingRequests()
+	if len(pending) != 1 {
+		t.Errorf("Expected 1 pending request, got %d", len(pending))
+	}
+	if pending[0].Action != "fix" {
+		t.Errorf("Expected Action='fix', got '%s'", pending[0].Action)
+	}
+}
+
+func TestHubGetUnreadMessages(t *testing.T) {
+	dir := t.TempDir()
+	hub := NewHub(dir)
+	if err := hub.Init(); err != nil {
+		t.Fatalf("Init error: %v", err)
+	}
+
+	profile1 := &AgentProfile{
+		ID:           "agent-1",
+		Name:         "bugbuster-1",
+		Provider:     "openai",
+		Model:        "gpt-4o",
+		Intelligence: IntelligenceExpert,
+	}
+	hub.Register(profile1)
+
+	// Initially no unread messages
+	unread := hub.GetUnreadMessages()
+	if len(unread) != 0 {
+		t.Errorf("Expected 0 unread messages, got %d", len(unread))
+	}
+
+	// Create a second hub (agent-2) and send a message to agent-1
+	hub2 := NewHub(dir)
+	if err := hub2.Init(); err != nil {
+		t.Fatalf("Init hub2 error: %v", err)
+	}
+	profile2 := &AgentProfile{
+		ID:           "agent-2",
+		Name:         "bugbuster-2",
+		Provider:     "anthropic",
+		Model:        "claude-3-opus",
+		Intelligence: IntelligenceSuperior,
+	}
+	hub2.Register(profile2)
+
+	// agent-2 sends a direct message to agent-1
+	if err := hub2.SendMessage("agent-1", "Hey, can you check the tests?"); err != nil {
+		t.Fatalf("SendMessage error: %v", err)
+	}
+
+	// Now agent-1 should have unread messages (at least 1 from agent-2)
+	unread = hub.GetUnreadMessages()
+	if len(unread) < 1 {
+		t.Errorf("Expected at least 1 unread message, got %d", len(unread))
+	}
+
+	// Find the direct message from agent-2
+	var foundDirect bool
+	for _, m := range unread {
+		if m.From == "agent-2" && m.To == "agent-1" && m.Type == "direct" {
+			foundDirect = true
+		}
+	}
+	if !foundDirect {
+		t.Error("Direct message from agent-2 not found in unread messages")
+	}
+}

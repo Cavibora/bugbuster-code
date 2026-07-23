@@ -105,13 +105,17 @@ func (p *AgentProfile) IsAlive(timeout time.Duration) bool {
 
 // Message represents a message between agents
 type Message struct {
-	ID        string    `json:"id"`         // Unique message ID
-	From      string    `json:"from"`       // Sender agent ID
-	To        string    `json:"to"`          // Receiver agent ID (empty = broadcast)
-	Type      string    `json:"type"`        // Message type: "direct", "broadcast", "alert", "status"
-	Content   string    `json:"content"`     // Message content
-	Timestamp time.Time `json:"timestamp"`    // When the message was sent
-	Read      bool      `json:"read"`         // Whether the recipient has read it
+	ID         string    `json:"id"`          // Unique message ID
+	From       string    `json:"from"`        // Sender agent ID
+	To         string    `json:"to"`          // Receiver agent ID (empty = broadcast)
+	Type       string    `json:"type"`        // Message type: "direct", "broadcast", "alert", "status", "request", "response"
+	Content    string    `json:"content"`     // Message content
+	Priority   string    `json:"priority"`    // Priority: "low", "normal", "high", "urgent"
+	Action     string    `json:"action"`      // Requested action: "do", "redo", "stop", "wait", "review", "test", "fix"
+	ReplyTo    string    `json:"reply_to"`    // ID of the message this is a reply to (for request/response)
+	Accepted   *bool     `json:"accepted"`    // For responses: whether the request was accepted (nil = no response yet)
+	Timestamp  time.Time `json:"timestamp"`   // When the message was sent
+	Read       bool      `json:"read"`        // Whether the recipient has read it
 }
 
 // Hub is the shared workspace for inter-agent communication
@@ -329,6 +333,129 @@ func (h *Hub) Alert(content string) error {
 	h.messages = append(h.messages, msg)
 	h.saveMessage(msg)
 	return nil
+}
+
+// SendRequest sends a task request to another agent.
+// action: "do" (do this task), "redo" (redo/rewrite), "stop" (stop what you're doing),
+// "wait" (wait until I'm done), "review" (review my code), "test" (run tests), "fix" (fix this bug)
+func (h *Hub) SendRequest(toAgentID, action, content, priority string) (*Message, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.selfID == "" {
+		return nil, fmt.Errorf("agent not registered")
+	}
+
+	// Verify target agent exists
+	if _, ok := h.agents[toAgentID]; !ok {
+		// Try loading from disk
+		h.loadAgentFromDisk(toAgentID)
+		if _, ok := h.agents[toAgentID]; !ok {
+			return nil, fmt.Errorf("agent '%s' not found", toAgentID)
+		}
+	}
+
+	if priority == "" {
+		priority = "normal"
+	}
+
+	msg := &Message{
+		ID:        generateID(),
+		From:      h.selfID,
+		To:        toAgentID,
+		Type:      "request",
+		Content:   content,
+		Priority:  priority,
+		Action:    action,
+		Timestamp: time.Now(),
+	}
+	h.messages = append(h.messages, msg)
+	h.saveMessage(msg)
+	return msg, nil
+}
+
+// RespondToRequest sends a response to a request.
+// accepted: true = accept the request, false = decline
+// content: explanation or result
+func (h *Hub) RespondToRequest(requestID, content string, accepted bool) (*Message, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.selfID == "" {
+		return nil, fmt.Errorf("agent not registered")
+	}
+
+	// Find the original request
+	var original *Message
+	for _, m := range h.messages {
+		if m.ID == requestID {
+			original = m
+			break
+		}
+	}
+	if original == nil {
+		return nil, fmt.Errorf("request '%s' not found", requestID)
+	}
+	if original.Type != "request" {
+		return nil, fmt.Errorf("message '%s' is not a request", requestID)
+	}
+	if original.To != h.selfID {
+		return nil, fmt.Errorf("request was sent to agent '%s', not to you ('%s')", original.To, h.selfID)
+	}
+
+	acceptedBool := accepted
+	msg := &Message{
+		ID:       generateID(),
+		From:     h.selfID,
+		To:       original.From,
+		Type:     "response",
+		Content:  content,
+		Priority: original.Priority,
+		ReplyTo:  requestID,
+		Accepted: &acceptedBool,
+		Timestamp: time.Now(),
+	}
+	h.messages = append(h.messages, msg)
+	h.saveMessage(msg)
+
+	// Mark original request as read
+	original.Read = true
+
+	return msg, nil
+}
+
+// GetPendingRequests returns unresponded requests addressed to this agent
+func (h *Hub) GetPendingRequests() []*Message {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	// Refresh messages from disk
+	h.loadMessagesFromDisk()
+
+	var result []*Message
+	for _, m := range h.messages {
+		if m.To == h.selfID && m.Type == "request" && m.Accepted == nil {
+			result = append(result, m)
+		}
+	}
+	return result
+}
+
+// GetUnreadMessages returns all unread messages for this agent
+func (h *Hub) GetUnreadMessages() []*Message {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	// Refresh messages from disk
+	h.loadMessagesFromDisk()
+
+	var result []*Message
+	for _, m := range h.messages {
+		if !m.Read && (m.To == h.selfID || m.To == "") && m.From != h.selfID {
+			result = append(result, m)
+		}
+	}
+	return result
 }
 
 // ListAgents returns all registered agents (sorted by intelligence, then name)
@@ -662,6 +789,32 @@ func FormatMessageHistory(messages []*Message, agents map[string]*AgentProfile) 
 			sb.WriteString(fmt.Sprintf("  %s\n", m.Content))
 		case "status":
 			sb.WriteString(fmt.Sprintf("  🔹 %s\n", m.Content))
+		case "request":
+			toName := m.To
+			if a, ok := agents[m.To]; ok {
+				toName = a.Name
+			}
+			priorityIcon := "📋"
+			if m.Priority == "urgent" {
+				priorityIcon = "🔴"
+			} else if m.Priority == "high" {
+				priorityIcon = "🟠"
+			}
+			actionLabel := m.Action
+			if actionLabel == "" {
+				actionLabel = "task"
+			}
+			sb.WriteString(fmt.Sprintf("  %s %s → %s [%s] %s: %s\n", priorityIcon, fromName, toName, actionLabel, m.Priority, m.Content))
+		case "response":
+			toName := m.To
+			if a, ok := agents[m.To]; ok {
+				toName = a.Name
+			}
+			acceptIcon := "✅"
+			if m.Accepted != nil && !*m.Accepted {
+				acceptIcon = "❌"
+			}
+			sb.WriteString(fmt.Sprintf("  %s %s → %s: %s\n", acceptIcon, fromName, toName, m.Content))
 		}
 	}
 

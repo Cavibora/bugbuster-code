@@ -328,3 +328,279 @@ func (t *HubHistoryTool) Execute(params map[string]string) tools.ToolResult {
 
 	return tools.ToolResult{Output: FormatMessageHistory(messages, agents)}
 }
+
+// HubRequestTool sends a task request to another agent
+type HubRequestTool struct {
+	hub *Hub
+}
+
+// NewHubRequestTool creates a new hub_request tool
+func NewHubRequestTool(hub *Hub) *HubRequestTool {
+	return &HubRequestTool{hub: hub}
+}
+
+// Name returns the tool name
+func (t *HubRequestTool) Name() string { return "hub_request" }
+
+// Description returns the tool description
+func (t *HubRequestTool) Description() string {
+	return `hub_request — ask another agent to do something. Parameters: agent_id (required) — target agent ID, action (required) — what to ask: "do" (do a task), "redo" (redo/rewrite something), "stop" (stop what you're doing), "wait" (wait until I'm done), "review" (review my code), "test" (run tests), "fix" (fix a bug), content (required) — description of the request, priority (optional) — "low", "normal", "high", "urgent" (default: "normal"). Use this to delegate tasks, ask for help, or coordinate work between agents. The other agent can accept or decline.`
+}
+
+// Parameters returns the tool parameters
+func (t *HubRequestTool) Parameters() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"agent_id": map[string]any{
+				"type":        "string",
+				"description": "Target agent ID to send the request to",
+			},
+			"action": map[string]any{
+				"type":        "string",
+				"description": `What to ask: "do" (do a task), "redo" (redo/rewrite), "stop" (stop what you're doing), "wait" (wait until I'm done), "review" (review my code), "test" (run tests), "fix" (fix a bug)`,
+			},
+			"content": map[string]any{
+				"type":        "string",
+				"description": "Description of the request — what you want the other agent to do",
+			},
+			"priority": map[string]any{
+				"type":        "string",
+				"description": `Priority: "low", "normal", "high", "urgent" (default: "normal")`,
+			},
+		},
+		"required": []string{"agent_id", "action", "content"},
+	}
+}
+
+// Execute runs the tool
+func (t *HubRequestTool) Execute(params map[string]string) tools.ToolResult {
+	agentID := params["agent_id"]
+	action := params["action"]
+	content := params["content"]
+	priority := params["priority"]
+
+	if agentID == "" {
+		return tools.ToolResult{Error: "agent_id is required"}
+	}
+	if action == "" {
+		return tools.ToolResult{Error: "action is required (do, redo, stop, wait, review, test, fix)"}
+	}
+	if content == "" {
+		return tools.ToolResult{Error: "content is required"}
+	}
+
+	// Validate action
+	validActions := map[string]bool{"do": true, "redo": true, "stop": true, "wait": true, "review": true, "test": true, "fix": true}
+	if !validActions[action] {
+		return tools.ToolResult{Error: fmt.Sprintf("invalid action '%s'. Valid actions: do, redo, stop, wait, review, test, fix", action)}
+	}
+
+	// Validate priority
+	if priority != "" {
+		validPriorities := map[string]bool{"low": true, "normal": true, "high": true, "urgent": true}
+		if !validPriorities[priority] {
+			return tools.ToolResult{Error: fmt.Sprintf("invalid priority '%s'. Valid: low, normal, high, urgent", priority)}
+		}
+	}
+
+	msg, err := t.hub.SendRequest(agentID, action, content, priority)
+	if err != nil {
+		return tools.ToolResult{Error: err.Error()}
+	}
+
+	// Get agent name for display
+	agentName := agentID
+	if a, ok := t.hub.GetAgent(agentID); ok {
+		agentName = a.Name
+	}
+
+	priorityIcon := "📋"
+	if priority == "urgent" {
+		priorityIcon = "🔴"
+	} else if priority == "high" {
+		priorityIcon = "🟠"
+	}
+
+	return tools.ToolResult{Output: fmt.Sprintf("%s Request sent to %s [%s/%s]: %s\nRequest ID: %s\nThe agent can accept or decline this request.", priorityIcon, agentName, action, priority, content, msg.ID)}
+}
+
+// HubRespondTool responds to a request from another agent
+type HubRespondTool struct {
+	hub *Hub
+}
+
+// NewHubRespondTool creates a new hub_respond tool
+func NewHubRespondTool(hub *Hub) *HubRespondTool {
+	return &HubRespondTool{hub: hub}
+}
+
+// Name returns the tool name
+func (t *HubRespondTool) Name() string { return "hub_respond" }
+
+// Description returns the tool description
+func (t *HubRespondTool) Description() string {
+	return `hub_respond — respond to a request from another agent. Parameters: request_id (required) — ID of the request to respond to, accept (required) — "true" to accept the request, "false" to decline, content (required) — your response or explanation. Use this to accept or decline task requests from other agents.`
+}
+
+// Parameters returns the tool parameters
+func (t *HubRespondTool) Parameters() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"request_id": map[string]any{
+				"type":        "string",
+				"description": "ID of the request to respond to (from hub_check or hub_history)",
+			},
+			"accept": map[string]any{
+				"type":        "string",
+				"description": `"true" to accept the request, "false" to decline`,
+			},
+			"content": map[string]any{
+				"type":        "string",
+				"description": "Your response — explanation of why you accept/decline, or the result of completing the task",
+			},
+		},
+		"required": []string{"request_id", "accept", "content"},
+	}
+}
+
+// Execute runs the tool
+func (t *HubRespondTool) Execute(params map[string]string) tools.ToolResult {
+	requestID := params["request_id"]
+	acceptStr := params["accept"]
+	content := params["content"]
+
+	if requestID == "" {
+		return tools.ToolResult{Error: "request_id is required"}
+	}
+	if acceptStr == "" {
+		return tools.ToolResult{Error: "accept is required (true/false)"}
+	}
+	if content == "" {
+		return tools.ToolResult{Error: "content is required"}
+	}
+
+	accept := strings.ToLower(acceptStr) == "true" || acceptStr == "1" || strings.ToLower(acceptStr) == "yes"
+
+	msg, err := t.hub.RespondToRequest(requestID, content, accept)
+	if err != nil {
+		return tools.ToolResult{Error: err.Error()}
+	}
+
+	icon := "✅"
+	if !accept {
+		icon = "❌"
+	}
+
+	// Get agent name for display
+	fromName := msg.To
+	if a, ok := t.hub.GetAgent(msg.To); ok {
+		fromName = a.Name
+	}
+
+	return tools.ToolResult{Output: fmt.Sprintf("%s Response sent to %s: %s\nResponse ID: %s", icon, fromName, content, msg.ID)}
+}
+
+// HubCheckTool checks for unread messages and pending requests
+type HubCheckTool struct {
+	hub *Hub
+}
+
+// NewHubCheckTool creates a new hub_check tool
+func NewHubCheckTool(hub *Hub) *HubCheckTool {
+	return &HubCheckTool{hub: hub}
+}
+
+// Name returns the tool name
+func (t *HubCheckTool) Name() string { return "hub_check" }
+
+// Description returns the tool description
+func (t *HubCheckTool) Description() string {
+	return `hub_check — check for unread messages and pending requests addressed to you. Shows: 1) Unread direct messages, 2) Unread broadcasts/alerts, 3) Pending task requests that need your response. Use this to stay aware of what other agents are asking you to do.`
+}
+
+// Parameters returns the tool parameters
+func (t *HubCheckTool) Parameters() map[string]any {
+	return map[string]any{
+		"type":       "object",
+		"properties": map[string]any{},
+	}
+}
+
+// Execute runs the tool
+func (t *HubCheckTool) Execute(params map[string]string) tools.ToolResult {
+	unread := t.hub.GetUnreadMessages()
+	pending := t.hub.GetPendingRequests()
+
+	// Build agent map for display
+	agents := make(map[string]*AgentProfile)
+	for _, a := range t.hub.ListAgents() {
+		agents[a.ID] = a
+	}
+
+	var sb strings.Builder
+
+	if len(unread) == 0 && len(pending) == 0 {
+		return tools.ToolResult{Output: "📭 No unread messages or pending requests."}
+	}
+
+	if len(pending) > 0 {
+		sb.WriteString(fmt.Sprintf("📋 Pending Requests (%d):\n", len(pending)))
+		sb.WriteString(strings.Repeat("─", 40) + "\n")
+		for _, req := range pending {
+			fromName := req.From
+			if a, ok := agents[req.From]; ok {
+				fromName = a.Name
+			}
+			priorityIcon := "📋"
+			if req.Priority == "urgent" {
+				priorityIcon = "🔴"
+			} else if req.Priority == "high" {
+				priorityIcon = "🟠"
+			}
+			sb.WriteString(fmt.Sprintf("  %s [%s] From: %s\n", priorityIcon, req.Action, fromName))
+			sb.WriteString(fmt.Sprintf("     %s\n", req.Content))
+			sb.WriteString(fmt.Sprintf("     Request ID: %s (use hub_respond to accept/decline)\n", req.ID))
+		}
+		sb.WriteString("\n")
+	}
+
+	if len(unread) > 0 {
+		// Filter out pending requests (already shown above)
+		var otherUnread []*Message
+		for _, m := range unread {
+			if m.Type != "request" {
+				otherUnread = append(otherUnread, m)
+			}
+		}
+		if len(otherUnread) > 0 {
+			sb.WriteString(fmt.Sprintf("📨 Unread Messages (%d):\n", len(otherUnread)))
+			sb.WriteString(strings.Repeat("─", 40) + "\n")
+			for _, m := range otherUnread {
+				fromName := m.From
+				if a, ok := agents[m.From]; ok {
+					fromName = a.Name
+				}
+				switch m.Type {
+				case "direct":
+					sb.WriteString(fmt.Sprintf("  📨 %s: %s\n", fromName, m.Content))
+				case "broadcast":
+					sb.WriteString(fmt.Sprintf("  📢 %s (broadcast): %s\n", fromName, m.Content))
+				case "alert":
+					sb.WriteString(fmt.Sprintf("  %s\n", m.Content))
+				case "status":
+					sb.WriteString(fmt.Sprintf("  🔹 %s\n", m.Content))
+				case "response":
+					acceptIcon := "✅"
+					if m.Accepted != nil && !*m.Accepted {
+						acceptIcon = "❌"
+					}
+					sb.WriteString(fmt.Sprintf("  %s %s responded: %s\n", acceptIcon, fromName, m.Content))
+				}
+			}
+		}
+	}
+
+	return tools.ToolResult{Output: sb.String()}
+}
