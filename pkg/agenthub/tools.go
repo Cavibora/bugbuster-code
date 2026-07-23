@@ -1,6 +1,7 @@
 package agenthub
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -264,6 +265,204 @@ func (t *HubInfoTool) Execute(params map[string]string) tools.ToolResult {
 			prompt = prompt[:500] + "..."
 		}
 		sb.WriteString(fmt.Sprintf("\n📝 System Prompt (first 500 chars):\n%s\n", prompt))
+	}
+
+	return tools.ToolResult{Output: sb.String()}
+}
+
+// HubTasksTool views another agent's task list
+type HubTasksTool struct {
+	hub *Hub
+}
+
+// NewHubTasksTool creates a new hub_tasks tool
+func NewHubTasksTool(hub *Hub) *HubTasksTool {
+	return &HubTasksTool{hub: hub}
+}
+
+// Name returns the tool name
+func (t *HubTasksTool) Name() string { return "hub_tasks" }
+
+// Description returns the tool description
+func (t *HubTasksTool) Description() string {
+	return "hub_tasks — view another agent's task list. Parameters: agent_id (optional) — agent ID to view tasks for (if omitted, shows all agents' tasks). Use this to see what other agents are working on and coordinate tasks to avoid conflicts."
+}
+
+// Parameters returns the tool parameters
+func (t *HubTasksTool) Parameters() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"agent_id": map[string]any{
+				"type":        "string",
+				"description": "Agent ID to view tasks for (optional — shows all agents if omitted)",
+			},
+		},
+	}
+}
+
+// Execute runs the tool
+func (t *HubTasksTool) Execute(params map[string]string) tools.ToolResult {
+	agentID := params["agent_id"]
+
+	if agentID != "" {
+		// Show specific agent's tasks
+		agent, ok := t.hub.GetAgent(agentID)
+		if !ok {
+			return tools.ToolResult{Error: fmt.Sprintf("agent '%s' not found", agentID)}
+		}
+
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("📋 Tasks for %s (%s):\n", agent.Name, agent.ID))
+		sb.WriteString(strings.Repeat("─", 40) + "\n")
+
+		if len(agent.Tasks) == 0 {
+			sb.WriteString("  (no tasks)\n")
+		} else {
+			for _, task := range agent.Tasks {
+				statusIcon := "⬜"
+				switch task.Status {
+				case "in_progress":
+					statusIcon = "🔄"
+				case "completed":
+					statusIcon = "✅"
+				}
+				sb.WriteString(fmt.Sprintf("  %s [%s] %s\n", statusIcon, task.ID, task.Subject))
+			}
+		}
+
+		return tools.ToolResult{Output: sb.String()}
+	}
+
+	// Show all agents' tasks
+	agents := t.hub.ListAgents()
+	var sb strings.Builder
+	sb.WriteString("📋 All Agents' Tasks:\n")
+	sb.WriteString(strings.Repeat("─", 40) + "\n")
+
+	hasTasks := false
+	for _, agent := range agents {
+		if len(agent.Tasks) > 0 {
+			hasTasks = true
+			sb.WriteString(fmt.Sprintf("\n🤖 %s (%s):\n", agent.Name, agent.ID))
+			for _, task := range agent.Tasks {
+				statusIcon := "⬜"
+				switch task.Status {
+				case "in_progress":
+					statusIcon = "🔄"
+				case "completed":
+					statusIcon = "✅"
+				}
+				sb.WriteString(fmt.Sprintf("  %s [%s] %s\n", statusIcon, task.ID, task.Subject))
+			}
+		}
+	}
+
+	if !hasTasks {
+		sb.WriteString("\n  (no agents have tasks)\n")
+	}
+
+	return tools.ToolResult{Output: sb.String()}
+}
+
+// HubStatusTool updates own status and current task in the hub
+type HubStatusTool struct {
+	hub *Hub
+}
+
+// NewHubStatusTool creates a new hub_status tool
+func NewHubStatusTool(hub *Hub) *HubStatusTool {
+	return &HubStatusTool{hub: hub}
+}
+
+// Name returns the tool name
+func (t *HubStatusTool) Name() string { return "hub_status" }
+
+// Description returns the tool description
+func (t *HubStatusTool) Description() string {
+	return `hub_status — update your own status and current task in the shared workspace. Parameters: status (optional) — your status: "idle", "working", "waiting", "done", "error"; task (optional) — description of what you're currently working on; tasks (optional) — JSON array of tasks, e.g. [{"id":"1","subject":"fix bug","status":"in_progress"}]. Use this to let other agents know what you're doing and coordinate work. At least one parameter is required.`
+}
+
+// Parameters returns the tool parameters
+func (t *HubStatusTool) Parameters() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"status": map[string]any{
+				"type":        "string",
+				"description": `Your status: "idle", "working", "waiting", "done", "error"`,
+			},
+			"task": map[string]any{
+				"type":        "string",
+				"description": "Description of what you're currently working on",
+			},
+			"tasks": map[string]any{
+				"type":        "string",
+				"description": `JSON array of tasks, e.g. [{"id":"1","subject":"fix bug","status":"in_progress"}]`,
+			},
+		},
+	}
+}
+
+// Execute runs the tool
+func (t *HubStatusTool) Execute(params map[string]string) tools.ToolResult {
+	status := params["status"]
+	task := params["task"]
+	tasksJSON := params["tasks"]
+
+	if status == "" && task == "" && tasksJSON == "" {
+		return tools.ToolResult{Error: "at least one parameter is required: status, task, or tasks"}
+	}
+
+	// Validate status
+	if status != "" {
+		validStatuses := map[string]bool{
+			"idle": true, "working": true, "waiting": true, "done": true, "error": true,
+		}
+		if !validStatuses[status] {
+			return tools.ToolResult{Error: fmt.Sprintf("invalid status '%s'. Valid: idle, working, waiting, done, error", status)}
+		}
+	}
+
+	// Update status and task
+	if status != "" || task != "" {
+		agentStatus := AgentStatus(status)
+		if status == "" {
+			// Keep current status
+			profile, ok := t.hub.GetAgent(t.hub.selfID)
+			if ok {
+				agentStatus = profile.Status
+			}
+		}
+		if err := t.hub.UpdateStatus(agentStatus, task); err != nil {
+			return tools.ToolResult{Error: err.Error()}
+		}
+	}
+
+	// Update tasks if provided
+	if tasksJSON != "" {
+		var tasks []AgentTask
+		if err := json.Unmarshal([]byte(tasksJSON), &tasks); err != nil {
+			return tools.ToolResult{Error: fmt.Sprintf("invalid tasks JSON: %v", err)}
+		}
+		if err := t.hub.UpdateTasks(tasks); err != nil {
+			return tools.ToolResult{Error: err.Error()}
+		}
+	}
+
+	// Build response
+	var sb strings.Builder
+	sb.WriteString("✅ Status updated\n")
+	if status != "" {
+		sb.WriteString(fmt.Sprintf("   Status: %s\n", status))
+	}
+	if task != "" {
+		sb.WriteString(fmt.Sprintf("   Task:   %s\n", task))
+	}
+	if tasksJSON != "" {
+		var tasks []AgentTask
+		json.Unmarshal([]byte(tasksJSON), &tasks)
+		sb.WriteString(fmt.Sprintf("   Tasks:  %d task(s)\n", len(tasks)))
 	}
 
 	return tools.ToolResult{Output: sb.String()}

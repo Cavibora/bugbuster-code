@@ -467,6 +467,11 @@ When hub is enabled, these tools become available:
 | `hub_alert` | Send an urgent alert (e.g., "Tests are broken!") |
 | `hub_info` | Get detailed info about an agent (model, role, system prompt) |
 | `hub_history` | View message history (optionally filtered by agent) |
+| `hub_request` | Send a task request to another agent (do, redo, stop, wait, review, test, fix) |
+| `hub_respond` | Accept or decline a task request from another agent |
+| `hub_check` | Check for unread messages and pending requests |
+| `hub_tasks` | View another agent's task list (or all agents' tasks) |
+| `hub_status` | Update own status, current task, and task list in the hub |
 
 ### Example Workflow
 

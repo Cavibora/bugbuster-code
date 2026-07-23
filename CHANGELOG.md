@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `hub_alert` — send urgent alerts (e.g., "Tests are broken!")
   - `hub_info` — inspect another agent's profile, role, and system prompt
   - `hub_history` — view message history between agents
+  - `hub_request` — send task requests (do, redo, stop, wait, review, test, fix) with priority
+  - `hub_respond` — accept or decline task requests from other agents
+  - `hub_check` — check for unread messages and pending requests
+  - `hub_tasks` — view another agent's task list (or all agents' tasks)
+  - `hub_status` — update own status, current task, and task list in the hub
 - **Intelligence hierarchy** — auto-detected from model name or configured per model, with 5 levels (low → superior)
 - **File-based persistence** — hub data stored in `.bugbuster/hub/` for cross-process agent discovery
 - **Per-provider `system_prompt_file`** — load system prompt from a `.md` file (appended after `system_prompt`)

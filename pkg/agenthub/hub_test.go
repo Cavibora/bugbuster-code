@@ -492,6 +492,204 @@ func TestHubEmptyList(t *testing.T) {
 	}
 }
 
+func TestHubTasksTool(t *testing.T) {
+	dir := t.TempDir()
+	hub := NewHub(dir)
+	if err := hub.Init(); err != nil {
+		t.Fatalf("Init error: %v", err)
+	}
+
+	// Register agent-1 (self)
+	profile1 := &AgentProfile{
+		ID:           "agent-1",
+		Name:         "bugbuster-1",
+		Provider:     "openai",
+		Model:        "gpt-4o",
+		Intelligence: IntelligenceExpert,
+		Tasks: []AgentTask{
+			{ID: "1", Subject: "Fix auth bug", Status: "in_progress"},
+			{ID: "2", Subject: "Write tests", Status: "pending"},
+			{ID: "3", Subject: "Update docs", Status: "completed"},
+		},
+	}
+	hub.Register(profile1)
+
+	// Register agent-2 manually
+	profile2 := &AgentProfile{
+		ID:           "agent-2",
+		Name:         "bugbuster-2",
+		Provider:     "anthropic",
+		Model:        "claude-3-opus",
+		Intelligence: IntelligenceSuperior,
+		Tasks: []AgentTask{
+			{ID: "1", Subject: "Review PR", Status: "in_progress"},
+		},
+	}
+	hub.mu.Lock()
+	profile2.RegisteredAt = time.Now()
+	profile2.LastHeartbeat = time.Now()
+	hub.agents["agent-2"] = profile2
+	hub.mu.Unlock()
+	hub.saveAgent(profile2)
+
+	tool := NewHubTasksTool(hub)
+
+	// Test: view specific agent's tasks
+	result := tool.Execute(map[string]string{"agent_id": "agent-1"})
+	if result.Error != "" {
+		t.Errorf("Unexpected error: %s", result.Error)
+	}
+	if !containsSubstr(result.Output, "Fix auth bug") {
+		t.Errorf("Expected 'Fix auth bug' in output, got: %s", result.Output)
+	}
+	if !containsSubstr(result.Output, "Write tests") {
+		t.Errorf("Expected 'Write tests' in output, got: %s", result.Output)
+	}
+
+	// Test: view all agents' tasks
+	result = tool.Execute(map[string]string{})
+	if result.Error != "" {
+		t.Errorf("Unexpected error: %s", result.Error)
+	}
+	if !containsSubstr(result.Output, "bugbuster-1") {
+		t.Errorf("Expected 'bugbuster-1' in output, got: %s", result.Output)
+	}
+	if !containsSubstr(result.Output, "bugbuster-2") {
+		t.Errorf("Expected 'bugbuster-2' in output, got: %s", result.Output)
+	}
+
+	// Test: non-existent agent
+	result = tool.Execute(map[string]string{"agent_id": "nonexistent"})
+	if result.Error == "" {
+		t.Error("Expected error for non-existent agent")
+	}
+}
+
+func TestHubStatusTool(t *testing.T) {
+	dir := t.TempDir()
+	hub := NewHub(dir)
+	if err := hub.Init(); err != nil {
+		t.Fatalf("Init error: %v", err)
+	}
+
+	profile := &AgentProfile{
+		ID:           "agent-1",
+		Name:         "bugbuster-1",
+		Provider:     "openai",
+		Model:        "gpt-4o",
+		Intelligence: IntelligenceExpert,
+		Status:       StatusIdle,
+	}
+	hub.Register(profile)
+
+	tool := NewHubStatusTool(hub)
+
+	// Test: update status and task
+	result := tool.Execute(map[string]string{
+		"status": "working",
+		"task":   "Fixing auth module",
+	})
+	if result.Error != "" {
+		t.Errorf("Unexpected error: %s", result.Error)
+	}
+	if !containsSubstr(result.Output, "working") {
+		t.Errorf("Expected 'working' in output, got: %s", result.Output)
+	}
+	if !containsSubstr(result.Output, "Fixing auth module") {
+		t.Errorf("Expected 'Fixing auth module' in output, got: %s", result.Output)
+	}
+
+	// Verify status was updated
+	agent, ok := hub.GetAgent("agent-1")
+	if !ok {
+		t.Fatal("Agent not found")
+	}
+	if agent.Status != StatusWorking {
+		t.Errorf("Expected status 'working', got '%s'", agent.Status)
+	}
+	if agent.CurrentTask != "Fixing auth module" {
+		t.Errorf("Expected task 'Fixing auth module', got '%s'", agent.CurrentTask)
+	}
+
+	// Test: update tasks via JSON
+	result = tool.Execute(map[string]string{
+		"tasks": `[{"id":"1","subject":"Fix bug","status":"in_progress"},{"id":"2","subject":"Write tests","status":"pending"}]`,
+	})
+	if result.Error != "" {
+		t.Errorf("Unexpected error: %s", result.Error)
+	}
+	if !containsSubstr(result.Output, "2 task(s)") {
+		t.Errorf("Expected '2 task(s)' in output, got: %s", result.Output)
+	}
+
+	// Verify tasks were updated
+	agent, _ = hub.GetAgent("agent-1")
+	if len(agent.Tasks) != 2 {
+		t.Errorf("Expected 2 tasks, got %d", len(agent.Tasks))
+	}
+	if agent.Tasks[0].Subject != "Fix bug" {
+		t.Errorf("Expected task 'Fix bug', got '%s'", agent.Tasks[0].Subject)
+	}
+
+	// Test: no parameters
+	result = tool.Execute(map[string]string{})
+	if result.Error == "" {
+		t.Error("Expected error when no parameters provided")
+	}
+
+	// Test: invalid status
+	result = tool.Execute(map[string]string{"status": "invalid"})
+	if result.Error == "" {
+		t.Error("Expected error for invalid status")
+	}
+
+	// Test: invalid tasks JSON
+	result = tool.Execute(map[string]string{"tasks": "not-json"})
+	if result.Error == "" {
+		t.Error("Expected error for invalid JSON")
+	}
+}
+
+func TestHubUpdateTasks(t *testing.T) {
+	dir := t.TempDir()
+	hub := NewHub(dir)
+	if err := hub.Init(); err != nil {
+		t.Fatalf("Init error: %v", err)
+	}
+
+	profile := &AgentProfile{
+		ID:           "agent-1",
+		Name:         "bugbuster-1",
+		Provider:     "openai",
+		Model:        "gpt-4o",
+		Intelligence: IntelligenceExpert,
+	}
+	hub.Register(profile)
+
+	tasks := []AgentTask{
+		{ID: "1", Subject: "Fix bug", Status: "in_progress"},
+		{ID: "2", Subject: "Write tests", Status: "pending"},
+	}
+
+	if err := hub.UpdateTasks(tasks); err != nil {
+		t.Fatalf("UpdateTasks error: %v", err)
+	}
+
+	agent, ok := hub.GetAgent("agent-1")
+	if !ok {
+		t.Fatal("Agent not found")
+	}
+	if len(agent.Tasks) != 2 {
+		t.Errorf("Expected 2 tasks, got %d", len(agent.Tasks))
+	}
+	if agent.Tasks[0].Subject != "Fix bug" {
+		t.Errorf("Expected task 'Fix bug', got '%s'", agent.Tasks[0].Subject)
+	}
+	if agent.Tasks[1].Status != "pending" {
+		t.Errorf("Expected status 'pending', got '%s'", agent.Tasks[1].Status)
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstr(s, substr))
 }

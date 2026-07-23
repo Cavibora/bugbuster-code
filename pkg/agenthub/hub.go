@@ -77,21 +77,29 @@ func ParseIntelligenceLevel(s string) IntelligenceLevel {
 	}
 }
 
+// AgentTask represents a task in an agent's todo list
+type AgentTask struct {
+	ID      string `json:"id"`      // Task ID
+	Subject string `json:"subject"`  // Task description
+	Status  string `json:"status"`   // "pending", "in_progress", "completed"
+}
+
 // AgentProfile describes a registered agent in the hub
 type AgentProfile struct {
-	ID               string             `json:"id"`                // Unique agent ID (session ID)
-	Name             string             `json:"name"`              // Display name (e.g., "bugbuster-1")
-	Provider         string             `json:"provider"`          // Provider name (e.g., "openai", "anthropic")
-	Model            string             `json:"model"`             // Model name (e.g., "gpt-4o", "claude-3-opus")
-	Project          string             `json:"project"`           // Working project directory
-	Role             string             `json:"role"`              // Agent role (e.g., "coder", "reviewer", "tester")
-	Intelligence     IntelligenceLevel  `json:"intelligence"`      // Intelligence level (1-5)
-	Status           AgentStatus        `json:"status"`            // Current status
-	CurrentTask      string             `json:"current_task"`      // What the agent is currently working on
-	SystemPrompt     string             `json:"system_prompt"`     // Agent's system prompt (for other agents to see)
-	RegisteredAt     time.Time          `json:"registered_at"`     // When the agent registered
-	LastHeartbeat    time.Time          `json:"last_heartbeat"`    // Last heartbeat timestamp
-	HeartbeatSeconds int                `json:"heartbeat_seconds"` // Heartbeat interval in seconds (0 = no heartbeat)
+	ID               string            `json:"id"`                // Unique agent ID (session ID)
+	Name             string            `json:"name"`              // Display name (e.g., "bugbuster-1")
+	Provider         string            `json:"provider"`          // Provider name (e.g., "openai", "anthropic")
+	Model            string            `json:"model"`             // Model name (e.g., "gpt-4o", "claude-3-opus")
+	Project          string            `json:"project"`           // Working project directory
+	Role             string            `json:"role"`              // Agent role (e.g., "coder", "reviewer", "tester")
+	Intelligence     IntelligenceLevel `json:"intelligence"`      // Intelligence level (1-5)
+	Status           AgentStatus       `json:"status"`            // Current status
+	CurrentTask      string            `json:"current_task"`      // What the agent is currently working on
+	Tasks            []AgentTask       `json:"tasks"`             // Agent's current task list (shared with hub)
+	SystemPrompt     string            `json:"system_prompt"`     // Agent's system prompt (for other agents to see)
+	RegisteredAt     time.Time         `json:"registered_at"`     // When the agent registered
+	LastHeartbeat    time.Time         `json:"last_heartbeat"`    // Last heartbeat timestamp
+	HeartbeatSeconds int               `json:"heartbeat_seconds"` // Heartbeat interval in seconds (0 = no heartbeat)
 }
 
 // IsAlive checks if the agent is still alive (heartbeat within timeout)
@@ -251,6 +259,21 @@ func (h *Hub) UpdateStatus(status AgentStatus, task string) error {
 	}
 
 	return nil
+}
+
+// UpdateTasks updates the agent's shared task list
+func (h *Hub) UpdateTasks(tasks []AgentTask) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	profile, ok := h.agents[h.selfID]
+	if !ok {
+		return fmt.Errorf("agent not registered")
+	}
+
+	profile.Tasks = tasks
+	profile.LastHeartbeat = time.Now()
+	return h.saveAgent(profile)
 }
 
 // Heartbeat updates the agent's last heartbeat time
@@ -751,6 +774,19 @@ func FormatAgentList(agents []*AgentProfile) string {
 			a.Name, a.Provider, a.Model, intelligence, a.Status))
 		if a.CurrentTask != "" {
 			sb.WriteString(fmt.Sprintf("    Task: %s\n", a.CurrentTask))
+		}
+		if len(a.Tasks) > 0 {
+			sb.WriteString("    Tasks:\n")
+			for _, t := range a.Tasks {
+				statusIcon := "⬜"
+				switch t.Status {
+				case "in_progress":
+					statusIcon = "🔄"
+				case "completed":
+					statusIcon = "✅"
+				}
+				sb.WriteString(fmt.Sprintf("      %s %s: %s\n", statusIcon, t.ID, t.Subject))
+			}
 		}
 		if a.Project != "" {
 			sb.WriteString(fmt.Sprintf("    Project: %s\n", a.Project))
