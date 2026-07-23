@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  Connect <strong>any LLM</strong> — OpenAI, Anthropic, Ollama, Cavibora, or OpenAI-compatible — and give it 22 tools to read, write, edit, search, and execute code. Plus <strong>multimodal</strong>: screenshots, voice, vision.
+  Connect <strong>any LLM</strong> — OpenAI, Anthropic, Ollama, Cavibora, or OpenAI-compatible — and give it 33 tools to read, write, edit, search, and execute code. Plus <strong>multimodal</strong>: screenshots, voice, vision. Plus <strong>Agent Hub</strong>: coordinate multiple agents in a shared workspace.
 </p>
 
 ---
@@ -49,6 +49,7 @@ bugbuster "Fix the bug"     # one-shot
 | Local models (Ollama) | ✅ | ❌ | ✅ | ✅ |
 | Fallback providers | ✅ | ❌ | ❌ | ❌ |
 | Per-tool permissions | ✅ | ❌ | ❌ | ❌ |
+| **Agent Hub (multi-agent)** | ✅ | ❌ | ❌ | ❌ |
 | Screenshots & Vision | ✅ | ✅ | ❌ | ❌ |
 | Voice (TTS + STT) | ✅ | ❌ | ❌ | ❌ |
 | Self-awareness mirror | ✅ | ❌ | ❌ | ❌ |
@@ -60,7 +61,7 @@ bugbuster "Fix the bug"     # one-shot
 | Undo (change tracking) | ✅ | ✅ | ❌ | ❌ |
 | Context archiving | ✅ | ❌ | ❌ | ❌ |
 
-## 🛠️ 22 Built-in Tools
+## 🛠️ 33 Built-in Tools
 
 | Tool | Description |
 |------|-------------|
@@ -86,6 +87,17 @@ bugbuster "Fix the bug"     # one-shot
 | `send_file` | 📎 Send image/audio/document to model |
 | `tts` | 🔊 Text-to-speech |
 | `stt` | 🎤 Speech-to-text |
+| `hub_list` | 👥 List agents in hub |
+| `hub_message` | 💬 Send message to agent |
+| `hub_broadcast` | 📢 Broadcast to all agents |
+| `hub_alert` | 🚨 Send urgent alert |
+| `hub_info` | ℹ️ Get agent info |
+| `hub_history` | 📜 Message history |
+| `hub_request` | 🤝 Request help from agent |
+| `hub_respond` | ✅ Respond to help request |
+| `hub_check` | 🔔 Check pending requests |
+| `hub_tasks` | 📋 View agent's task list |
+| `hub_status` | 🔄 Update own status & task |
 
 ## ✨ Highlights
 
@@ -94,6 +106,7 @@ bugbuster "Fix the bug"     # one-shot
 - 🧠 **Self-Awareness** — `self_info` tool lets the model know its provider, context usage, and environment
 - 🔐 **Granular Permissions** — per-tool permission overrides (`bash: ask`, `web_fetch: deny`, etc.)
 - 🔄 **Fallback Providers** — automatic switch to backup provider when primary fails
+- 🏠 **Agent Hub** — coordinate multiple agents in a shared workspace: message, broadcast, request help, share tasks. Enabled by default. Per-provider roles (coder, reviewer, tester).
 - 🖥️ **Screenshots & Vision** — capture desktop, window, or region; send images to vision models
 - 🎤🔊 **Voice** — speech-to-text (Whisper) and text-to-speech (OpenAI TTS or system)
 - 🌍 **8 Languages** — English, Russian, Spanish, French, German, Japanese, Chinese, Portuguese
@@ -164,6 +177,52 @@ tools:
 ```
 
 Full config reference: [docs/CONFIGURATION.md](docs/CONFIGURATION.md)
+
+## 🏠 Agent Hub
+
+Run multiple BugBuster Code agents in separate terminals — they discover each other automatically and coordinate via a shared workspace:
+
+```yaml
+hub:
+  enabled: true                    # Enabled by default
+  name: "bugbuster-coder"          # Agent display name
+  role: "coder"                    # Role: coder, reviewer, tester, architect
+  intelligence: "expert"           # low, medium, high, expert, superior (or 1-5)
+  heartbeat_seconds: 30            # Heartbeat interval
+```
+
+Per-provider override — different models can have different roles:
+
+```yaml
+providers:
+  openai:
+    model: gpt-4o
+    hub:
+      role: "coder"                # GPT-4o writes code
+
+  anthropic:
+    model: claude-sonnet-4-20250514
+    hub:
+      role: "reviewer"             # Claude reviews code
+```
+
+**Hub tools available to the model:**
+
+| Tool | Description |
+|------|-------------|
+| `hub_list` | List all agents in the hub |
+| `hub_message` | Send a message to a specific agent |
+| `hub_broadcast` | Broadcast a message to all agents |
+| `hub_alert` | Send an urgent alert |
+| `hub_info` | Get detailed info about an agent |
+| `hub_history` | View message history |
+| `hub_request` | Request help from another agent |
+| `hub_respond` | Respond to a help request |
+| `hub_check` | Check pending requests |
+| `hub_tasks` | View another agent's task list |
+| `hub_status` | Update own status and current task |
+
+**Example workflow:** Open 3 terminals, each running BugBuster with a different role. The coder writes code, the reviewer reviews it, the tester runs tests — all coordinated through the hub.
 
 ## 🔒 Security
 
