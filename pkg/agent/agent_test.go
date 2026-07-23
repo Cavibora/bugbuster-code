@@ -897,6 +897,22 @@ func TestLooksLikeCompletion(t *testing.T) {
 		{"Here's what I found:\n1. Bug in line 5\n2. Need to fix", false},
 		{"The bug is in the main function", false},
 		{"I need to read the file first", false},
+		// Markdown headings
+		{"## Recap\n\n- Fixed bug\n- Added tests", true},
+		{"## Итог\n\n- Исправлен баг\n- Добавлены тесты", true},
+		{"## Summary\n\nAll changes applied", true},
+		{"# Recap\n\nDone", true},
+		// Standalone completion words
+		{"Done", true},
+		{"Done.", true},
+		{"Done!", true},
+		{"Готово", true},
+		{"Готово.", true},
+		{"Готово!", true},
+		// "all tests pass" in middle of text is NOT completion (model continues)
+		{"All tests pass. Now let me commit:", false},
+		// "committed and pushed" as completion signal
+		{"Changes committed and pushed", true},
 	}
 
 	for _, tt := range tests {

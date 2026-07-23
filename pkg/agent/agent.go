@@ -1342,6 +1342,17 @@ func LooksLikeCompletion(text string) bool {
 		"резюме —",
 		"результаты:",
 		"результаты —",
+		// Markdown headings
+		"## recap",
+		"## итог",
+		"## итоги",
+		"## summary",
+		"## резюме",
+		"# recap",
+		"# итог",
+		"# итоги",
+		"# summary",
+		"# резюме",
 	}
 	for _, marker := range recapMarkers {
 		if strings.Contains(lower, marker) {
@@ -1413,6 +1424,8 @@ func LooksLikeCompletion(text string) bool {
 		"mission accomplished",
 		"всё", "конец", "завершено",
 		"выполнено", "сделано",
+		// Short standalone completions
+		"tests passed", "committed and pushed",
 	}
 	for _, phrase := range completionPhrases {
 		if strings.Contains(lower, phrase) {
@@ -1422,6 +1435,7 @@ func LooksLikeCompletion(text string) bool {
 
 	// Short answers (< 200 chars) to informational questions — likely just an answer
 	// Check if it looks like a direct answer (starts with common answer patterns)
+	// Also check for standalone completion words like "Done", "Done.", "Done!"
 	if len(text) < 200 {
 		answerPrefixes := []string{"да", "нет", "yes", "no", "ok", "ок"}
 		firstLine := text
@@ -1433,6 +1447,25 @@ func LooksLikeCompletion(text string) bool {
 			if strings.HasPrefix(firstLine, prefix) {
 				return true
 			}
+		}
+	}
+
+	// Standalone completion words — short text that is just "Done", "Done.", "Готово" etc.
+	// These are clear signals the model has finished its task
+	standaloneCompletions := []string{
+		"done", "done.", "done!", "done\n",
+		"готово", "готово.", "готово!", "готово\n",
+		"сделано", "сделано.", "сделано!",
+		"завершено", "завершено.", "завершено!",
+		"выполнено", "выполнено.", "выполнено!",
+		"ок", "ок.", "ок!", "ок\n",
+		"ok", "ok.", "ok!", "ok\n",
+		"конец", "конец.", "конец!",
+	}
+	trimmedLower := strings.TrimSpace(lower)
+	for _, word := range standaloneCompletions {
+		if trimmedLower == word {
+			return true
 		}
 	}
 
