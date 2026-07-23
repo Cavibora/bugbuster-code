@@ -299,10 +299,16 @@ func (h *Hub) SendMessage(toAgentID, content string) error {
 		return fmt.Errorf("agent not registered")
 	}
 
+	// Resolve agent ID (supports partial IDs and names)
+	resolvedID, err := h.resolveAgentIDUnlocked(toAgentID)
+	if err != nil {
+		return err
+	}
+
 	msg := &Message{
 		ID:        generateID(),
 		From:      h.selfID,
-		To:        toAgentID,
+		To:        resolvedID,
 		Type:      "direct",
 		Content:   content,
 		Timestamp: time.Now(),
@@ -369,13 +375,10 @@ func (h *Hub) SendRequest(toAgentID, action, content, priority string) (*Message
 		return nil, fmt.Errorf("agent not registered")
 	}
 
-	// Verify target agent exists
-	if _, ok := h.agents[toAgentID]; !ok {
-		// Try loading from disk
-		h.loadAgentFromDisk(toAgentID)
-		if _, ok := h.agents[toAgentID]; !ok {
-			return nil, fmt.Errorf("agent '%s' not found", toAgentID)
-		}
+	// Resolve agent ID (supports partial IDs and names)
+	resolvedID, err := h.resolveAgentIDUnlocked(toAgentID)
+	if err != nil {
+		return nil, err
 	}
 
 	if priority == "" {
@@ -385,7 +388,7 @@ func (h *Hub) SendRequest(toAgentID, action, content, priority string) (*Message
 	msg := &Message{
 		ID:        generateID(),
 		From:      h.selfID,
-		To:        toAgentID,
+		To:        resolvedID,
 		Type:      "request",
 		Content:   content,
 		Priority:  priority,
@@ -596,6 +599,14 @@ func (h *Hub) SelfID() string {
 	return h.selfID
 }
 
+// ResolveAgentID resolves an agent ID from a possibly partial or name-based identifier.
+// It tries: exact ID match, partial ID prefix match, exact name match, partial name match.
+func (h *Hub) ResolveAgentID(idOrName string) (string, error) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.resolveAgentIDUnlocked(idOrName)
+}
+
 // --- File-based persistence ---
 
 func (h *Hub) saveAgent(profile *AgentProfile) error {
@@ -690,6 +701,71 @@ func (h *Hub) loadMessagesFromDisk() {
 	})
 }
 
+// resolveAgentID resolves an agent ID from a possibly partial or name-based identifier.
+// It tries: exact ID match, partial ID prefix match, exact name match, partial name match.
+func (h *Hub) resolveAgentID(idOrName string) (string, error) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	// Refresh from disk
+	h.loadFromDisk()
+
+	return h.resolveAgentIDUnlocked(idOrName)
+}
+
+// resolveAgentIDUnlocked resolves agent ID without locking (caller must hold lock).
+func (h *Hub) resolveAgentIDUnlocked(idOrName string) (string, error) {
+
+	// 1. Exact ID match
+	if _, ok := h.agents[idOrName]; ok {
+		return idOrName, nil
+	}
+
+	// 2. Partial ID prefix match (e.g., "sess_202" matches "sess_20260722_072741_31b8047b")
+	var matches []string
+	for id := range h.agents {
+		if strings.HasPrefix(id, idOrName) {
+			matches = append(matches, id)
+		}
+	}
+	if len(matches) == 1 {
+		return matches[0], nil
+	}
+	if len(matches) > 1 {
+		return "", fmt.Errorf("ambiguous agent ID '%s' matches %d agents: %s", idOrName, len(matches), strings.Join(matches, ", "))
+	}
+
+	// 3. Exact name match
+	for id, a := range h.agents {
+		if a.Name == idOrName {
+			return id, nil
+		}
+	}
+
+	// 4. Partial name match
+	for id, a := range h.agents {
+		if strings.Contains(a.Name, idOrName) {
+			matches = append(matches, id)
+		}
+	}
+	if len(matches) == 1 {
+		return matches[0], nil
+	}
+	if len(matches) > 1 {
+		return "", fmt.Errorf("ambiguous agent name '%s' matches %d agents: %s", idOrName, len(matches), strings.Join(matches, ", "))
+	}
+
+	// 5. Case-insensitive search
+	idLower := strings.ToLower(idOrName)
+	for id, a := range h.agents {
+		if strings.ToLower(a.Name) == idLower || strings.ToLower(a.ID) == idLower {
+			return id, nil
+		}
+	}
+
+	return "", fmt.Errorf("agent '%s' not found", idOrName)
+}
+
 // generateID generates a unique message/agent ID
 func generateID() string {
 	return fmt.Sprintf("%d", time.Now().UnixNano())
@@ -770,8 +846,9 @@ func FormatAgentList(agents []*AgentProfile) string {
 
 	for _, a := range agents {
 		intelligence := strings.Repeat("★", int(a.Intelligence)) + strings.Repeat("☆", 5-int(a.Intelligence))
-		sb.WriteString(fmt.Sprintf("  %-15s  %s/%s  [%s]  %s\n",
+		sb.WriteString(fmt.Sprintf("  %-20s  %s/%s  [%s]  %s\n",
 			a.Name, a.Provider, a.Model, intelligence, a.Status))
+		sb.WriteString(fmt.Sprintf("  ID: %s\n", a.ID))
 		if a.CurrentTask != "" {
 			sb.WriteString(fmt.Sprintf("    Task: %s\n", a.CurrentTask))
 		}

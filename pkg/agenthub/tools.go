@@ -56,7 +56,7 @@ func (t *HubMessageTool) Name() string { return "hub_message" }
 
 // Description returns the tool description
 func (t *HubMessageTool) Description() string {
-	return "hub_message — send a message to another agent in the shared workspace. Parameters: agent_id (required) — target agent ID, content (required) — message text. Use this to coordinate with other agents, ask questions, or share information."
+	return "hub_message — send a message to another agent in the shared workspace. Parameters: agent_id (required) — target agent ID or name (supports partial match, e.g. 'bugbuster-coder' or 'sess_202'), content (required) — message text. Use hub_list first to see available agents and their IDs."
 }
 
 // Parameters returns the tool parameters
@@ -66,7 +66,7 @@ func (t *HubMessageTool) Parameters() map[string]any {
 		"properties": map[string]any{
 			"agent_id": map[string]any{
 				"type":        "string",
-				"description": "Target agent ID to send the message to",
+				"description": "Target agent ID or name (supports partial match, e.g. 'bugbuster-coder' or 'sess_202'). Use hub_list to see available agents.",
 			},
 			"content": map[string]any{
 				"type":        "string",
@@ -89,21 +89,28 @@ func (t *HubMessageTool) Execute(params map[string]string) tools.ToolResult {
 		return tools.ToolResult{Error: "content is required"}
 	}
 
-	// Verify target agent exists
-	if _, ok := t.hub.GetAgent(agentID); !ok {
+	// Resolve agent ID (supports partial IDs and names)
+	resolvedID, err := t.hub.resolveAgentID(agentID)
+	if err != nil {
 		agents := t.hub.ListAgents()
 		var ids []string
 		for _, a := range agents {
-			ids = append(ids, fmt.Sprintf("%s (%s)", a.Name, a.ID))
+			ids = append(ids, fmt.Sprintf("%s (ID: %s)", a.Name, a.ID))
 		}
-		return tools.ToolResult{Error: fmt.Sprintf("agent '%s' not found. Available agents: %s", agentID, strings.Join(ids, ", "))}
+		return tools.ToolResult{Error: fmt.Sprintf("%s. Available agents: %s", err.Error(), strings.Join(ids, ", "))}
 	}
 
-	if err := t.hub.SendMessage(agentID, content); err != nil {
+	if err := t.hub.SendMessage(resolvedID, content); err != nil {
 		return tools.ToolResult{Error: err.Error()}
 	}
 
-	return tools.ToolResult{Output: fmt.Sprintf("📨 Message sent to agent %s", agentID)}
+	// Get agent name for display
+	agentName := resolvedID
+	if a, ok := t.hub.GetAgent(resolvedID); ok {
+		agentName = a.Name
+	}
+
+	return tools.ToolResult{Output: fmt.Sprintf("📨 Message sent to %s (%s)", agentName, resolvedID)}
 }
 
 // HubBroadcastTool broadcasts a message to all agents
@@ -213,7 +220,7 @@ func (t *HubInfoTool) Name() string { return "hub_info" }
 
 // Description returns the tool description
 func (t *HubInfoTool) Description() string {
-	return "hub_info — get detailed info about a specific agent including their system prompt, role, model, and intelligence level. Parameters: agent_id (required) — agent ID to inspect. Use this to understand another agent's capabilities and role before coordinating."
+	return "hub_info — get detailed info about a specific agent including their system prompt, role, model, and intelligence level. Parameters: agent_id (required) — agent ID or name (supports partial match). Use hub_list first to see available agents."
 }
 
 // Parameters returns the tool parameters
@@ -223,7 +230,7 @@ func (t *HubInfoTool) Parameters() map[string]any {
 		"properties": map[string]any{
 			"agent_id": map[string]any{
 				"type":        "string",
-				"description": "Agent ID to get info about",
+				"description": "Agent ID or name (supports partial match). Use hub_list to see available agents.",
 			},
 		},
 		"required": []string{"agent_id"},
@@ -237,9 +244,15 @@ func (t *HubInfoTool) Execute(params map[string]string) tools.ToolResult {
 		return tools.ToolResult{Error: "agent_id is required"}
 	}
 
-	agent, ok := t.hub.GetAgent(agentID)
+	// Resolve agent ID (supports partial IDs and names)
+	resolvedID, err := t.hub.resolveAgentID(agentID)
+	if err != nil {
+		return tools.ToolResult{Error: err.Error()}
+	}
+
+	agent, ok := t.hub.GetAgent(resolvedID)
 	if !ok {
-		return tools.ToolResult{Error: fmt.Sprintf("agent '%s' not found", agentID)}
+		return tools.ToolResult{Error: fmt.Sprintf("agent '%s' not found", resolvedID)}
 	}
 
 	var sb strings.Builder
@@ -285,7 +298,7 @@ func (t *HubTasksTool) Name() string { return "hub_tasks" }
 
 // Description returns the tool description
 func (t *HubTasksTool) Description() string {
-	return "hub_tasks — view another agent's task list. Parameters: agent_id (optional) — agent ID to view tasks for (if omitted, shows all agents' tasks). Use this to see what other agents are working on and coordinate tasks to avoid conflicts."
+	return "hub_tasks — view another agent's task list. Parameters: agent_id (optional) — agent ID or name (supports partial match, shows all agents if omitted). Use this to see what other agents are working on and coordinate tasks to avoid conflicts."
 }
 
 // Parameters returns the tool parameters
@@ -295,7 +308,7 @@ func (t *HubTasksTool) Parameters() map[string]any {
 		"properties": map[string]any{
 			"agent_id": map[string]any{
 				"type":        "string",
-				"description": "Agent ID to view tasks for (optional — shows all agents if omitted)",
+				"description": "Agent ID or name (supports partial match, optional — shows all agents if omitted)",
 			},
 		},
 	}
@@ -306,10 +319,16 @@ func (t *HubTasksTool) Execute(params map[string]string) tools.ToolResult {
 	agentID := params["agent_id"]
 
 	if agentID != "" {
+		// Resolve agent ID (supports partial IDs and names)
+		resolvedID, err := t.hub.resolveAgentID(agentID)
+		if err != nil {
+			return tools.ToolResult{Error: err.Error()}
+		}
+
 		// Show specific agent's tasks
-		agent, ok := t.hub.GetAgent(agentID)
+		agent, ok := t.hub.GetAgent(resolvedID)
 		if !ok {
-			return tools.ToolResult{Error: fmt.Sprintf("agent '%s' not found", agentID)}
+			return tools.ToolResult{Error: fmt.Sprintf("agent '%s' not found", resolvedID)}
 		}
 
 		var sb strings.Builder
@@ -493,7 +512,7 @@ func (t *HubHistoryTool) Parameters() map[string]any {
 		"properties": map[string]any{
 			"agent_id": map[string]any{
 				"type":        "string",
-				"description": "Filter messages by agent ID (optional)",
+				"description": "Filter messages by agent ID or name (supports partial match, optional)",
 			},
 			"limit": map[string]any{
 				"type":        "string",
@@ -512,9 +531,19 @@ func (t *HubHistoryTool) Execute(params map[string]string) tools.ToolResult {
 		fmt.Sscanf(l, "%d", &limit)
 	}
 
-	var messages []*Message
+	// Resolve agent ID if specified (supports partial IDs and names)
+	resolvedID := agentID
 	if agentID != "" {
-		messages = t.hub.GetHistory(agentID, limit)
+		id, err := t.hub.resolveAgentID(agentID)
+		if err != nil {
+			return tools.ToolResult{Error: err.Error()}
+		}
+		resolvedID = id
+	}
+
+	var messages []*Message
+	if resolvedID != "" {
+		messages = t.hub.GetHistory(resolvedID, limit)
 	} else {
 		messages = t.hub.GetAllMessages(limit)
 	}
@@ -543,7 +572,7 @@ func (t *HubRequestTool) Name() string { return "hub_request" }
 
 // Description returns the tool description
 func (t *HubRequestTool) Description() string {
-	return `hub_request — ask another agent to do something. Parameters: agent_id (required) — target agent ID, action (required) — what to ask: "do" (do a task), "redo" (redo/rewrite something), "stop" (stop what you're doing), "wait" (wait until I'm done), "review" (review my code), "test" (run tests), "fix" (fix a bug), content (required) — description of the request, priority (optional) — "low", "normal", "high", "urgent" (default: "normal"). Use this to delegate tasks, ask for help, or coordinate work between agents. The other agent can accept or decline.`
+	return `hub_request — ask another agent to do something. Parameters: agent_id (required) — target agent ID or name (supports partial match), action (required) — what to ask: "do" (do a task), "redo" (redo/rewrite something), "stop" (stop what you're doing), "wait" (wait until I'm done), "review" (review my code), "test" (run tests), "fix" (fix a bug), content (required) — description of the request, priority (optional) — "low", "normal", "high", "urgent" (default: "normal"). Use hub_list first to see available agents. The other agent can accept or decline.`
 }
 
 // Parameters returns the tool parameters
@@ -553,7 +582,7 @@ func (t *HubRequestTool) Parameters() map[string]any {
 		"properties": map[string]any{
 			"agent_id": map[string]any{
 				"type":        "string",
-				"description": "Target agent ID to send the request to",
+				"description": "Target agent ID or name (supports partial match). Use hub_list to see available agents.",
 			},
 			"action": map[string]any{
 				"type":        "string",
@@ -589,6 +618,12 @@ func (t *HubRequestTool) Execute(params map[string]string) tools.ToolResult {
 		return tools.ToolResult{Error: "content is required"}
 	}
 
+	// Resolve agent ID (supports partial IDs and names)
+	resolvedID, err := t.hub.resolveAgentID(agentID)
+	if err != nil {
+		return tools.ToolResult{Error: err.Error()}
+	}
+
 	// Validate action
 	validActions := map[string]bool{"do": true, "redo": true, "stop": true, "wait": true, "review": true, "test": true, "fix": true}
 	if !validActions[action] {
@@ -603,7 +638,7 @@ func (t *HubRequestTool) Execute(params map[string]string) tools.ToolResult {
 		}
 	}
 
-	msg, err := t.hub.SendRequest(agentID, action, content, priority)
+	msg, err := t.hub.SendRequest(resolvedID, action, content, priority)
 	if err != nil {
 		return tools.ToolResult{Error: err.Error()}
 	}

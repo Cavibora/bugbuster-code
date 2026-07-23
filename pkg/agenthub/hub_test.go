@@ -703,6 +703,76 @@ func containsSubstr(s, substr string) bool {
 	return false
 }
 
+func TestResolveAgentID(t *testing.T) {
+	dir := t.TempDir()
+	hub := NewHub(dir)
+	if err := hub.Init(); err != nil {
+		t.Fatalf("Init error: %v", err)
+	}
+
+	// Register agent-1 (self)
+	profile1 := &AgentProfile{
+		ID:           "sess_20260722_072741_31b8047b",
+		Name:         "bugbuster-coder",
+		Provider:     "openai",
+		Model:        "gpt-4o",
+		Intelligence: IntelligenceExpert,
+	}
+	hub.Register(profile1)
+
+	// Register agent-2 manually
+	profile2 := &AgentProfile{
+		ID:           "sess_20260722_080000_abc12345",
+		Name:         "bugbuster-reviewer",
+		Provider:     "anthropic",
+		Model:        "claude-3-opus",
+		Intelligence: IntelligenceSuperior,
+	}
+	hub.mu.Lock()
+	profile2.RegisteredAt = time.Now()
+	profile2.LastHeartbeat = time.Now()
+	hub.agents[profile2.ID] = profile2
+	hub.mu.Unlock()
+	hub.saveAgent(profile2)
+
+	tests := []struct {
+		input    string
+		expected string
+		wantErr bool
+	}{
+		// Exact ID match
+		{"sess_20260722_072741_31b8047b", "sess_20260722_072741_31b8047b", false},
+		// Exact name match
+		{"bugbuster-reviewer", "sess_20260722_080000_abc12345", false},
+		// Partial ID prefix match (unique)
+		{"sess_20260722_072", "sess_20260722_072741_31b8047b", false},
+		// Partial name match
+		{"reviewer", "sess_20260722_080000_abc12345", false},
+		// Non-existent agent
+		{"nonexistent", "", true},
+		// Ambiguous partial ID (matches multiple agents)
+		{"sess_2026", "", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result, err := hub.ResolveAgentID(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("ResolveAgentID(%q) expected error, got nil", tt.input)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("ResolveAgentID(%q) unexpected error: %v", tt.input, err)
+				}
+				if result != tt.expected {
+					t.Errorf("ResolveAgentID(%q) = %q, want %q", tt.input, result, tt.expected)
+				}
+			}
+		})
+	}
+}
+
 func TestHubSendRequest(t *testing.T) {
 	dir := t.TempDir()
 	hub := NewHub(dir)
