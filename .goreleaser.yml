@@ -105,39 +105,39 @@ release:
     go install github.com/Cavibora/bugbuster-code/cmd/bugbuster@latest
     ```
 
-brews:
-  - name: bugbuster
-    repository:
-      owner: Cavibora
-      name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    directory: .
-    homepage: "https://github.com/Cavibora/bugbuster-code"
-    description: "Model-agnostic AI coding agent for your terminal"
-    license: MIT
-    test: |
-      system "#{bin}/bugbuster", "--version"
-    install: |
-      bin.install "bugbuster"
-
-scoops:
-  - name: bugbuster
-    repository:
-      owner: Cavibora
-      name: scoop-bucket
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    homepage: "https://github.com/Cavibora/bugbuster-code"
-    description: "Model-agnostic AI coding agent for your terminal"
-    license: MIT
-
-nfpms:
-  - id: bugbuster
-    package_name: bugbuster
-    homepage: "https://github.com/Cavibora/bugbuster-code"
-    description: "Model-agnostic AI coding agent for your terminal"
-    license: MIT
-    formats:
-      - deb
-      - rpm
-      - apk
-    maintainer: "Cavibora <bugbuster@cavibora.com>"
+# brews:
+#   - name: bugbuster
+#     repository:
+#       owner: Cavibora
+#       name: homebrew-tap
+#       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+#     directory: .
+#     homepage: "https://github.com/Cavibora/bugbuster-code"
+#     description: "Model-agnostic AI coding agent for your terminal"
+#     license: MIT
+#     test: |
+#       system "#{bin}/bugbuster", "--version"
+#     install: |
+#       bin.install "bugbuster"
+# 
+# scoops:
+#   - name: bugbuster
+#     repository:
+#       owner: Cavibora
+#       name: scoop-bucket
+#       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+#     homepage: "https://github.com/Cavibora/bugbuster-code"
+#     description: "Model-agnostic AI coding agent for your terminal"
+#     license: MIT
+# 
+# nfpms:
+#   - id: bugbuster
+#     package_name: bugbuster
+#     homepage: "https://github.com/Cavibora/bugbuster-code"
+#     description: "Model-agnostic AI coding agent for your terminal"
+#     license: MIT
+#     formats:
+#       - deb
+#       - rpm
+#       - apk
+#     maintainer: "Cavibora <bugbuster@cavibora.com>"
