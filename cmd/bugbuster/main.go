@@ -30,7 +30,7 @@ func main() {
 
 	// Handle --version and --clear-crash flags early, before crash handler
 	for _, arg := range os.Args[1:] {
-		if arg == "--version" || arg == "-v" {
+		if arg == "--version" {
 			color.Cyan("BugBuster Code %s", Version)
 			color.Yellow("  Commit: %s", GitCommit)
 			color.Yellow("  Built:  %s", BuildDate)

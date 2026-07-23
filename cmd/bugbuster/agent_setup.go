@@ -402,7 +402,11 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 			// Determine agent name
 			agentName := hubName
 			if agentName == "" {
-				agentName = "bugbuster-" + sessionID[:8]
+				if len(sessionID) >= 8 {
+					agentName = "bugbuster-" + sessionID[:8]
+				} else {
+					agentName = "bugbuster-" + sessionID
+				}
 			}
 
 			// Register this agent in the hub
