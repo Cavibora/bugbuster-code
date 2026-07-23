@@ -119,7 +119,7 @@ type GoPluginConfig struct {
 
 // HubConfig — agent hub configuration (shared workspace for multi-agent coordination)
 type HubConfig struct {
-	Enabled          bool              `yaml:"enabled"`             // enable hub (default: false)
+	Enabled          bool              `yaml:"enabled"`             // enable hub (default: true)
 	Name             string            `yaml:"name"`                // agent display name (default: "bugbuster-N")
 	Role             string            `yaml:"role"`                // agent role: "coder", "reviewer", "tester", etc.
 	Intelligence     string            `yaml:"intelligence"`         // intelligence level: "low", "medium", "high", "expert", "superior" (or 1-5)
@@ -450,10 +450,10 @@ func DefaultConfig() *BugBusterConfig {
 			MaxBlocks:    50,
 			AutoOptimize: true,
 		},
-		Hub: HubConfig{
-			Enabled:          false,
-			HeartbeatSeconds: 30,
-		},
+	Hub: HubConfig{
+		Enabled:          true,
+		HeartbeatSeconds: 30,
+	},
 		UI: "auto",
 		LSP: LSPConfig{
 			Timeout: 10,

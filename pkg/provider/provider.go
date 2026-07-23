@@ -110,6 +110,15 @@ type ProviderConfig struct {
 	SystemPromptFile string           `yaml:"system_prompt_file"` // per-provider system prompt from file (appended after system_prompt)
 	Skills           []string         `yaml:"skills"`              // per-provider skill names to activate (e.g., ["debug", "refactor"])
 	SkillsDir        string           `yaml:"skills_dir"`           // per-provider skills directory (loaded in addition to builtins/project/global)
+	// Hub — per-provider hub configuration (overrides global hub settings)
+	Hub ProviderHubConfig `yaml:"hub"`
+}
+
+// ProviderHubConfig — per-provider hub settings (overrides global hub config)
+type ProviderHubConfig struct {
+	Role         string `yaml:"role"`          // agent role: "coder", "reviewer", "tester", etc.
+	Intelligence string `yaml:"intelligence"`   // intelligence level: "low", "medium", "high", "expert", "superior" (or 1-5)
+	Name         string `yaml:"name"`           // agent display name (overrides global hub.name)
 }
 
 // ProviderSecurity — settings security provider

@@ -379,14 +379,28 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 			}
 		} else {
 			// Determine intelligence level
-			intelligence := agenthub.ParseIntelligenceLevel(cfg.Hub.Intelligence)
+			// Priority: provider hub > global hub > auto-detect from model
+			hubIntelligence := cfg.Hub.Intelligence
+			hubRole := cfg.Hub.Role
+			hubName := cfg.Hub.Name
+			if provCfg.Hub.Intelligence != "" {
+				hubIntelligence = provCfg.Hub.Intelligence
+			}
+			if provCfg.Hub.Role != "" {
+				hubRole = provCfg.Hub.Role
+			}
+			if provCfg.Hub.Name != "" {
+				hubName = provCfg.Hub.Name
+			}
+
+			intelligence := agenthub.ParseIntelligenceLevel(hubIntelligence)
 			if intelligence == 0 {
 				// Auto-detect from model intelligence mapping or model name
 				intelligence = agenthub.DetectIntelligence(provCfg.Model, cfg.Hub.ModelIntelligence)
 			}
 
 			// Determine agent name
-			agentName := cfg.Hub.Name
+			agentName := hubName
 			if agentName == "" {
 				agentName = "bugbuster-" + sessionID[:8]
 			}
@@ -398,7 +412,7 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 				Provider:         cfg.DefaultProvider,
 				Model:            provCfg.Model,
 				Project:          getProjectDir(cfg),
-				Role:             cfg.Hub.Role,
+				Role:             hubRole,
 				Intelligence:     intelligence,
 				Status:           agenthub.StatusIdle,
 				HeartbeatSeconds: cfg.Hub.HeartbeatSeconds,
@@ -778,6 +792,16 @@ func getProjectDir(cfg *config.BugBusterConfig) string {
 	}
 	dir, _ := os.Getwd()
 	return dir
+}
+
+// resolveHubRole returns the hub role, checking per-provider override first.
+func resolveHubRole(cfg *config.BugBusterConfig, providerName string) string {
+	if provCfg, ok := cfg.Providers[providerName]; ok {
+		if provCfg.Hub.Role != "" {
+			return provCfg.Hub.Role
+		}
+	}
+	return cfg.Hub.Role
 }
 
 // loadConfig loads configuration

@@ -132,6 +132,10 @@ type TUI struct {
 	// Task type for status line
 	taskType string
 
+	// Hub role and project for terminal title
+	hubRole     string
+	projectName string
+
 	// Auto-save
 	lastSaveTime time.Time
 }
@@ -200,6 +204,8 @@ func NewTUI(cfg *config.BugBusterConfig, loop *agent.AgentLoop, ct *ChangeTracke
 		ctxMaxTokens:  loop.Context.MaxTokens,
 		askUserTool:   askUserTool,
 		bgTool:        tools.NewBackgroundTool(filepath.Join(getProjectDir(cfg), ".bugbuster", "bg_logs")),
+		hubRole:       resolveHubRole(cfg, providerName),
+		projectName:   filepath.Base(getProjectDir(cfg)),
 	}
 }
 
@@ -1214,7 +1220,17 @@ func (m TUI) View() tea.View {
 	defer m.mu.Unlock()
 
 	if !m.ready {
-		return tea.NewView("  BugBuster Code\n  Loading...")
+		v := tea.NewView("  BugBuster Code\n  Loading...")
+		v.WindowTitle = "BugBuster Code"
+		return v
+	}
+
+	// Build window title: "BugBuster [role] project" or "BugBuster project"
+	var windowTitle string
+	if m.hubRole != "" {
+		windowTitle = fmt.Sprintf("BugBuster %s · %s", m.hubRole, m.projectName)
+	} else {
+		windowTitle = fmt.Sprintf("BugBuster · %s", m.projectName)
 	}
 
 	// Header — name and provider/model
@@ -1349,6 +1365,8 @@ func (m TUI) View() tea.View {
 	v.KeyboardEnhancements.ReportEventTypes = true
 	v.KeyboardEnhancements.ReportAllKeysAsEscapeCodes = true
 	v.KeyboardEnhancements.ReportAssociatedText = true
+	// Set terminal window title with role and project
+	v.WindowTitle = windowTitle
 	return v
 }
 

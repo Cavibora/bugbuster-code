@@ -432,7 +432,7 @@ The Agent Hub enables multiple BugBuster Code instances to coordinate through a 
 
 ```yaml
 hub:
-  enabled: true                    # Enable hub (default: false)
+  enabled: true                    # Enable hub (default: true)
   name: "bugbuster-coder"          # Agent display name (default: "bugbuster-N")
   role: "coder"                    # Agent role: "coder", "reviewer", "tester", "architect"
   intelligence: "expert"           # Intelligence level (see below)
@@ -442,6 +442,32 @@ hub:
     claude-3-opus: "superior"
     qwen3.6:35b: "high"
 ```
+
+### Per-Provider Hub Configuration
+
+Hub settings can also be configured per-provider, overriding global hub settings:
+
+```yaml
+providers:
+  openai:
+    type: openai
+    api_key: ${OPENAI_API_KEY}
+    model: gpt-4o
+    hub:
+      role: "coder"              # Override global hub.role for this provider
+      intelligence: "expert"     # Override global hub.intelligence
+      name: "bugbuster-gpt4o"    # Override global hub.name
+
+  anthropic:
+    type: anthropic
+    api_key: ${ANTHROPIC_API_KEY}
+    model: claude-sonnet-4-20250514
+    hub:
+      role: "reviewer"          # This provider acts as reviewer
+      intelligence: "superior"
+```
+
+Priority: `providers.<name>.hub.*` > `hub.*` > auto-detect.
 
 ### Intelligence Levels
 
