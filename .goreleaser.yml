@@ -22,13 +22,12 @@ builds:
     goos:
       - linux
       - darwin
-      - windows
     goarch:
       - amd64
       - arm64
     ignore:
-      - goos: windows
-        goarch: arm64
+      - goos: darwin
+        goarch: "386"
 
 archives:
   - id: bugbuster
@@ -91,10 +90,6 @@ release:
     ```bash
     # Homebrew (macOS / Linux)
     brew install Cavibora/tap/bugbuster
-
-    # Scoop (Windows)
-    scoop bucket add Cavibora https://github.com/Cavibora/scoop-bucket
-    scoop install bugbuster
 
     # Or download from assets below
     tar xzf bugbuster_{{.Version}}_*.tar.gz
