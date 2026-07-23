@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.2.6] - 2026-07-23
 
+### Added
+- **Per-provider hub configuration** — `hub.role`, `hub.intelligence`, `hub.name` can now be set per-provider, overriding global hub settings. Priority: `providers.<name>.hub.*` > `hub.*` > auto-detect.
+- **Terminal window title** — shows role and project: `BugBuster coder · myproject` (uses Bubble Tea v2 `WindowTitle`). Without role: `BugBuster · myproject`.
+
+### Changed
+- **Agent Hub enabled by default** — `hub.enabled` defaults to `true` instead of `false`.
+
 ### Fixed
 - **LooksLikeCompletion expanded** — added markdown heading markers (`## Recap`, `## Итог`, `# Summary`), standalone completion words (`Done`, `Done.`, `Done!`, `Готово`, `Готово.`, `Готово!`), and `committed and pushed` phrase. Removed `all tests pass` (model often continues after tests pass).
 
