@@ -225,10 +225,23 @@ func (st *SplitTerminal) Run() bool {
 	sessionsDir := filepath.Join(getProjectDir(st.cfg), ".bugbuster", "sessions")
 	sessionMgr := agent.NewSessionManager(sessionsDir)
 
-	currentSession := restoreOrNewSession(sessionMgr, rl, st.loop, st.cfg)
+	currentSession, pendingInput := restoreOrNewSession(sessionMgr, rl, st.loop, st.cfg)
 	st.session = currentSession
 	st.sessionMgr = sessionMgr
 	st.loop.Context.SessionID = currentSession.ID
+
+	// Recreate readline with the correct session history file.
+	// The initial readline was created BEFORE the session was selected,
+	// so its history file pointed to the wrong (old/empty) session ID.
+	// Recreating it now ensures command history is loaded for the
+	// restored/selected session (fixes "history not available after
+	// reopening a session").
+	if st.rl != nil {
+		st.rl.Close()
+		st.rl = nil
+	}
+	st.resetReadline()
+	rl = st.rl
 
 	// Set global session references for crash recovery
 	globalSession = currentSession
@@ -251,6 +264,45 @@ func (st *SplitTerminal) Run() bool {
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT)
+
+	// SIGUSR1 handler for hub message injection
+	// When another agent sends a hub message, it sends SIGUSR1 to this process.
+	// We listen for it and inject the messages into the agent loop.
+	hubSigCh := make(chan os.Signal, 1)
+	signal.Notify(hubSigCh, syscall.SIGUSR1)
+	go func() {
+		for range hubSigCh {
+			if poller := st.loop.GetHubPoller(); poller != nil {
+				messages := poller.DrainAndFormatMessages()
+				if len(messages) > 0 {
+					var sb strings.Builder
+					sb.WriteString("📨 Hub messages received:\n\n")
+					for i, msg := range messages {
+						sb.WriteString(msg)
+						if i < len(messages)-1 {
+							sb.WriteString("\n\n")
+						}
+					}
+					sb.WriteString("\n\n---\nPlease read and act on these messages. Use hub_check for more details if needed.")
+					text := sb.String()
+
+					st.mu.Lock()
+					if st.streaming {
+						// During streaming — inject as user message
+						st.loop.InjectUserMessage(text)
+						color.HiCyan("\n  📨 Hub messages injected into context\n")
+					} else {
+						// Not streaming — print notification
+						color.HiCyan("\n  📨 Hub messages received! Starting request...\n")
+						// We can't easily start a new query from a goroutine,
+						// so inject as user message and let auto-continue handle it
+						st.loop.InjectUserMessage(text)
+					}
+					st.mu.Unlock()
+				}
+			}
+		}
+	}()
 	go func() {
 		for range sigCh {
 			now := time.Now()
@@ -292,6 +344,14 @@ func (st *SplitTerminal) Run() bool {
 
 	// Main input loop
 	var ctrlCount int
+	// If the user typed a task instead of a session number during session
+	// selection, run it as the first request in the new session.
+	if pendingInput != "" {
+		st.runStreamingQuery(pendingInput, &currentCancel, &interrupted)
+		st.resetReadline()
+		rl = st.rl
+		pendingInput = ""
+	}
 	for {
 		if rl == nil {
 			// Readline failed to initialize — wait and retry

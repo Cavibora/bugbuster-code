@@ -12,10 +12,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -100,6 +102,7 @@ type AgentProfile struct {
 	RegisteredAt     time.Time         `json:"registered_at"`     // When the agent registered
 	LastHeartbeat    time.Time         `json:"last_heartbeat"`    // Last heartbeat timestamp
 	HeartbeatSeconds int               `json:"heartbeat_seconds"` // Heartbeat interval in seconds (0 = no heartbeat)
+	PID              int               `json:"pid"`               // Process ID for sending signals (SIGUSR1)
 }
 
 // IsAlive checks if the agent is still alive (heartbeat within timeout)
@@ -111,19 +114,54 @@ func (p *AgentProfile) IsAlive(timeout time.Duration) bool {
 	return time.Since(p.LastHeartbeat) < timeout
 }
 
+// MessageStatus represents the delivery/read status of a message
+type MessageStatus string
+
+const (
+	MsgStatusSent      MessageStatus = "sent"       // Message sent, not yet delivered
+	MsgStatusDelivered MessageStatus = "delivered"   // Message delivered to recipient
+	MsgStatusRead      MessageStatus = "read"        // Recipient read the message
+	MsgStatusAcked     MessageStatus = "acked"       // Recipient acknowledged (took note)
+	MsgStatusReplied   MessageStatus = "replied"     // Recipient replied to this message
+	MsgStatusIgnored   MessageStatus = "ignored"     // Recipient ignored this message
+	MsgStatusDeleted   MessageStatus = "deleted"      // Message deleted by recipient
+)
+
+// MessageComment represents a comment added to a message
+type MessageComment struct {
+	AgentID   string    `json:"agent_id"`   // Who added the comment
+	Content   string    `json:"content"`    // Comment text
+	Timestamp time.Time `json:"timestamp"`  // When the comment was added
+}
+
 // Message represents a message between agents
 type Message struct {
-	ID         string    `json:"id"`          // Unique message ID
-	From       string    `json:"from"`        // Sender agent ID
-	To         string    `json:"to"`          // Receiver agent ID (empty = broadcast)
-	Type       string    `json:"type"`        // Message type: "direct", "broadcast", "alert", "status", "request", "response"
-	Content    string    `json:"content"`     // Message content
-	Priority   string    `json:"priority"`    // Priority: "low", "normal", "high", "urgent"
-	Action     string    `json:"action"`      // Requested action: "do", "redo", "stop", "wait", "review", "test", "fix"
-	ReplyTo    string    `json:"reply_to"`    // ID of the message this is a reply to (for request/response)
-	Accepted   *bool     `json:"accepted"`    // For responses: whether the request was accepted (nil = no response yet)
-	Timestamp  time.Time `json:"timestamp"`   // When the message was sent
-	Read       bool      `json:"read"`        // Whether the recipient has read it
+	ID         string           `json:"id"`          // Unique message ID
+	From       string           `json:"from"`         // Sender agent ID
+	To         string           `json:"to"`           // Receiver agent ID (empty = broadcast)
+	Type       string           `json:"type"`         // Message type: "direct", "broadcast", "alert", "status", "request", "response"
+	Content    string           `json:"content"`      // Message content
+	Priority   string           `json:"priority"`     // Priority: "low", "normal", "high", "urgent"
+	Action     string           `json:"action"`       // Requested action: "do", "redo", "stop", "wait", "review", "test", "fix"
+	ReplyTo    string           `json:"reply_to"`     // ID of the message this is a reply to (for request/response)
+	Accepted   *bool            `json:"accepted"`     // For responses: whether the request was accepted (nil = no response yet)
+	Timestamp  time.Time        `json:"timestamp"`    // When the message was sent
+	Read       bool             `json:"read"`         // Whether the recipient has read it
+	// --- New fields: status tracking & comments ---
+	Status        MessageStatus    `json:"status"`        // Current status of the message
+	StatusHistory []StatusChange   `json:"status_history"` // History of status changes
+	Comments      []MessageComment `json:"comments"`      // Comments added by agents
+	EditedAt      *time.Time       `json:"edited_at"`     // When the content was last edited (nil = not edited)
+	EditedBy      string           `json:"edited_by"`     // Who edited the content (agent ID)
+	OriginalContent string         `json:"original_content"` // Original content before editing (empty = not edited)
+}
+
+// StatusChange represents a status change in a message's history
+type StatusChange struct {
+	Status    MessageStatus `json:"status"`     // New status
+	ChangedBy string        `json:"changed_by"` // Who changed the status (agent ID)
+	ChangedAt time.Time     `json:"changed_at"` // When the status was changed
+	Note      string        `json:"note"`       // Optional note about the change
 }
 
 // Hub is the shared workspace for inter-agent communication
@@ -157,7 +195,91 @@ func (h *Hub) Init() error {
 	}
 	// Load existing agents and messages from disk
 	h.loadFromDisk()
+
+	// Clean up stale agents (dead processes, expired heartbeats)
+	h.CleanupStaleAgents()
+
 	return nil
+}
+
+// CleanupStaleAgents removes agents whose processes are no longer running
+// or whose heartbeats have expired. This prevents ghost agents from
+// accumulating in the hub after crashes or disconnects.
+// It does NOT remove the current agent (selfID).
+func (h *Hub) CleanupStaleAgents() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	var toRemove []string
+
+	for id, agent := range h.agents {
+		// Never remove self
+		if id == h.selfID {
+			continue
+		}
+
+		stale := false
+		reason := ""
+
+		// Check 1: If agent has a PID, check if the process is still alive
+		if agent.PID != 0 {
+			process, err := os.FindProcess(agent.PID)
+			if err != nil {
+				stale = true
+				reason = fmt.Sprintf("process lookup failed (pid %d)", agent.PID)
+			} else {
+				// On Unix, FindProcess always succeeds. Send signal 0 to check existence.
+				if err := process.Signal(syscall.Signal(0)); err != nil {
+					stale = true
+					reason = fmt.Sprintf("process %d is dead: %v", agent.PID, err)
+				}
+			}
+		}
+
+		// Check 2: Heartbeat timeout (if heartbeat is configured)
+		if !stale && agent.HeartbeatSeconds > 0 {
+			heartbeatTimeout := time.Duration(agent.HeartbeatSeconds*3) * time.Second
+			if heartbeatTimeout < 30*time.Second {
+				heartbeatTimeout = 30 * time.Second
+			}
+			if time.Since(agent.LastHeartbeat) > heartbeatTimeout {
+				stale = true
+				reason = fmt.Sprintf("heartbeat expired (last: %v, timeout: %v)", agent.LastHeartbeat, heartbeatTimeout)
+			}
+		}
+
+		// Check 3: No heartbeat configured and registered more than 24h ago
+		if !stale && agent.HeartbeatSeconds == 0 && agent.PID == 0 {
+			if time.Since(agent.RegisteredAt) > 24*time.Hour {
+				stale = true
+				reason = "no PID, no heartbeat, registered >24h ago"
+			}
+		}
+
+		if stale {
+			toRemove = append(toRemove, id)
+			// Broadcast departure
+			msg := &Message{
+				ID:        generateID(),
+				From:      id,
+				To:        "",
+				Type:      "status",
+				Content:   fmt.Sprintf("Agent %s (%s/%s) removed from hub (stale: %s)", agent.Name, agent.Provider, agent.Model, reason),
+				Timestamp: time.Now(),
+			}
+			h.messages = append(h.messages, msg)
+			h.saveMessage(msg)
+		}
+	}
+
+	// Remove stale agents
+	for _, id := range toRemove {
+		delete(h.agents, id)
+		agentFile := filepath.Join(h.dir, "agents", id+".json")
+		os.Remove(agentFile)
+	}
+
+	return len(toRemove)
 }
 
 // Register registers this agent in the hub
@@ -244,7 +366,10 @@ func (h *Hub) UpdateStatus(status AgentStatus, task string) error {
 		return err
 	}
 
-	// Notify others on status change
+	// Notify others on status change — save status message for history
+	// but do NOT send SIGUSR1 to other agents. Status changes are informational
+	// and will be visible via hub_list/hub_check when explicitly requested.
+	// This prevents context pollution and model freezes from status spam.
 	if oldStatus != status {
 		msg := &Message{
 			ID:        generateID(),
@@ -256,6 +381,7 @@ func (h *Hub) UpdateStatus(status AgentStatus, task string) error {
 		}
 		h.messages = append(h.messages, msg)
 		h.saveMessage(msg)
+		// No NotifyAllAgents() — status changes don't need immediate attention
 	}
 
 	return nil
@@ -315,6 +441,10 @@ func (h *Hub) SendMessage(toAgentID, content string) error {
 	}
 	h.messages = append(h.messages, msg)
 	h.saveMessage(msg)
+
+	// Notify the target agent (outside lock — NotifyAgent has its own lock)
+	go h.NotifyAgent(resolvedID)
+
 	return nil
 }
 
@@ -337,6 +467,10 @@ func (h *Hub) Broadcast(content string) error {
 	}
 	h.messages = append(h.messages, msg)
 	h.saveMessage(msg)
+
+	// Notify all agents
+	go h.NotifyAllAgents()
+
 	return nil
 }
 
@@ -361,6 +495,10 @@ func (h *Hub) Alert(content string) error {
 	}
 	h.messages = append(h.messages, msg)
 	h.saveMessage(msg)
+
+	// Notify all agents
+	go h.NotifyAllAgents()
+
 	return nil
 }
 
@@ -397,6 +535,10 @@ func (h *Hub) SendRequest(toAgentID, action, content, priority string) (*Message
 	}
 	h.messages = append(h.messages, msg)
 	h.saveMessage(msg)
+
+	// Notify the target agent
+	go h.NotifyAgent(resolvedID)
+
 	return msg, nil
 }
 
@@ -446,6 +588,9 @@ func (h *Hub) RespondToRequest(requestID, content string, accepted bool) (*Messa
 
 	// Mark original request as read
 	original.Read = true
+
+	// Notify the requesting agent about the response
+	go h.NotifyAgent(original.From)
 
 	return msg, nil
 }
@@ -561,6 +706,25 @@ func (h *Hub) GetMessages(since time.Time) []*Message {
 }
 
 // GetAllMessages returns all messages (for display purposes)
+// GetAgents returns a copy of the agents map for read-only access
+func (h *Hub) GetAgents() map[string]*AgentProfile {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	result := make(map[string]*AgentProfile, len(h.agents))
+	for id, a := range h.agents {
+		result[id] = a
+	}
+	return result
+}
+
+// GetSelfID returns this agent's ID
+func (h *Hub) GetSelfID() string {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.selfID
+}
+
+// GetAllMessages returns all messages (with limit, 0 = all)
 func (h *Hub) GetAllMessages(limit int) []*Message {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -592,6 +756,118 @@ func (h *Hub) MarkRead(messageIDs []string) {
 	}
 }
 
+// DrainUnreadMessages returns all unread messages for this agent and marks them as read.
+// This is used by the agent loop to inject hub messages as user messages.
+// Also updates message status to "read" for backward compatibility with old messages
+// that have empty/sent/delivered status.
+func (h *Hub) DrainUnreadMessages() []*Message {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// Refresh messages from disk
+	h.loadMessagesFromDisk()
+
+	var result []*Message
+	for _, m := range h.messages {
+		if !m.Read && (m.To == h.selfID || m.To == "") && m.From != h.selfID {
+			result = append(result, m)
+			m.Read = true
+			// Backward compatibility: upgrade old messages with empty/sent/delivered status to "read"
+			if m.Status == "" || m.Status == MsgStatusSent || m.Status == MsgStatusDelivered {
+				m.Status = MsgStatusRead
+				m.StatusHistory = append(m.StatusHistory, StatusChange{
+					Status:    MsgStatusRead,
+					ChangedBy: h.selfID,
+					ChangedAt: time.Now(),
+				})
+			}
+		}
+	}
+
+	return result
+}
+
+// DrainAndFormatMessages returns all unread messages formatted as user text
+// and marks them as read. This is used by the agent loop to inject hub messages
+// as user messages when SIGUSR1 is received.
+// Messages with status "deleted", "ignored", or already "replied"/"acked" are skipped
+// to prevent context window pollution (context sclerosis).
+func (h *Hub) DrainAndFormatMessages() []string {
+	messages := h.DrainUnreadMessages()
+	if len(messages) == 0 {
+		return nil
+	}
+
+	// Get agents map for name resolution
+	h.mu.RLock()
+	agents := make(map[string]*AgentProfile, len(h.agents))
+	for id, a := range h.agents {
+		agents[id] = a
+	}
+	h.mu.RUnlock()
+
+	result := make([]string, 0, len(messages))
+	for _, m := range messages {
+	// Skip status messages — they are informational only (agent joined, left, changed status)
+	// and should NOT be injected into the model's context to prevent context pollution.
+	// Status messages are visible via hub_list/hub_check tools when the model explicitly asks.
+	if m.Type == "status" {
+		continue
+	}
+	// Skip deleted messages — they're gone
+	if m.Status == MsgStatusDeleted {
+		continue
+	}
+	// Skip messages that were already acknowledged or replied to
+	// (prevents context sclerosis — re-injecting old messages)
+	if m.Status == MsgStatusAcked || m.Status == MsgStatusReplied || m.Status == MsgStatusIgnored {
+		continue
+	}
+		result = append(result, FormatMessageForInjection(m, agents))
+	}
+	return result
+}
+
+// FormatMessageForInjection formats a message for injection as a user message.
+// Includes status indicator for the recipient's benefit.
+func FormatMessageForInjection(m *Message, agents map[string]*AgentProfile) string {
+	fromName := m.From
+	if a, ok := agents[m.From]; ok {
+		fromName = a.Name
+	}
+
+	// Status suffix for context
+	statusNote := ""
+	if m.Status != "" && m.Status != MsgStatusSent {
+		statusNote = fmt.Sprintf(" [%s]", string(m.Status))
+	}
+
+	switch m.Type {
+	case "direct":
+		return fmt.Sprintf("📨 Message from %s%s: %s", fromName, statusNote, m.Content)
+	case "broadcast":
+		return fmt.Sprintf("📢 Broadcast from %s%s: %s", fromName, statusNote, m.Content)
+	case "alert":
+		return m.Content
+	case "request":
+		actionLabel := m.Action
+		if actionLabel == "" {
+			actionLabel = "task"
+		}
+		return fmt.Sprintf("📋 Request from %s [%s, priority: %s]%s: %s", fromName, actionLabel, m.Priority, statusNote, m.Content)
+	case "response":
+		acceptIcon := "✅ accepted"
+		if m.Accepted != nil && !*m.Accepted {
+			acceptIcon = "❌ declined"
+		}
+		return fmt.Sprintf("%s Response from %s (%s): %s", acceptIcon, fromName, m.ReplyTo, m.Content)
+	case "status":
+		return fmt.Sprintf("🔹 %s", m.Content)
+	default:
+		return fmt.Sprintf("💬 %s%s: %s", fromName, statusNote, m.Content)
+	}
+}
+
 // SelfID returns this agent's ID
 func (h *Hub) SelfID() string {
 	h.mu.RLock()
@@ -599,11 +875,256 @@ func (h *Hub) SelfID() string {
 	return h.selfID
 }
 
+// NotifyAgent sends a SIGUSR1 signal to the target agent's process.
+// This wakes up the agent so it can check for new hub messages.
+// If the agent has no PID or the process doesn't exist, it's a no-op.
+func (h *Hub) NotifyAgent(agentID string) error {
+	h.mu.RLock()
+	agent, ok := h.agents[agentID]
+	h.mu.RUnlock()
+
+	if !ok {
+		// Try loading from disk
+		h.mu.RLock()
+		h.loadAgentFromDisk(agentID)
+		agent, ok = h.agents[agentID]
+		h.mu.RUnlock()
+	}
+
+	if !ok || agent.PID == 0 {
+		return nil // no PID, nothing to notify
+	}
+
+	// Send SIGUSR1 to the target process
+	process, err := os.FindProcess(agent.PID)
+	if err != nil {
+		return fmt.Errorf("find process %d: %w", agent.PID, err)
+	}
+	if err := process.Signal(syscall.SIGUSR1); err != nil {
+		// Process might not exist anymore, that's OK
+		return nil
+	}
+	return nil
+}
+
+// NotifyAllAgents sends SIGUSR1 to all registered agents except self.
+// Used for broadcasts and alerts.
+func (h *Hub) NotifyAllAgents() {
+	h.mu.RLock()
+	ids := make([]string, 0, len(h.agents))
+	for id := range h.agents {
+		if id != h.selfID {
+			ids = append(ids, id)
+		}
+	}
+	h.mu.RUnlock()
+
+	for _, id := range ids {
+		h.NotifyAgent(id)
+	}
+}
+
+// HubSignalHandler sets up a SIGUSR1 handler and returns a channel that receives
+// notification when the agent should check for new hub messages.
+// The channel receives true each time SIGUSR1 is received.
+func HubSignalHandler() <-chan bool {
+	ch := make(chan bool, 16)
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGUSR1)
+
+	go func() {
+		for range sigCh {
+			select {
+			case ch <- true:
+			default:
+				// Channel full, signal already pending
+			}
+		}
+	}()
+
+	return ch
+}
+
+// UpdateMessageStatus changes the status of a message and records the change in history.
+// Only the recipient can change the status (or the sender for "sent" → "delivered").
+func (h *Hub) UpdateMessageStatus(messageID string, status MessageStatus, note string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	msg, err := h.findMessageUnlocked(messageID)
+	if err != nil {
+		return err
+	}
+
+	// Verify this agent is involved in the message
+	if msg.To != h.selfID && msg.From != h.selfID {
+		return fmt.Errorf("you are not a participant in this message")
+	}
+
+	// Record status change
+	change := StatusChange{
+		Status:    status,
+		ChangedBy: h.selfID,
+		ChangedAt: time.Now(),
+		Note:      note,
+	}
+	msg.StatusHistory = append(msg.StatusHistory, change)
+	msg.Status = status
+
+	// Also update Read flag for backward compatibility
+	if status == MsgStatusRead || status == MsgStatusAcked || status == MsgStatusReplied {
+		msg.Read = true
+	}
+
+	// Save to disk
+	h.saveMessage(msg)
+
+	// Notify the other agent about status change
+	otherAgentID := msg.From
+	if msg.From == h.selfID {
+		otherAgentID = msg.To
+	}
+	if otherAgentID != "" && otherAgentID != h.selfID {
+		go h.NotifyAgent(otherAgentID)
+	}
+
+	return nil
+}
+
+// AddComment adds a comment to a message.
+func (h *Hub) AddComment(messageID, content string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	msg, err := h.findMessageUnlocked(messageID)
+	if err != nil {
+		return err
+	}
+
+	// Verify this agent is involved in the message
+	if msg.To != h.selfID && msg.From != h.selfID {
+		return fmt.Errorf("you are not a participant in this message")
+	}
+
+	comment := MessageComment{
+		AgentID:   h.selfID,
+		Content:   content,
+		Timestamp: time.Now(),
+	}
+	msg.Comments = append(msg.Comments, comment)
+
+	// Save to disk
+	h.saveMessage(msg)
+
+	// Notify the other agent
+	otherAgentID := msg.From
+	if msg.From == h.selfID {
+		otherAgentID = msg.To
+	}
+	if otherAgentID != "" && otherAgentID != h.selfID {
+		go h.NotifyAgent(otherAgentID)
+	}
+
+	return nil
+}
+
+// EditMessage edits the content of a message. Only the sender can edit.
+// The original content is preserved in OriginalContent.
+func (h *Hub) EditMessage(messageID, newContent string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	msg, err := h.findMessageUnlocked(messageID)
+	if err != nil {
+		return err
+	}
+
+	// Only the sender can edit
+	if msg.From != h.selfID {
+		return fmt.Errorf("only the sender can edit a message")
+	}
+
+	// Preserve original content
+	if msg.OriginalContent == "" {
+		msg.OriginalContent = msg.Content
+	}
+	msg.Content = newContent
+	now := time.Now()
+	msg.EditedAt = &now
+	msg.EditedBy = h.selfID
+
+	// Save to disk
+	h.saveMessage(msg)
+
+	// Notify the recipient
+	if msg.To != "" && msg.To != h.selfID {
+		go h.NotifyAgent(msg.To)
+	} else if msg.To == "" {
+		// Broadcast — notify all
+		go h.NotifyAllAgents()
+	}
+
+	return nil
+}
+
+// DeleteMessage soft-deletes a message (marks status as "deleted").
+// The recipient can delete messages sent to them.
+// The sender can delete their own messages.
+func (h *Hub) DeleteMessage(messageID string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	msg, err := h.findMessageUnlocked(messageID)
+	if err != nil {
+		return err
+	}
+
+	// Verify this agent is involved
+	if msg.To != h.selfID && msg.From != h.selfID {
+		return fmt.Errorf("you are not a participant in this message")
+	}
+
+	// Mark as deleted
+	msg.Status = MsgStatusDeleted
+	msg.StatusHistory = append(msg.StatusHistory, StatusChange{
+		Status:    MsgStatusDeleted,
+		ChangedBy: h.selfID,
+		ChangedAt: time.Now(),
+		Note:      "message deleted",
+	})
+
+	// Save to disk
+	h.saveMessage(msg)
+
+	return nil
+}
+
+// findMessageUnlocked finds a message by ID (caller must hold lock)
+func (h *Hub) findMessageUnlocked(messageID string) (*Message, error) {
+	for _, m := range h.messages {
+		if m.ID == messageID {
+			return m, nil
+		}
+	}
+	// Try loading from disk
+	h.loadMessagesFromDisk()
+	for _, m := range h.messages {
+		if m.ID == messageID {
+			return m, nil
+		}
+	}
+	return nil, fmt.Errorf("message '%s' not found", messageID)
+}
+
 // ResolveAgentID resolves an agent ID from a possibly partial or name-based identifier.
 // It tries: exact ID match, partial ID prefix match, exact name match, partial name match.
 func (h *Hub) ResolveAgentID(idOrName string) (string, error) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
+
+	// Refresh from disk
+	h.loadFromDisk()
+
 	return h.resolveAgentIDUnlocked(idOrName)
 }
 
@@ -766,6 +1287,139 @@ func (h *Hub) resolveAgentIDUnlocked(idOrName string) (string, error) {
 	return "", fmt.Errorf("agent '%s' not found", idOrName)
 }
 
+// FormatMessagesForUser returns a detailed formatted string of all messages for the /agent_messages command.
+// Shows status, comments, edit history, and allows the user to see the full picture.
+func FormatMessagesForUser(messages []*Message, agents map[string]*AgentProfile, selfID string) string {
+	if len(messages) == 0 {
+		return "📭 No messages in the hub."
+	}
+
+	var sb strings.Builder
+	sb.WriteString("📬 Agent Hub — Messages\n")
+	sb.WriteString(strings.Repeat("─", 60) + "\n")
+
+	for _, m := range messages {
+		// Skip deleted messages
+		if m.Status == MsgStatusDeleted {
+			continue
+		}
+
+		fromName := m.From
+		if a, ok := agents[m.From]; ok {
+			fromName = a.Name
+		}
+
+		// Direction arrow
+		isOutgoing := m.From == selfID
+		var dir string
+		if isOutgoing {
+			dir = "→"
+		} else {
+			dir = "←"
+		}
+
+		// Type icon
+		typeIcon := "💬"
+		switch m.Type {
+		case "direct":
+			typeIcon = "📨"
+		case "broadcast":
+			typeIcon = "📢"
+		case "alert":
+			typeIcon = "🚨"
+		case "request":
+			typeIcon = "📋"
+		case "response":
+			typeIcon = "↩️"
+		case "status":
+			typeIcon = "🔹"
+		}
+
+		// Status icon
+		si := statusIcon(m.Status)
+		if m.Status == "" {
+			si = "📤"
+		}
+
+		// Time
+		timeStr := m.Timestamp.Format("15:04:05")
+
+		// Message ID (short, last 6 chars)
+		shortID := m.ID
+		if len(m.ID) > 6 {
+			shortID = m.ID[len(m.ID)-6:]
+		}
+
+		// Header line: type icon + direction + from/to + status + time + id
+		if m.Type == "direct" || m.Type == "request" || m.Type == "response" {
+			toName := m.To
+			if a, ok := agents[m.To]; ok {
+				toName = a.Name
+			}
+			sb.WriteString(fmt.Sprintf("  %s %s %s %s %s %s [%s]\n", typeIcon, dir, fromName, toName, si, timeStr, shortID))
+		} else if m.Type == "broadcast" {
+			sb.WriteString(fmt.Sprintf("  %s %s %s (all) %s %s [%s]\n", typeIcon, dir, fromName, si, timeStr, shortID))
+		} else {
+			sb.WriteString(fmt.Sprintf("  %s %s %s %s [%s]\n", typeIcon, dir, fromName, si, shortID))
+		}
+
+		// Content
+		contentLines := strings.Split(m.Content, "\n")
+		for _, line := range contentLines {
+			if len(line) > 100 {
+				line = line[:97] + "..."
+			}
+			sb.WriteString(fmt.Sprintf("    %s\n", line))
+		}
+
+		// Priority for requests
+		if m.Type == "request" && m.Priority != "" && m.Priority != "normal" {
+			sb.WriteString(fmt.Sprintf("    ⚡ Priority: %s\n", m.Priority))
+		}
+
+		// Edited marker
+		if m.EditedAt != nil {
+			editedByName := m.EditedBy
+			if a, ok := agents[m.EditedBy]; ok {
+				editedByName = a.Name
+			}
+			sb.WriteString(fmt.Sprintf("    ✏️ Edited by %s at %s\n", editedByName, m.EditedAt.Format("15:04:05")))
+			if m.OriginalContent != "" {
+				origLines := strings.Split(m.OriginalContent, "\n")
+				for _, line := range origLines {
+					if len(line) > 100 {
+						line = line[:97] + "..."
+					}
+					sb.WriteString(fmt.Sprintf("      Original: %s\n", line))
+				}
+			}
+		}
+
+		// Status history
+		if len(m.StatusHistory) > 0 {
+			lastChange := m.StatusHistory[len(m.StatusHistory)-1]
+			changedByName := lastChange.ChangedBy
+			if a, ok := agents[lastChange.ChangedBy]; ok {
+				changedByName = a.Name
+			}
+			sb.WriteString(fmt.Sprintf("    %s Status: %s (by %s)\n", statusIcon(lastChange.Status), string(lastChange.Status), changedByName))
+		}
+
+		// Comments
+		for _, c := range m.Comments {
+			commenterName := c.AgentID
+			if a, ok := agents[c.AgentID]; ok {
+				commenterName = a.Name
+			}
+			sb.WriteString(fmt.Sprintf("    💬 %s: %s\n", commenterName, c.Content))
+		}
+
+		sb.WriteString("\n")
+	}
+
+	return sb.String()
+}
+
 // generateID generates a unique message/agent ID
 func generateID() string {
 	return fmt.Sprintf("%d", time.Now().UnixNano())
@@ -873,7 +1527,29 @@ func FormatAgentList(agents []*AgentProfile) string {
 	return sb.String()
 }
 
-// FormatMessageHistory returns a formatted string of messages
+// statusIcon returns an emoji for a message status
+func statusIcon(s MessageStatus) string {
+	switch s {
+	case MsgStatusSent:
+		return "📤"
+	case MsgStatusDelivered:
+		return "📦"
+	case MsgStatusRead:
+		return "👁️"
+	case MsgStatusAcked:
+		return "✅"
+	case MsgStatusReplied:
+		return "↩️"
+	case MsgStatusIgnored:
+		return "🚫"
+	case MsgStatusDeleted:
+		return "🗑️"
+	default:
+		return "📤"
+	}
+}
+
+// FormatMessageHistory returns a formatted string of messages with status info
 func FormatMessageHistory(messages []*Message, agents map[string]*AgentProfile) string {
 	if len(messages) == 0 {
 		return "No messages in the hub."
@@ -884,9 +1560,26 @@ func FormatMessageHistory(messages []*Message, agents map[string]*AgentProfile) 
 	sb.WriteString(strings.Repeat("─", 60) + "\n")
 
 	for _, m := range messages {
+		// Skip deleted messages
+		if m.Status == MsgStatusDeleted {
+			continue
+		}
+
 		fromName := m.From
 		if a, ok := agents[m.From]; ok {
 			fromName = a.Name
+		}
+
+		// Status indicator
+		si := statusIcon(m.Status)
+		if m.Status == "" {
+			si = "📤" // default: sent
+		}
+
+		// Edited indicator
+		editedMark := ""
+		if m.EditedAt != nil {
+			editedMark = " ✏️"
 		}
 
 		switch m.Type {
@@ -895,11 +1588,11 @@ func FormatMessageHistory(messages []*Message, agents map[string]*AgentProfile) 
 			if a, ok := agents[m.To]; ok {
 				toName = a.Name
 			}
-			sb.WriteString(fmt.Sprintf("  📨 %s → %s: %s\n", fromName, toName, m.Content))
+			sb.WriteString(fmt.Sprintf("  📨 %s → %s %s%s: %s\n", fromName, toName, si, editedMark, m.Content))
 		case "broadcast":
-			sb.WriteString(fmt.Sprintf("  📢 %s (broadcast): %s\n", fromName, m.Content))
+			sb.WriteString(fmt.Sprintf("  📢 %s (broadcast) %s%s: %s\n", fromName, si, editedMark, m.Content))
 		case "alert":
-			sb.WriteString(fmt.Sprintf("  %s\n", m.Content))
+			sb.WriteString(fmt.Sprintf("  %s %s%s\n", si, editedMark, m.Content))
 		case "status":
 			sb.WriteString(fmt.Sprintf("  🔹 %s\n", m.Content))
 		case "request":
@@ -917,7 +1610,7 @@ func FormatMessageHistory(messages []*Message, agents map[string]*AgentProfile) 
 			if actionLabel == "" {
 				actionLabel = "task"
 			}
-			sb.WriteString(fmt.Sprintf("  %s %s → %s [%s] %s: %s\n", priorityIcon, fromName, toName, actionLabel, m.Priority, m.Content))
+			sb.WriteString(fmt.Sprintf("  %s %s → %s [%s] %s %s%s: %s\n", priorityIcon, fromName, toName, actionLabel, m.Priority, si, editedMark, m.Content))
 		case "response":
 			toName := m.To
 			if a, ok := agents[m.To]; ok {
@@ -927,7 +1620,18 @@ func FormatMessageHistory(messages []*Message, agents map[string]*AgentProfile) 
 			if m.Accepted != nil && !*m.Accepted {
 				acceptIcon = "❌"
 			}
-			sb.WriteString(fmt.Sprintf("  %s %s → %s: %s\n", acceptIcon, fromName, toName, m.Content))
+			sb.WriteString(fmt.Sprintf("  %s %s → %s %s%s: %s\n", acceptIcon, fromName, toName, si, editedMark, m.Content))
+		default:
+			sb.WriteString(fmt.Sprintf("  💬 %s %s%s: %s\n", fromName, si, editedMark, m.Content))
+		}
+
+		// Show comments
+		for _, c := range m.Comments {
+			commenterName := c.AgentID
+			if a, ok := agents[c.AgentID]; ok {
+				commenterName = a.Name
+			}
+			sb.WriteString(fmt.Sprintf("    💬 %s: %s\n", commenterName, c.Content))
 		}
 	}
 

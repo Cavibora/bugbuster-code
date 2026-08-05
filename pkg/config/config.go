@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -119,12 +120,13 @@ type GoPluginConfig struct {
 
 // HubConfig — agent hub configuration (shared workspace for multi-agent coordination)
 type HubConfig struct {
-	Enabled          bool              `yaml:"enabled"`             // enable hub (default: true)
+	Enabled          bool              `yaml:"enabled"`             // enable hub (default: false)
 	Name             string            `yaml:"name"`                // agent display name (default: "bugbuster-N")
 	Role             string            `yaml:"role"`                // agent role: "coder", "reviewer", "tester", etc.
 	Intelligence     string            `yaml:"intelligence"`         // intelligence level: "low", "medium", "high", "expert", "superior" (or 1-5)
 	HeartbeatSeconds int               `yaml:"heartbeat_seconds"`    // heartbeat interval in seconds (default: 30, 0 = disabled)
 	ModelIntelligence map[string]string `yaml:"model_intelligence"`   // model → intelligence level mapping (overrides auto-detection)
+	MaxContextTokens int               `yaml:"max_context_tokens"`   // max tokens of hub messages injected per drain (0 = auto: 10% of context window, capped at 4096)
 }
 
 // AgentConfig is agent settings
@@ -451,7 +453,7 @@ func DefaultConfig() *BugBusterConfig {
 			AutoOptimize: true,
 		},
 	Hub: HubConfig{
-		Enabled:          true,
+		Enabled:          false,
 		HeartbeatSeconds: 30,
 	},
 		UI: "auto",
@@ -475,7 +477,10 @@ func LoadConfig(path string) (*BugBusterConfig, error) {
 
 	config := DefaultConfig()
 	if err := yaml.Unmarshal(data, config); err != nil {
-		return nil, i18n.E("errors_config.parse", err)
+		// yaml.v3 returns *yaml.TypeError for semantic errors and *yaml.YAMLError
+		// for syntax errors. Both may contain line numbers. Extract and report them
+		// so the user can locate the problem in the file.
+		return nil, formatYAMLError(err, path)
 	}
 
 	// Resolve environment variables in api_key
@@ -486,6 +491,24 @@ func LoadConfig(path string) (*BugBusterConfig, error) {
 	}
 
 	return config, nil
+}
+
+// formatYAMLError formats a YAML parse/validation error with line numbers
+// so the user can locate the problem in the config file.
+func formatYAMLError(err error, path string) error {
+	// yaml.v3 TypeError contains a list of problems (semantic errors).
+	if te, ok := err.(*yaml.TypeError); ok {
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("YAML type error in %s:\n", path))
+		for _, e := range te.Errors {
+			sb.WriteString(fmt.Sprintf("  ❌ %s\n", e))
+		}
+		return fmt.Errorf("%s", sb.String())
+	}
+
+	// Syntax errors come as plain errors. The message usually contains
+	// the line/column info from the YAML parser.
+	return fmt.Errorf("YAML error in %s:\n  ❌ %v", path, err)
 }
 
 // SaveConfig saves configuration to YAML file

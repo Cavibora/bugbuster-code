@@ -74,6 +74,9 @@ func printHelpString() string {
 			    /lang     — Change language
 			    /auto     — Autopilot: auto-continue after each response
 			    /auto N   — Autopilot with N iterations limit
+			    /agent_messages      — Show all hub messages with statuses
+			    /agent_msg_status ID — Set message status (read/acked/replied/ignored)
+			    /agent_msg_delete ID — Delete a message
 			    /cli      — Switch to CLI mode`
 }
 
@@ -129,7 +132,11 @@ func sessionsInfoString(mgr *agent.SessionManager, current *agent.Session) strin
 	sb.WriteString("\n")
 
 	if current != nil {
-		sb.WriteString(lipgloss.NewStyle().Foreground(appTheme.UserMsg.LipglossColor()).Render(fmt.Sprintf("  Current: %s", current.ID)))
+		displayName := current.ID
+		if current.Name != "" {
+			displayName = current.Name + " (" + current.ID + ")"
+		}
+		sb.WriteString(lipgloss.NewStyle().Foreground(appTheme.UserMsg.LipglossColor()).Render(fmt.Sprintf("  Current: %s", displayName)))
 		sb.WriteString(fmt.Sprintf(" (%d messages)\n", len(current.Messages)))
 	}
 
@@ -146,18 +153,26 @@ func sessionsInfoString(mgr *agent.SessionManager, current *agent.Session) strin
 				maxShow = len(sessions)
 			}
 			for _, s := range sessions[:maxShow] {
-				sb.WriteString(fmt.Sprintf("    %s (%d msg, %s)\n", s.ID, len(s.Messages), s.UpdatedAt.Format("2006-01-02 15:04")))
+				displayName := s.ID
+				if s.Name != "" {
+					displayName = s.Name
+				}
+				sb.WriteString(fmt.Sprintf("    %s (%d msg, %s)\n", displayName, len(s.Messages), s.UpdatedAt.Format("2006-01-02 15:04")))
 			}
 		}
 	}
 
-	sb.WriteString("\n" + lipgloss.NewStyle().Foreground(appTheme.Dim.LipglossColor()).Render("  Restore: bugbuster --session <id>"))
+	sb.WriteString("\n" + lipgloss.NewStyle().Foreground(appTheme.Dim.LipglossColor()).Render("  Restore: bugbuster --session <id-or-name>"))
 
 	return sb.String()
 }
 
 // saveSessionTUI saves session and change tracker
 func saveSessionTUI(m TUI) {
+	// Unregister from hub on exit
+	if poller := m.loop.GetHubPoller(); poller != nil {
+		poller.Unregister()
+	}
 	if m.session != nil && m.sessionMgr != nil {
 		m.session.Messages = m.loop.Context.GetMessages()
 		m.session.InputHistory = m.history

@@ -19,6 +19,8 @@ import (
 	"bugbuster-code/pkg/skills"
 	"bugbuster-code/pkg/tools"
 
+	"log/slog"
+
 	"github.com/fatih/color"
 )
 
@@ -420,6 +422,7 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 				Intelligence:     intelligence,
 				Status:           agenthub.StatusIdle,
 				HeartbeatSeconds: cfg.Hub.HeartbeatSeconds,
+				PID:              os.Getpid(),
 			}
 			if err := hub.Register(profile); err != nil {
 				if verbose {
@@ -441,9 +444,21 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 			loop.RegisterTool(agenthub.NewHubCheckTool(hub))
 			loop.RegisterTool(agenthub.NewHubTasksTool(hub))
 			loop.RegisterTool(agenthub.NewHubStatusTool(hub))
+			loop.RegisterTool(agenthub.NewHubMsgStatusTool(hub))
+			loop.RegisterTool(agenthub.NewHubMsgCommentTool(hub))
+			loop.RegisterTool(agenthub.NewHubMsgEditTool(hub))
+			loop.RegisterTool(agenthub.NewHubMsgDeleteTool(hub))
 
-			// Store hub for later use (unregister on exit, heartbeat, etc.)
-			_ = hub // TODO: integrate with session lifecycle
+			// Hub will be unregistered on session exit via saveSessionAndExit/saveSessionTUI
+
+			// Set hub poller on agent loop — when SIGUSR1 is received,
+			// the agent will check for new hub messages and inject them
+			loop.SetHubPoller(hub)
+
+			// Limit hub message injection size to prevent small local models
+			// from having their context flooded by hub traffic.
+			// 0 = auto (10% of context window, capped at 4096).
+			loop.SetHubMaxTokens(cfg.Hub.MaxContextTokens)
 		}
 	}
 
@@ -569,6 +584,25 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 		// Reset auto-continue count — after compact, model often outputs
 		// a summary/recap, and we don't want auto-continue to force more tool calls
 		loop.ResetAutoContinue()
+	}
+
+	// CompactionNotifier — log compaction details
+	loop.Context.CompactionNotifier = func(tokensBefore, tokensAfter, msgsBefore, msgsAfter int, compType string) {
+		saved := tokensBefore - tokensAfter
+		pct := 0
+		if tokensBefore > 0 {
+			pct = saved * 100 / tokensBefore
+		}
+		msgsRemoved := msgsBefore - msgsAfter
+		slog.Info("context compacted",
+			"tokens_before", tokensBefore,
+			"tokens_after", tokensAfter,
+			"msgs_before", msgsBefore,
+			"msgs_after", msgsAfter,
+			"msgs_removed", msgsRemoved,
+			"saved_pct", pct,
+			"type", compType,
+		)
 	}
 
 	// MCP-tools (from cfg.MCP.Servers and cfg.Plugins.MCP)
@@ -816,6 +850,7 @@ func loadConfig() *config.BugBusterConfig {
 			color.Red("%s", i18n.T("cli_error.config_load", err))
 			return config.DefaultConfig()
 		}
+		validateAndReportConfig(cfg, cfgFile)
 		return cfg
 	}
 
@@ -826,11 +861,37 @@ func loadConfig() *config.BugBusterConfig {
 
 	cfg, err := config.LoadConfig(cfgPath)
 	if err != nil {
-		color.Yellow("%s", i18n.T("cli_warning.config_default", err))
+		color.Red("%s", i18n.T("cli_warning.config_default", err))
 		return config.DefaultConfig()
 	}
 
+	validateAndReportConfig(cfg, cfgPath)
 	return cfg
+}
+
+// validateAndReportConfig runs config validation and prints any errors/warnings
+// in a prominent way so the user immediately sees that the config is invalid.
+func validateAndReportConfig(cfg *config.BugBusterConfig, cfgPath string) {
+	result := config.ValidateConfig(cfg)
+	if result == nil || (!result.HasErrors() && len(result.Warnings) == 0) {
+		return
+	}
+
+	// Print errors in big red letters so the user notices the config is wrong.
+	if result.HasErrors() {
+		color.Red("╔══════════════════════════════════════════════════════════════╗")
+		color.Red("║  ❌ CONFIGURATION ERROR — config file is INVALID!            ║")
+		color.Red("╚══════════════════════════════════════════════════════════════╝")
+		color.Red("  File: %s", cfgPath)
+		color.Red("  The configuration will NOT be applied correctly.\n")
+		for _, e := range result.Errors {
+			color.Red("  ❌ %s: %s", e.Field, e.Message)
+		}
+		color.Red("\n  Fix the errors above and restart BugBuster.\n")
+	}
+	for _, w := range result.Warnings {
+		color.Yellow("  ⚠️ %s: %s", w.Field, w.Message)
+	}
 }
 
 // printHelp prints help

@@ -137,9 +137,10 @@ func buildRecapMessage(recaps []string) provider.Message {
 // orphan tool pairs, and truncating tool outputs. It preserves the most recent
 // keepRecent messages and ensures the total token count stays within maxTokens.
 func CompactContext(messages []provider.Message, maxTokens int, keepRecent int) []provider.Message {
-	// Always clean tool errors, duplicates, orphan pairs
+	// Always clean tool errors, duplicates, orphan pairs, and repeated user messages
 	messages = RemoveToolErrors(messages)
 	messages = RemoveDuplicates(messages)
+	messages = DeduplicateRepeats(messages)
 	messages = EnsureToolPairIntegrity(messages)
 
 	currentTokens := EstimateMessagesTokens(messages)
@@ -356,9 +357,10 @@ func CompactContext(messages []provider.Message, maxTokens int, keepRecent int) 
 // Compaction priority: tool errors and duplicates → tool_result → tool_use → old messages → thinking/text.
 // If the compactor implements SummarizeWithCtx, it uses context-aware summarization.
 func CompactContextWithCompactor(messages []provider.Message, maxTokens int, keepRecent int, compactor Compactor, ctx context.Context) []provider.Message {
-	// Always clean tool errors, duplicates, orphan pairs
+	// Always clean tool errors, duplicates, orphan pairs, and repeated user messages
 	messages = RemoveToolErrors(messages)
 	messages = RemoveDuplicates(messages)
+	messages = DeduplicateRepeats(messages)
 	messages = EnsureToolPairIntegrity(messages)
 
 	currentTokens := EstimateMessagesTokens(messages)

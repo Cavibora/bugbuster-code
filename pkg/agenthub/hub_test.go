@@ -1011,3 +1011,188 @@ func TestHubGetUnreadMessages(t *testing.T) {
 		t.Error("Direct message from agent-2 not found in unread messages")
 	}
 }
+
+func TestCleanupStaleAgents(t *testing.T) {
+	dir := t.TempDir()
+	hub := NewHub(dir)
+	if err := hub.Init(); err != nil {
+		t.Fatalf("Init error: %v", err)
+	}
+
+	// Register self (agent-1)
+	profile1 := &AgentProfile{
+		ID:           "agent-1",
+		Name:         "bugbuster-1",
+		Provider:     "openai",
+		Model:        "gpt-4o",
+		Intelligence: IntelligenceExpert,
+	}
+	hub.Register(profile1)
+
+	// Add a stale agent manually (old heartbeat, no PID)
+	staleAgent := &AgentProfile{
+		ID:                "agent-stale",
+		Name:              "bugbuster-stale",
+		Provider:          "anthropic",
+		Model:             "claude-3-opus",
+		Intelligence:      IntelligenceSuperior,
+		HeartbeatSeconds:  30,
+		RegisteredAt:      time.Now().Add(-2 * time.Hour),
+		LastHeartbeat:     time.Now().Add(-10 * time.Minute), // 10 min ago, heartbeat=30s → stale
+	}
+	hub.mu.Lock()
+	hub.agents["agent-stale"] = staleAgent
+	hub.mu.Unlock()
+	hub.saveAgent(staleAgent)
+
+	// Add a fresh agent (recent heartbeat)
+	freshAgent := &AgentProfile{
+		ID:                "agent-fresh",
+		Name:              "bugbuster-fresh",
+		Provider:          "openai",
+		Model:             "gpt-4o-mini",
+		Intelligence:      IntelligenceMedium,
+		HeartbeatSeconds:  30,
+		RegisteredAt:      time.Now().Add(-5 * time.Minute),
+		LastHeartbeat:     time.Now(), // just now → fresh
+	}
+	hub.mu.Lock()
+	hub.agents["agent-fresh"] = freshAgent
+	hub.mu.Unlock()
+	hub.saveAgent(freshAgent)
+
+	// Before cleanup: 3 agents (self + stale + fresh)
+	agents := hub.ListAgents()
+	if len(agents) != 3 {
+		t.Errorf("Expected 3 agents before cleanup, got %d", len(agents))
+	}
+
+	// Run cleanup
+	removed := hub.CleanupStaleAgents()
+	if removed != 1 {
+		t.Errorf("Expected 1 stale agent removed, got %d", removed)
+	}
+
+	// After cleanup: 2 agents (self + fresh)
+	agents = hub.ListAgents()
+	if len(agents) != 2 {
+		t.Errorf("Expected 2 agents after cleanup, got %d", len(agents))
+	}
+
+	// Verify stale agent was removed
+	if _, ok := hub.GetAgent("agent-stale"); ok {
+		t.Error("Stale agent should have been removed")
+	}
+
+	// Verify fresh agent still exists
+	if _, ok := hub.GetAgent("agent-fresh"); !ok {
+		t.Error("Fresh agent should still exist")
+	}
+
+	// Verify self was not removed
+	if _, ok := hub.GetAgent("agent-1"); !ok {
+		t.Error("Self agent should never be removed")
+	}
+
+	// Verify stale agent file was removed from disk
+	staleFile := filepath.Join(dir, "agents", "agent-stale.json")
+	if _, err := os.Stat(staleFile); !os.IsNotExist(err) {
+		t.Error("Stale agent file should have been removed from disk")
+	}
+}
+
+func TestCleanupStaleAgentsDeadPID(t *testing.T) {
+	dir := t.TempDir()
+	hub := NewHub(dir)
+	if err := hub.Init(); err != nil {
+		t.Fatalf("Init error: %v", err)
+	}
+
+	// Register self
+	profile1 := &AgentProfile{
+		ID:           "agent-1",
+		Name:         "bugbuster-1",
+		Provider:     "openai",
+		Model:        "gpt-4o",
+		Intelligence: IntelligenceExpert,
+	}
+	hub.Register(profile1)
+
+	// Add an agent with a dead PID (very high PID that doesn't exist)
+	deadPIDAgent := &AgentProfile{
+		ID:           "agent-dead-pid",
+		Name:          "bugbuster-dead",
+		Provider:      "anthropic",
+		Model:         "claude-3-opus",
+		Intelligence:  IntelligenceSuperior,
+		PID:           99999999, // Non-existent PID
+		RegisteredAt:  time.Now(),
+		LastHeartbeat: time.Now(), // Recent heartbeat, but dead PID
+	}
+	hub.mu.Lock()
+	hub.agents["agent-dead-pid"] = deadPIDAgent
+	hub.mu.Unlock()
+	hub.saveAgent(deadPIDAgent)
+
+	// Run cleanup — should remove the agent with dead PID
+	removed := hub.CleanupStaleAgents()
+	if removed != 1 {
+		t.Errorf("Expected 1 stale agent removed (dead PID), got %d", removed)
+	}
+
+	// Verify dead PID agent was removed
+	if _, ok := hub.GetAgent("agent-dead-pid"); ok {
+		t.Error("Agent with dead PID should have been removed")
+	}
+}
+
+func TestCleanupStaleAgentsOnInit(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create first hub and register agents
+	hub1 := NewHub(dir)
+	if err := hub1.Init(); err != nil {
+		t.Fatalf("Init error: %v", err)
+	}
+
+	profile1 := &AgentProfile{
+		ID:           "agent-1",
+		Name:         "bugbuster-1",
+		Provider:     "openai",
+		Model:        "gpt-4o",
+		Intelligence: IntelligenceExpert,
+	}
+	hub1.Register(profile1)
+
+	// Add a stale agent
+	staleAgent := &AgentProfile{
+		ID:               "agent-stale",
+		Name:             "bugbuster-stale",
+		Provider:         "anthropic",
+		Model:            "claude-3-opus",
+		Intelligence:     IntelligenceSuperior,
+		HeartbeatSeconds: 30,
+		RegisteredAt:     time.Now().Add(-2 * time.Hour),
+		LastHeartbeat:    time.Now().Add(-10 * time.Minute),
+	}
+	hub1.mu.Lock()
+	hub1.agents["agent-stale"] = staleAgent
+	hub1.mu.Unlock()
+	hub1.saveAgent(staleAgent)
+
+	// Create second hub instance — Init should clean up stale agents
+	hub2 := NewHub(dir)
+	if err := hub2.Init(); err != nil {
+		t.Fatalf("Init error: %v", err)
+	}
+
+	// hub2 should have cleaned up the stale agent during Init
+	// Only agent-1 should remain (but it's a different selfID now)
+	agents := hub2.ListAgents()
+	// The stale agent should be gone
+	for _, a := range agents {
+		if a.ID == "agent-stale" {
+			t.Error("Stale agent should have been cleaned up during Init")
+		}
+	}
+}

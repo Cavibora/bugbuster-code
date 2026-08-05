@@ -472,20 +472,29 @@ func FormatProgressBar(current, total int, width int) string {
 
 func FormatToolCallStart(name string, params map[string]string) string {
 	var parts []string
-	displayKeys := []string{"path", "command", "pattern", "query", "prompt", "url", "file", "dir", "lines", "task"}
+	displayKeys := []string{"path", "command", "pattern", "query", "prompt", "url", "file", "dir", "lines", "task", "content", "agent_id", "action"}
 	shown := make(map[string]bool)
-	// bash, write, edit, delegate_task — показывать параметры полностью, без обрезки
-	// Это критично для безопасности: пользователь должен видеть полную команду/задачу
-	noTruncate := name == "bash" || name == "write" || name == "edit" || name == "delegate_task"
+	// bash, write, edit, delegate_task, hub tools — показывать параметры полностью, без обрезки
+	// Это критично: пользователь должен видеть полный текст сообщений
+	noTruncate := name == "bash" || name == "write" || name == "edit" || name == "delegate_task" ||
+		name == "hub_message" || name == "hub_broadcast" || name == "hub_alert" ||
+		name == "hub_request" || name == "hub_respond"
 
 	for _, key := range displayKeys {
 		if v, ok := params[key]; ok {
 			display := v
 			if noTruncate {
-				// Показываем полную команду/путь/код без обрезки
-				// Для многострочных — заменяем \n на ⏎ для однострочного отображения
+				// Показываем полную команду/путь/код без обрезки.
+				// Многострочные — заменяем \n на ⏎ для однострочного отображения.
+				// Длинные однострочные — переносим по строкам, чтобы не обрезались
+				// и не создавали лишних строк при каждом тике спиннера.
 				display = strings.ReplaceAll(display, "\n", " ⏎ ")
 				display = strings.ReplaceAll(display, "\r", "")
+				// Wrap very long commands to multiple lines so the full command
+				// stays visible (no truncation, no single-line overflow).
+				if utf8.RuneCountInString(display) > 120 {
+					display = wrapText(display, 4, terminalWidth())
+				}
 			} else if key == "command" {
 				if idx := strings.Index(v, "\n"); idx >= 0 {
 					display = v[:idx]
@@ -584,6 +593,20 @@ func formatToolResultSummary(name string, ok bool, result string, fullResult str
 		return formatGrepSummary(fullResult)
 	case "delegate_task":
 		return formatDelegateTaskSummary(fullResult)
+	case "hub_message":
+		return formatHubMessageSummary(fullResult)
+	case "hub_broadcast":
+		return formatHubBroadcastSummary(fullResult)
+	case "hub_alert":
+		return formatHubAlertSummary(fullResult)
+	case "hub_request":
+		return formatHubRequestSummary(fullResult)
+	case "hub_respond":
+		return formatHubRespondSummary(fullResult)
+	case "hub_check":
+		return formatHubCheckSummary(fullResult)
+	case "hub_history":
+		return formatHubCheckSummary(fullResult) // same format
 	default:
 		return formatGenericSummary(result)
 	}
@@ -754,6 +777,60 @@ func formatDelegateTaskSummary(fullResult string) string {
 	return appTheme.ToolSummary.ANSICode() + "subagent completed" + ansiReset
 }
 
+func formatHubMessageSummary(fullResult string) string {
+	// 📨 Message sent to bugbuster-coder (sess_20260722_072924_27351b64)
+	// Show full result — it's already concise
+	if fullResult == "" {
+		return appTheme.ToolSummary.ANSICode() + "message sent" + ansiReset
+	}
+	return appTheme.ToolSummary.ANSICode() + fullResult + ansiReset
+}
+
+func formatHubBroadcastSummary(fullResult string) string {
+	// 📢 Broadcast sent to all agents
+	if fullResult == "" {
+		return appTheme.ToolSummary.ANSICode() + "broadcast sent" + ansiReset
+	}
+	return appTheme.ToolSummary.ANSICode() + fullResult + ansiReset
+}
+
+func formatHubAlertSummary(fullResult string) string {
+	// ⚠️ Alert sent to all agents
+	if fullResult == "" {
+		return appTheme.ToolSummary.ANSICode() + "alert sent" + ansiReset
+	}
+	return appTheme.ToolSummary.ANSICode() + fullResult + ansiReset
+}
+
+func formatHubRequestSummary(fullResult string) string {
+	// 📋 Request sent to ... — show full result
+	if fullResult == "" {
+		return appTheme.ToolSummary.ANSICode() + "request sent" + ansiReset
+	}
+	return appTheme.ToolSummary.ANSICode() + fullResult + ansiReset
+}
+
+func formatHubRespondSummary(fullResult string) string {
+	// ✅/❌ Response sent to ...
+	if fullResult == "" {
+		return appTheme.ToolSummary.ANSICode() + "response sent" + ansiReset
+	}
+	return appTheme.ToolSummary.ANSICode() + fullResult + ansiReset
+}
+
+func formatHubCheckSummary(fullResult string) string {
+	// hub_check and hub_history — show full result with line wrapping
+	if fullResult == "" {
+		return appTheme.ToolSummary.ANSICode() + "no messages" + ansiReset
+	}
+	// For check/history, show first line as summary
+	firstLine := fullResult
+	if idx := strings.Index(fullResult, "\n"); idx >= 0 {
+		firstLine = fullResult[:idx]
+	}
+	return appTheme.ToolSummary.ANSICode() + firstLine + ansiReset
+}
+
 // ─── Tool result extra lines ────────────────────────────────────────────────
 
 func formatToolResultExtra(name string, ok bool, fullResult string) []string {
@@ -767,9 +844,40 @@ func formatToolResultExtra(name string, ok bool, fullResult string) []string {
 		return formatDiffExtra(fullResult)
 	case "write":
 		return formatDiffExtra(fullResult)
+	case "hub_message":
+		return formatHubExtra(fullResult)
+	case "hub_broadcast":
+		return formatHubExtra(fullResult)
+	case "hub_alert":
+		return formatHubExtra(fullResult)
+	case "hub_request":
+		return formatHubExtra(fullResult)
+	case "hub_respond":
+		return formatHubExtra(fullResult)
+	case "hub_check":
+		return formatHubExtra(fullResult)
+	case "hub_history":
+		return formatHubExtra(fullResult)
+	case "hub_info":
+		return formatHubExtra(fullResult)
 	default:
 		return nil
 	}
+}
+
+func formatHubExtra(fullResult string) []string {
+	if fullResult == "" {
+		return nil
+	}
+	lines := strings.Split(fullResult, "\n")
+	var result []string
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		result = append(result, "     "+line)
+	}
+	return result
 }
 
 func formatBashExtra(fullResult string) []string {

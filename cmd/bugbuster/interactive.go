@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"bugbuster-code/pkg/agent"
+	"bugbuster-code/pkg/agenthub"
 	"bugbuster-code/pkg/config"
 	"bugbuster-code/pkg/i18n"
 	"bugbuster-code/pkg/logger"
@@ -316,6 +317,54 @@ func handleCommand(input string, loop *agent.AgentLoop, cfg *config.BugBusterCon
 	case input == "/ps":
 		printBackgroundProcesses(bgTool)
 		return true, "", ""
+	case input == "/agent_messages":
+		if loop.GetHubPoller() == nil {
+			fmt.Fprintln(cmdOutput, color.RedString("  ✗ Agent Hub not active"))
+		} else if hub, ok := loop.GetHubPoller().(*agenthub.Hub); ok {
+			messages := hub.GetAllMessages(0)
+			agents := hub.GetAgents()
+			selfID := hub.GetSelfID()
+			fmt.Fprintln(cmdOutput, agenthub.FormatMessagesForUser(messages, agents, selfID))
+		} else {
+			fmt.Fprintln(cmdOutput, color.RedString("  ✗ Agent Hub type assertion failed"))
+		}
+		return true, "", ""
+	case strings.HasPrefix(input, "/agent_msg_status "):
+		parts := strings.Fields(input)
+		if len(parts) < 3 {
+			fmt.Fprintln(cmdOutput, color.RedString("  ✗ Usage: /agent_msg_status <message_id> <status>"))
+			fmt.Fprintln(cmdOutput, "  Statuses: read, acked, replied, ignored")
+		} else if loop.GetHubPoller() == nil {
+			fmt.Fprintln(cmdOutput, color.RedString("  ✗ Agent Hub not active"))
+		} else if hub, ok := loop.GetHubPoller().(*agenthub.Hub); ok {
+			msgID := parts[1]
+			status := parts[2]
+			if err := hub.UpdateMessageStatus(msgID, agenthub.MessageStatus(status), "user"); err != nil {
+				fmt.Fprintln(cmdOutput, color.RedString(fmt.Sprintf("  ✗ %v", err)))
+			} else {
+				fmt.Fprintln(cmdOutput, color.GreenString("  ✓ Message %s status → %s", msgID, status))
+			}
+		} else {
+			fmt.Fprintln(cmdOutput, color.RedString("  ✗ Agent Hub type assertion failed"))
+		}
+		return true, "", ""
+	case strings.HasPrefix(input, "/agent_msg_delete "):
+		parts := strings.Fields(input)
+		if len(parts) < 2 {
+			fmt.Fprintln(cmdOutput, color.RedString("  ✗ Usage: /agent_msg_delete <message_id>"))
+		} else if loop.GetHubPoller() == nil {
+			fmt.Fprintln(cmdOutput, color.RedString("  ✗ Agent Hub not active"))
+		} else if hub, ok := loop.GetHubPoller().(*agenthub.Hub); ok {
+			msgID := parts[1]
+			if err := hub.DeleteMessage(msgID); err != nil {
+				fmt.Fprintln(cmdOutput, color.RedString(fmt.Sprintf("  ✗ %v", err)))
+			} else {
+				fmt.Fprintln(cmdOutput, color.GreenString("  🗑️ Message %s deleted", msgID))
+			}
+		} else {
+			fmt.Fprintln(cmdOutput, color.RedString("  ✗ Agent Hub type assertion failed"))
+		}
+		return true, "", ""
 	case strings.HasPrefix(input, "/logs "):
 		idStr := strings.TrimSpace(strings.TrimPrefix(input, "/logs"))
 		showBackgroundLogs(bgTool, idStr)
@@ -465,25 +514,34 @@ func printBanner(cfg *config.BugBusterConfig, p provider.Provider) {
 	color.Yellow("%s", i18n.T("cli.prompt"))
 }
 
-// restoreOrNewSession restores or creates a new session
-func restoreOrNewSession(sessionMgr *agent.SessionManager, rl *readline.Instance, loop *agent.AgentLoop, cfg *config.BugBusterConfig) *agent.Session {
+// restoreOrNewSession restores or creates a new session.
+// Returns the session and, if the user typed a task instead of a session
+// number during selection, the pending first-request text ("" if none).
+func restoreOrNewSession(sessionMgr *agent.SessionManager, rl *readline.Instance, loop *agent.AgentLoop, cfg *config.BugBusterConfig) (*agent.Session, string) {
 	var currentSession *agent.Session
+	pendingInput := ""
 	if sessionID != "" {
-		loaded, err := sessionMgr.LoadSession(sessionID)
-		if err != nil {
-			color.Red("%s", i18n.T("cli_error.session_load", sessionID, err))
+		resolvedID, resolveErr := sessionMgr.ResolveSessionID(sessionID)
+		if resolveErr != nil {
+			color.Red("%s", i18n.T("cli_error.session_load", sessionID, resolveErr))
 			currentSession = sessionMgr.NewSession()
 		} else {
-			currentSession = loaded
-			restoreSessionMessages(loop, currentSession.Messages)
-			color.Green("%s", i18n.T("cli_success.session_restored", sessionID, len(currentSession.Messages)))
-			// Restore chat on screen
-			if len(currentSession.Messages) > 0 {
-				renderSessionHistoryCLI(currentSession.Messages)
+			loaded, err := sessionMgr.LoadSession(resolvedID)
+			if err != nil {
+				color.Red("%s", i18n.T("cli_error.session_load", resolvedID, err))
+				currentSession = sessionMgr.NewSession()
+			} else {
+				currentSession = loaded
+				restoreSessionMessages(loop, currentSession.Messages)
+				color.Green("%s", i18n.T("cli_success.session_restored", resolvedID, len(currentSession.Messages)))
+				// Restore chat on screen
+				if len(currentSession.Messages) > 0 {
+					renderSessionHistoryCLI(currentSession.Messages)
+				}
 			}
 		}
 	} else {
-		currentSession = restoreOrCreateSession(sessionMgr, rl)
+		currentSession, pendingInput = restoreOrCreateSession(sessionMgr, rl)
 		if currentSession.Messages != nil {
 			restoreSessionMessages(loop, currentSession.Messages)
 			// Restore chat on screen, if session is loaded with messages
@@ -497,7 +555,7 @@ func restoreOrNewSession(sessionMgr *agent.SessionManager, rl *readline.Instance
 		currentSession.Name = sessionName
 		sessionMgr.RenameSession(currentSession.ID, sessionName)
 	}
-	return currentSession
+	return currentSession, pendingInput
 }
 
 // restoreSessionMessages loads session messages into agent context,
@@ -555,13 +613,21 @@ func restoreSessionMessages(loop *agent.AgentLoop, messages []provider.Message) 
 
 // saveSessionAndExit saves session, change tracker and exits
 func saveSessionAndExit(session *agent.Session, loop *agent.AgentLoop, sessionMgr *agent.SessionManager, ct *ChangeTracker, changesFile string) {
+	// Unregister from hub on exit
+	if poller := loop.GetHubPoller(); poller != nil {
+		poller.Unregister()
+	}
 	// Save session
 	session.Messages = loop.Context.GetMessages()
 	if err := sessionMgr.SaveSessionMessages(session); err != nil {
 		color.Red("%s", i18n.T("cli_error.session_save", err))
 	} else {
+		displayName := session.ID
+		if session.Name != "" {
+			displayName = session.Name
+		}
 		color.Green("%s", i18n.T("cli_success.session_saved", session.ID))
-		color.Cyan("  Restore: bugbuster --session %s", session.ID)
+		color.Cyan("  Restore: bugbuster --session %s", displayName)
 	}
 	// Save change tracker
 	if ct != nil && changesFile != "" {
@@ -570,11 +636,13 @@ func saveSessionAndExit(session *agent.Session, loop *agent.AgentLoop, sessionMg
 	color.Cyan("%s", i18n.T("cli.goodbye"))
 }
 
-// restoreOrCreateSession offers to restore last session or create a new one
-func restoreOrCreateSession(sessionMgr *agent.SessionManager, rl *readline.Instance) *agent.Session {
+// restoreOrCreateSession offers to restore last session or create a new one.
+// Returns the session and, if the user typed a task instead of a session
+// number, the pending first-request text ("" if none).
+func restoreOrCreateSession(sessionMgr *agent.SessionManager, rl *readline.Instance) (*agent.Session, string) {
 	sessions, err := sessionMgr.ListSessions()
 	if err != nil || len(sessions) == 0 {
-		return sessionMgr.NewSession()
+		return sessionMgr.NewSession(), ""
 	}
 
 	sort.Slice(sessions, func(i, j int) bool {
@@ -583,14 +651,20 @@ func restoreOrCreateSession(sessionMgr *agent.SessionManager, rl *readline.Insta
 
 	if len(sessions) == 1 {
 		s := sessions[0]
-		fmt.Fprint(cmdOutput, color.HiCyanString("%s", i18n.T("cli_session.restore_prompt", s.ID, s.UpdatedAt.Format("2006-01-02 15:04"), len(s.Messages))) + " ")
+		displayName := s.ID
+		if s.Name != "" {
+			displayName = s.Name + " (" + s.ID + ")"
+		}
+		fmt.Fprint(cmdOutput, color.HiCyanString("%s", i18n.T("cli_session.restore_prompt", displayName, s.UpdatedAt.Format("2006-01-02 15:04"), len(s.Messages)))+" ")
 		answer, _ := rl.Readline()
 		answer = strings.TrimSpace(strings.ToLower(answer))
 		if answer == "" || isYesAnswer(answer) {
-			return s
+			return s, ""
 		}
+		// User typed something that is not a "yes" — treat it as a task
+		// to start a new session with (the text becomes the first request).
 		color.Yellow("%s", i18n.T("cli_session.new_session"))
-		return sessionMgr.NewSession()
+		return sessionMgr.NewSession(), answer
 	}
 
 	color.Cyan("%s", i18n.T("cli_session.restore_list", len(sessions)))
@@ -600,7 +674,11 @@ func restoreOrCreateSession(sessionMgr *agent.SessionManager, rl *readline.Insta
 		maxShow = len(sessions)
 	}
 	for i, s := range sessions[:maxShow] {
-		fmt.Fprintln(cmdOutput, i18n.T("cli_session.restore_entry", i+1, s.ID, s.UpdatedAt.Format("2006-01-02 15:04"), len(s.Messages)))
+		displayName := s.ID
+		if s.Name != "" {
+			displayName = s.Name + " (" + s.ID + ")"
+		}
+		fmt.Fprintln(cmdOutput, i18n.T("cli_session.restore_entry", i+1, displayName, s.UpdatedAt.Format("2006-01-02 15:04"), len(s.Messages)))
 	}
 
 	fmt.Fprint(cmdOutput, i18n.T("cli_session.restore_choice"))
@@ -610,11 +688,13 @@ func restoreOrCreateSession(sessionMgr *agent.SessionManager, rl *readline.Insta
 	fmt.Sscanf(answer, "%d", &choice)
 
 	if choice >= 1 && choice <= maxShow {
-		return sessions[choice-1]
+		return sessions[choice-1], ""
 	}
 
+	// User did not enter a valid session number — treat the input as a task
+	// to start a new session with (the text becomes the first request).
 	color.Yellow("%s", i18n.T("cli_session.new_session"))
-	return sessionMgr.NewSession()
+	return sessionMgr.NewSession(), answer
 }
 
 // printMCPServers shows MCP server info and auto-scanning
@@ -688,7 +768,7 @@ func printSessions(sessionMgr *agent.SessionManager, currentSession *agent.Sessi
 			fmt.Fprintf(cmdOutput, "  %d. %s [%s] (%d msg, %s)\n", i+1, s.ID, name, len(s.Messages), s.UpdatedAt.Format("2006-01-02 15:04"))
 		}
 	}
-	color.Cyan("  Restore: bugbuster --session <id>")
+	color.Cyan("  Restore: bugbuster --session <id-or-name>")
 	color.Cyan("  Rename:  /rename <name>")
 }
 

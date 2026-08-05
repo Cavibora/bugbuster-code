@@ -19,8 +19,9 @@ type ConversationContext struct {
 	Compactor           Compactor         // context compactor (nil = simple truncation)
 	AutoCompact         bool              // automatically compact on Add() (default: true)
 	OnCompact           func()            // callback before compaction (for UI notification)
-	AfterCompact        func()            // callback after compaction (for memory injection)
+	CompactionNotifier  func(tokensBefore, tokensAfter, msgsBefore, msgsAfter int, compType string) // callback after any compaction with details
 	OnCompactForce      func()            // callback after CompactForce (to reset speed tracking)
+	AfterCompact        func()            // callback after compaction (for memory injection)
 	Ctx                 context.Context   // cancellation context for compaction (nil = context.Background())
 	Archive             *ArchiveStore     // context archive (nil = archiving disabled)
 	Optimizer           *ArchiveOptimizer // archive optimizer (nil = optimization disabled)
@@ -181,6 +182,7 @@ func (c *ConversationContext) compact() {
 	}
 
 	tokensBefore := EstimateMessagesTokens(c.Messages)
+	msgsBefore := len(c.Messages)
 
 	// Target compaction size: 2/3 of MaxTokens
 	// This frees 1/3 of context for new messages and prevents
@@ -205,6 +207,12 @@ func (c *ConversationContext) compact() {
 	}
 
 	tokensAfter := EstimateMessagesTokens(c.Messages)
+	msgsAfter := len(c.Messages)
+
+	// Notify about compaction details
+	if c.CompactionNotifier != nil {
+		c.CompactionNotifier(tokensBefore, tokensAfter, msgsBefore, msgsAfter, "auto")
+	}
 
 	// Archive removed messages
 	if c.Archive != nil && len(msgsBeforeCompaction) > 0 && tokensBefore > tokensAfter {
@@ -264,6 +272,7 @@ func (c *ConversationContext) CompactForce() {
 	}
 
 	tokensBefore := EstimateMessagesTokens(c.Messages)
+	msgsBefore := len(c.Messages)
 
 	// Save copy for archiving
 	var msgsBeforeCompaction []provider.Message
@@ -272,9 +281,10 @@ func (c *ConversationContext) CompactForce() {
 		copy(msgsBeforeCompaction, c.Messages)
 	}
 
-	// 1. Remove tool errors and duplicates
+	// 1. Remove tool errors, duplicates, and repeated user messages
 	msgs := RemoveToolErrors(c.Messages)
 	msgs = RemoveDuplicates(msgs)
+	msgs = DeduplicateRepeats(msgs)
 	msgs = EnsureToolPairIntegrity(msgs)
 
 	// 2. Split system / other
@@ -338,6 +348,12 @@ func (c *ConversationContext) CompactForce() {
 	c.Messages = result
 
 	tokensAfter := EstimateMessagesTokens(c.Messages)
+	msgsAfter := len(c.Messages)
+
+	// Notify about compaction details
+	if c.CompactionNotifier != nil {
+		c.CompactionNotifier(tokensBefore, tokensAfter, msgsBefore, msgsAfter, "force")
+	}
 
 	// Archive removed messages
 	if c.Archive != nil && len(msgsBeforeCompaction) > 0 && tokensBefore > tokensAfter {

@@ -432,11 +432,12 @@ The Agent Hub enables multiple BugBuster Code instances to coordinate through a 
 
 ```yaml
 hub:
-  enabled: true                    # Enable hub (default: true)
+  enabled: false                   # Enable hub (default: false)
   name: "bugbuster-coder"          # Agent display name (default: "bugbuster-N")
   role: "coder"                    # Agent role: "coder", "reviewer", "tester", "architect"
   intelligence: "expert"           # Intelligence level (see below)
   heartbeat_seconds: 30            # Heartbeat interval (default: 30, 0 = disabled)
+  max_context_tokens: 0            # Max tokens of hub messages injected per drain (0 = auto: 10% of context window, capped at 4096)
   model_intelligence:              # Model → intelligence mapping (overrides auto-detection)
     gpt-4o: "expert"
     claude-3-opus: "superior"
@@ -498,6 +499,10 @@ When hub is enabled, these tools become available:
 | `hub_check` | Check for unread messages and pending requests |
 | `hub_tasks` | View another agent's task list (or all agents' tasks) |
 | `hub_status` | Update own status, current task, and task list in the hub |
+| `hub_msg_status` | Change message status (read, acked, replied, ignored) |
+| `hub_msg_comment` | Add a comment to a message |
+| `hub_msg_edit` | Edit a message you sent (original preserved) |
+| `hub_msg_delete` | Soft-delete a message |
 
 ### Example Workflow
 

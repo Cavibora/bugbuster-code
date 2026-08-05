@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"strings"
 
 	"bugbuster-code/pkg/provider"
@@ -277,6 +278,70 @@ func compactByPriority(messages []provider.Message, maxTokens int) []provider.Me
 
 	// Phase 4: Only system prompt
 	return systemMsgs
+}
+
+// DeduplicateRepeats collapses consecutive identical user messages into one.
+// When N identical (or near-identical) user messages appear in a row,
+// they are replaced with a single message: "Continue. (×N)"
+// This prevents context pollution from pulsing auto-continue patterns.
+// Short messages (≤50 chars) are compared for exact match.
+// Longer messages are compared by prefix (first 100 chars).
+func DeduplicateRepeats(messages []provider.Message) []provider.Message {
+	if len(messages) <= 1 {
+		return messages
+	}
+
+	result := make([]provider.Message, 0, len(messages))
+	i := 0
+	for i < len(messages) {
+		msg := messages[i]
+
+		// Only deduplicate user messages with short text (auto-continue patterns)
+		if msg.Role != "user" {
+			result = append(result, msg)
+			i++
+			continue
+		}
+
+		text := strings.TrimSpace(msg.GetResponseText())
+		// Only deduplicate short user messages (≤100 chars) — these are typically
+		// auto-continue prompts like "Continue.", "Go on", "Continue working"
+		if text == "" || len(text) > 100 {
+			result = append(result, msg)
+			i++
+			continue
+		}
+
+		// Count consecutive user messages with the same text
+		count := 1
+		j := i + 1
+		for j < len(messages) && messages[j].Role == "user" {
+			nextText := strings.TrimSpace(messages[j].GetResponseText())
+			if nextText == text {
+				count++
+				j++
+			} else {
+				break
+			}
+		}
+
+		if count > 1 {
+			// Replace N identical messages with one annotated message
+			annotated := provider.Message{
+				Role: "user",
+				Content: []provider.ContentBlock{
+					{Type: "text", Text: fmt.Sprintf("%s (×%d)", text, count)},
+				},
+			}
+			result = append(result, annotated)
+			i = j
+		} else {
+			result = append(result, msg)
+			i++
+		}
+	}
+
+	return result
 }
 
 // hasToolUse checks if message has tool_use blocks

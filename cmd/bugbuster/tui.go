@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"bugbuster-code/pkg/agent"
+	"bugbuster-code/pkg/agenthub"
 	"bugbuster-code/pkg/config"
 	"bugbuster-code/pkg/i18n"
 	"bugbuster-code/pkg/provider"
@@ -166,6 +167,9 @@ type toolTickMsg struct{}
 
 // autoSaveTickMsg — timer tick for auto-saving session
 type autoSaveTickMsg struct{}
+
+// hubSignalMsg — notification that hub messages are available (triggered by SIGUSR1)
+type hubSignalMsg struct{}
 
 // NewTUI creates new TUI model
 func NewTUI(cfg *config.BugBusterConfig, loop *agent.AgentLoop, ct *ChangeTracker, providerName string, inline bool) TUI {
@@ -395,6 +399,87 @@ func (m TUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.autoSaveCmd()
 
+	case hubSignalMsg:
+		// SIGUSR1 received — check for hub messages and inject them
+		if m.loop.GetHubPoller() != nil {
+			messages := m.loop.GetHubPoller().DrainAndFormatMessages()
+			if len(messages) > 0 {
+				var sb strings.Builder
+				sb.WriteString("📨 Hub messages received:\n\n")
+				for i, msg := range messages {
+					sb.WriteString(msg)
+					if i < len(messages)-1 {
+						sb.WriteString("\n\n")
+					}
+				}
+				sb.WriteString("\n\n---\nPlease read and act on these messages. Use hub_check for more details if needed.")
+
+				if m.streaming {
+					// During streaming — inject as user message into agent loop
+					m.loop.InjectUserMessage(sb.String())
+					m.output.WriteString(
+						lipgloss.NewStyle().
+							Foreground(appTheme.Warning.LipglossColor()).
+							Italic(true).
+							Render("  📨 Hub messages injected into context") + "\n",
+					)
+				} else {
+					// Not streaming — show notification and start new request
+					m.output.WriteString(
+						lipgloss.NewStyle().
+							Foreground(appTheme.Warning.LipglossColor()).
+							Bold(true).
+							Render("  📨 Hub messages received!") + "\n",
+					)
+					// Inject as user input and start streaming
+					m.output.WriteString(userMsgStyle.Render("  ❯ "+sb.String()) + "\n")
+					m.output.WriteString(separatorStyle.Render("  ──────────────────────────────────────────────────") + "\n")
+					m.syncViewport()
+					m.streaming = true
+					m.mdRenderer = NewGlamourRenderer()
+					m.totalInTokens = 0
+					m.totalOutTokens = 0
+					m.totalDuration = 0
+					m.pendingAction = ""
+
+					ctx, cancel := context.WithCancel(context.Background())
+					m.ctx = ctx
+					m.cancel = cancel
+
+					// Set AskChannel for ask_user tool
+					if m.askUserTool != nil {
+						ch := &tools.AskChannel{
+							Question: make(chan string, 1),
+							Answer:   make(chan string, 1),
+						}
+						m.askUserChannel = ch
+						m.askUserTool.SetAskChannel(ch)
+						askProgram := m.program
+						go func() {
+							for {
+								select {
+								case <-ctx.Done():
+									return
+								case question, ok := <-ch.Question:
+									if !ok {
+										return
+									}
+									if askProgram != nil {
+										askProgram.Send(askUserMsg{question: question})
+									}
+								}
+							}
+						}()
+					}
+
+					go m.runStream(sb.String(), ctx, m.program)
+					return m, tea.Batch(m.spinnerCmd(), m.autoSaveCmd())
+				}
+				m.syncViewport()
+			}
+		}
+		return m, nil
+
 	case progress.FrameMsg:
 		// Progress bar animation
 		var cmd tea.Cmd
@@ -619,6 +704,60 @@ func (m TUI) handleSend() (retModel tea.Model, retCmd tea.Cmd) {
 				uptime := time.Since(p.StartTime).Truncate(time.Second)
 				m.output.WriteString(fmt.Sprintf("  #%d PID:%d %s %s %s\n", p.ID, p.PID, status, uptime, p.Command))
 			}
+		}
+		m.syncViewport()
+		m.textarea.Reset()
+		return m, nil
+	case "/agent_messages":
+		if m.loop.GetHubPoller() == nil {
+			m.output.WriteString(errorStyle.Render("  ✗ Agent Hub not active") + "\n")
+		} else if hub, ok := m.loop.GetHubPoller().(*agenthub.Hub); ok {
+			messages := hub.GetAllMessages(0)
+			agents := hub.GetAgents()
+			selfID := hub.GetSelfID()
+			m.output.WriteString(agenthub.FormatMessagesForUser(messages, agents, selfID) + "\n")
+		} else {
+			m.output.WriteString(errorStyle.Render("  ✗ Agent Hub type assertion failed") + "\n")
+		}
+		m.syncViewport()
+		m.textarea.Reset()
+		return m, nil
+	case "/agent_msg_status":
+		parts := strings.Fields(input)
+		if len(parts) < 3 {
+			m.output.WriteString(errorStyle.Render("  ✗ Usage: /agent_msg_status <message_id> <status>") + "\n")
+			m.output.WriteString(helpStyle.Render("  Statuses: read, acked, replied, ignored") + "\n")
+		} else if m.loop.GetHubPoller() == nil {
+			m.output.WriteString(errorStyle.Render("  ✗ Agent Hub not active") + "\n")
+		} else if hub, ok := m.loop.GetHubPoller().(*agenthub.Hub); ok {
+			msgID := parts[1]
+			status := parts[2]
+			if err := hub.UpdateMessageStatus(msgID, agenthub.MessageStatus(status), "user"); err != nil {
+				m.output.WriteString(errorStyle.Render(fmt.Sprintf("  ✗ %v", err)) + "\n")
+			} else {
+				m.output.WriteString(color.GreenString("  ✓ Message %s status → %s", msgID, status) + "\n")
+			}
+		} else {
+			m.output.WriteString(errorStyle.Render("  ✗ Agent Hub type assertion failed") + "\n")
+		}
+		m.syncViewport()
+		m.textarea.Reset()
+		return m, nil
+	case "/agent_msg_delete":
+		parts := strings.Fields(input)
+		if len(parts) < 2 {
+			m.output.WriteString(errorStyle.Render("  ✗ Usage: /agent_msg_delete <message_id>") + "\n")
+		} else if m.loop.GetHubPoller() == nil {
+			m.output.WriteString(errorStyle.Render("  ✗ Agent Hub not active") + "\n")
+		} else if hub, ok := m.loop.GetHubPoller().(*agenthub.Hub); ok {
+			msgID := parts[1]
+			if err := hub.DeleteMessage(msgID); err != nil {
+				m.output.WriteString(errorStyle.Render(fmt.Sprintf("  ✗ %v", err)) + "\n")
+			} else {
+				m.output.WriteString(color.GreenString("  🗑️ Message %s deleted", msgID) + "\n")
+			}
+		} else {
+			m.output.WriteString(errorStyle.Render("  ✗ Agent Hub type assertion failed") + "\n")
 		}
 		m.syncViewport()
 		m.textarea.Reset()
@@ -1155,6 +1294,26 @@ func (m TUI) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 		return m, m.spinnerCmd()
 	case provider.EventCompactionDone:
 		m.compacting = false
+		// Show compaction details if available
+		if msg.event.TokensBefore > 0 || msg.event.MessagesBefore > 0 {
+			saved := msg.event.TokensBefore - msg.event.TokensAfter
+			pct := 0
+			if msg.event.TokensBefore > 0 {
+				pct = saved * 100 / msg.event.TokensBefore
+			}
+			compType := "auto"
+			if msg.event.CompactionType == "force" {
+				compType = "force"
+			}
+			msgsRemoved := msg.event.MessagesBefore - msg.event.MessagesAfter
+			m.output.WriteString(
+				lipgloss.NewStyle().
+					Foreground(appTheme.Dim.LipglossColor()).
+					Render(fmt.Sprintf("  ✅ Compaction (%s): %d→%d msgs (-%d), %d→%d tokens (-%d%%)\n",
+						compType, msg.event.MessagesBefore, msg.event.MessagesAfter, msgsRemoved,
+						msg.event.TokensBefore, msg.event.TokensAfter, pct)) + "\n",
+			)
+		}
 		m.syncViewport()
 		// Auto-save session after compaction
 		saveSessionTUI(m)
@@ -1237,15 +1396,24 @@ func (m TUI) View() tea.View {
 	provCfg := m.cfg.Providers[m.cfg.DefaultProvider]
 	var headerInfo string
 	displayProvider := providerDisplayName(m.providerName, provCfg)
+	sessionInfo := ""
+	if m.session != nil && m.session.Name != "" {
+		sessionInfo = m.session.Name + " · "
+	} else if m.session != nil {
+		// Show short ID (last 8 chars)
+		if len(m.session.ID) > 8 {
+			sessionInfo = m.session.ID[len(m.session.ID)-8:] + " · "
+		}
+	}
 	if provCfg.Model != "" {
 		// Avoid duplication like "qwen-fast-35b · qwen-fast-35b"
 		if displayProvider == provCfg.Model {
-			headerInfo = provCfg.Model
+			headerInfo = sessionInfo + provCfg.Model
 		} else {
-			headerInfo = fmt.Sprintf("%s · %s", displayProvider, provCfg.Model)
+			headerInfo = fmt.Sprintf("%s%s · %s", sessionInfo, displayProvider, provCfg.Model)
 		}
 	} else {
-		headerInfo = displayProvider
+		headerInfo = sessionInfo + displayProvider
 	}
 	header := lipgloss.NewStyle().
 		Foreground(appTheme.Dim.LipglossColor()).
@@ -1288,15 +1456,24 @@ func (m TUI) View() tea.View {
 			// Don't truncate bash/write/edit commands — user must see full command for security
 			toolText := m.toolInProgress
 			noTruncateTool := m.currentToolName == "bash" || m.currentToolName == "write" || m.currentToolName == "edit" || m.currentToolName == "delegate_task"
+			maxToolLen := m.width - 20
+			if maxToolLen < 40 {
+				maxToolLen = 40
+			}
 			if !noTruncateTool {
-				maxToolLen := m.width - 20
-				if maxToolLen < 40 {
-					maxToolLen = 40
-				}
 				if utf8.RuneCountInString(toolText) > maxToolLen {
 					runes := []rune(toolText)
 					toolText = string(runes[:maxToolLen-3]) + "..."
 				}
+			} else {
+				// Wrap long bash/write/edit commands to multiple lines so the full
+				// command stays visible (no truncation, no single-line overflow).
+				// Continuation lines are indented to align under the command text.
+				wrapped := wrapText(toolText, 2, m.width-4)
+				if strings.HasPrefix(wrapped, "  ") {
+					wrapped = strings.TrimPrefix(wrapped, "  ")
+				}
+				toolText = wrapped
 			}
 			// Header: spinner + tool name + time + line count
 			toolHeader := fmt.Sprintf("  %s ⏺ %s  %s", spinner, toolText, elapsed)
@@ -1394,13 +1571,18 @@ func runTUI(cfg *config.BugBusterConfig, loop *agent.AgentLoop, ct *ChangeTracke
 
 	var currentSession *agent.Session
 	if sessionID != "" {
-		loaded, err := sessionMgr.LoadSession(sessionID)
+		resolvedID, err := sessionMgr.ResolveSessionID(sessionID)
 		if err != nil {
 			currentSession = sessionMgr.NewSession()
 		} else {
-			currentSession = loaded
-			if currentSession.Messages != nil {
-				loop.Context.Messages = currentSession.Messages // safe: not streaming yet
+			loaded, err := sessionMgr.LoadSession(resolvedID)
+			if err != nil {
+				currentSession = sessionMgr.NewSession()
+			} else {
+				currentSession = loaded
+				if currentSession.Messages != nil {
+					loop.Context.Messages = currentSession.Messages // safe: not streaming yet
+				}
 			}
 		}
 	} else {
@@ -1462,6 +1644,20 @@ func runTUI(cfg *config.BugBusterConfig, loop *agent.AgentLoop, ct *ChangeTracke
 		p = tea.NewProgram(&m, tea.WithInput(ttyInput))
 	}
 	m.program = p
+
+	// Start SIGUSR1 handler for hub message injection
+	// When another agent sends a hub message, it sends SIGUSR1 to this process.
+	// We listen for it and inject the messages into the TUI.
+	if m.loop.GetHubPoller() != nil {
+		hubSigCh := agenthub.HubSignalHandler()
+		go func() {
+			for range hubSigCh {
+				if p != nil {
+					p.Send(hubSignalMsg{})
+				}
+			}
+		}()
+	}
 
 	finalModel, err := p.Run()
 	if ttyInput != nil {

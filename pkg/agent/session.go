@@ -140,6 +140,49 @@ func (sm *SessionManager) SaveSessionMessages(session *Session) error {
 	return nil
 }
 
+// ResolveSessionID resolves a session identifier (ID or name) to a session ID.
+// If the input looks like a session ID (starts with "sess_"), it tries to load directly.
+// Otherwise, it searches all sessions for one with a matching name or ID prefix.
+func (sm *SessionManager) ResolveSessionID(idOrName string) (string, error) {
+	// Try direct load first (full session ID)
+	if strings.HasPrefix(idOrName, "sess_") {
+		_, err := sm.LoadSession(idOrName)
+		if err == nil {
+			return idOrName, nil
+		}
+		// Fall through to search by prefix
+	}
+
+	// Search by name or ID prefix
+	sessions, err := sm.ListSessions()
+	if err != nil {
+		return "", fmt.Errorf("%s", i18n.T("errors_session.not_found", idOrName))
+	}
+
+	// Exact name match first
+	for _, s := range sessions {
+		if s.Name == idOrName {
+			return s.ID, nil
+		}
+	}
+
+	// Exact ID match
+	for _, s := range sessions {
+		if s.ID == idOrName {
+			return s.ID, nil
+		}
+	}
+
+	// Prefix match on ID
+	for _, s := range sessions {
+		if strings.HasPrefix(s.ID, idOrName) {
+			return s.ID, nil
+		}
+	}
+
+	return "", fmt.Errorf("%s", i18n.T("errors_session.not_found", idOrName))
+}
+
 // LoadSession loads session by ID
 func (sm *SessionManager) LoadSession(sessionID string) (*Session, error) {
 	filePath := filepath.Join(sm.SessionsDir, sessionID+".jsonl")

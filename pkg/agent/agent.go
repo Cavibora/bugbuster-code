@@ -69,7 +69,17 @@ type AgentLoop struct {
 	autoCompactCooldown int // iterations to skip after auto-compact (prevents loop)
 	currentIteration    int // tracks current iteration for cooldown calculations
 
-	// CompactForce cooldown — prevents repeated compaction calls
+	// Hub — agent hub for inter-agent communication
+	// When set, the agent will check for hub messages on SIGUSR1 signal
+	// and inject them as user messages
+	hub HubPoller
+
+	// hubMaxTokens — max tokens of hub messages injected per drain.
+	// 0 = auto (10% of context window, capped at 4096).
+	// Prevents small local models from having their context flooded by hub traffic.
+	hubMaxTokens int
+
+	// compactForceCooldown — prevents repeated compaction calls
 	compactForceCooldownUntil time.Time // time until which compact_force is blocked
 }
 
@@ -309,6 +319,38 @@ func (a *AgentLoop) ResetAutoContinue() {
 func (a *AgentLoop) EnableSubagents(config SubagentConfig) {
 	tool := NewSubagentTool(config, a.provider, a.Tools)
 	a.Tools[DelegateTaskToolName] = tool
+}
+
+// HubPoller is an interface for polling hub messages and injecting them into the agent loop.
+// Implemented by agenthub.Hub, this allows the agent to check for new messages
+// when triggered by SIGUSR1 signal and inject them as user messages.
+type HubPoller interface {
+	// DrainAndFormatMessages returns all unread messages formatted as user text
+	// and marks them as read. Returns empty slice if no messages.
+	DrainAndFormatMessages() []string
+	// Unregister removes this agent from the hub. Called on session exit
+	// to prevent ghost agents from accumulating.
+	Unregister() error
+}
+
+// SetHubPoller sets the hub poller for this agent loop.
+// When set, the agent will check for hub messages when SIGUSR1 is received
+// and inject them as user messages.
+func (a *AgentLoop) SetHubPoller(poller HubPoller) {
+	a.hub = poller
+}
+
+// SetHubMaxTokens sets the maximum number of tokens of hub messages
+// injected per drain. 0 = auto (10% of context window, capped at 4096).
+// This prevents small local models from having their context flooded
+// by hub traffic.
+func (a *AgentLoop) SetHubMaxTokens(maxTokens int) {
+	a.hubMaxTokens = maxTokens
+}
+
+// HubPoller returns the current hub poller (may be nil).
+func (a *AgentLoop) GetHubPoller() HubPoller {
+	return a.hub
 }
 
 // InjectUserMessage adds a user comment to the context
@@ -755,6 +797,9 @@ func (a *AgentLoop) streamLoopWithCtx(ctx context.Context) (<-chan provider.Stre
 			// Check user comment injection
 			a.drainUserInject(eventCh)
 
+			// Check hub message injection (SIGUSR1 or periodic)
+			a.drainHubMessages(eventCh)
+
 			// Compact context if needed before sending request
 			// This prevents context overflow from max_tokens continuations
 			a.maybeCompact(eventCh, ctx)
@@ -998,6 +1043,11 @@ func (a *AgentLoop) maybeCompact(eventCh chan<- provider.StreamEvent, ctx contex
 	}
 	// Context exceeds limit — compaction is required, reset anti-thrashing
 	a.Context.lowSaveCount = 0
+
+	// Count messages before compaction
+	msgsBefore := len(a.Context.Messages)
+	tokensBefore := tokenCount
+
 	// Non-blocking send of compaction start events
 	select {
 	case eventCh <- provider.StreamEvent{Type: provider.EventCompaction}:
@@ -1007,20 +1057,39 @@ func (a *AgentLoop) maybeCompact(eventCh chan<- provider.StreamEvent, ctx contex
 	// Perform compaction with cancellation context
 	a.Context.Ctx = ctx
 	a.Context.Compact()
+
+	// Count after compaction
+	msgsAfter := len(a.Context.Messages)
+	tokensAfter := a.Context.TokenCount()
+
 	// Check cancellation context after compaction
 	select {
 	case <-ctx.Done():
 		// Context cancelled — send compaction completion event and exit
 		select {
-		case eventCh <- provider.StreamEvent{Type: provider.EventCompactionDone}:
+		case eventCh <- provider.StreamEvent{
+			Type:           provider.EventCompactionDone,
+			TokensBefore:   tokensBefore,
+			TokensAfter:    tokensAfter,
+			MessagesBefore: msgsBefore,
+			MessagesAfter:  msgsAfter,
+			CompactionType: "auto",
+		}:
 		default:
 		}
 		return
 	default:
 	}
-	// Non-blocking send of compaction completion events
+	// Non-blocking send of compaction completion events with details
 	select {
-	case eventCh <- provider.StreamEvent{Type: provider.EventCompactionDone}:
+	case eventCh <- provider.StreamEvent{
+		Type:           provider.EventCompactionDone,
+		TokensBefore:   tokensBefore,
+		TokensAfter:    tokensAfter,
+		MessagesBefore: msgsBefore,
+		MessagesAfter:  msgsAfter,
+		CompactionType: "auto",
+	}:
 	default:
 	}
 	// AfterCompact callback — inject memory facts after compaction
@@ -1060,6 +1129,71 @@ func (a *AgentLoop) drainUserInject(eventCh chan<- provider.StreamEvent) {
 		default:
 			return // Channel is empty
 		}
+	}
+}
+
+// drainHubMessages checks for unread hub messages and injects them as user messages.
+// Called between agent loop iterations, after drainUserInject.
+// The total injected size is capped to prevent small local models from having
+// their context flooded by hub traffic.
+func (a *AgentLoop) drainHubMessages(eventCh chan<- provider.StreamEvent) {
+	if a.hub == nil {
+		return
+	}
+
+	messages := a.hub.DrainAndFormatMessages()
+	if len(messages) == 0 {
+		return
+	}
+
+	// Determine the max tokens to inject.
+	// 0 = auto: 10% of context window, capped at 4096.
+	// This keeps hub traffic small relative to the model's context,
+	// so small local models don't get flooded.
+	maxTokens := a.hubMaxTokens
+	if maxTokens <= 0 {
+		maxTokens = a.Context.MaxTokens / 10
+		if maxTokens > 4096 {
+			maxTokens = 4096
+		}
+		if maxTokens < 512 {
+			maxTokens = 512
+		}
+	}
+
+	// Build a single combined message to avoid multiple user messages.
+	// Stop adding messages once we reach the token budget.
+	var sb strings.Builder
+	sb.WriteString("📨 Hub messages received:\n\n")
+	budgetChars := maxTokens * 4 // rough tokens→chars estimate
+	added := 0
+	for i, msg := range messages {
+		// Estimate the size this message would add (msg + separator).
+		sepLen := 0
+		if added > 0 {
+			sepLen = 2 // "\n\n"
+		}
+		if sb.Len()+len(msg)+sepLen > budgetChars {
+			// Budget exhausted — note that more messages remain.
+			remaining := len(messages) - i
+			sb.WriteString(fmt.Sprintf("\n\n... and %d more hub message(s). Use hub_check for details.", remaining))
+			break
+		}
+		if added > 0 {
+			sb.WriteString("\n\n")
+		}
+		sb.WriteString(msg)
+		added++
+	}
+	sb.WriteString("\n\n---\nPlease read and act on these messages. Use hub_check for more details if needed.")
+
+	text := sb.String()
+	a.Context.Add(provider.UserMsg(text))
+
+	// Notify UI that hub messages were injected
+	eventCh <- provider.StreamEvent{
+		Type: provider.EventUserInjected,
+		Text: "📨 Hub messages injected",
 	}
 }
 

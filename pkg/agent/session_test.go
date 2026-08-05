@@ -259,6 +259,78 @@ func TestSaveAndLoadSession_EmptyInputHistory(t *testing.T) {
 	}
 }
 
+func TestResolveSessionID_ByID(t *testing.T) {
+	tmpDir := t.TempDir()
+	sm := NewSessionManager(tmpDir)
+
+	// Create a session with a name
+	session := sm.NewSession()
+	session.Name = "junior"
+	if err := sm.SaveSessionMessages(session); err != nil {
+		t.Fatalf("SaveSessionMessages error: %v", err)
+	}
+
+	// Resolve by full ID
+	resolved, err := sm.ResolveSessionID(session.ID)
+	if err != nil {
+		t.Fatalf("ResolveSessionID by ID error: %v", err)
+	}
+	if resolved != session.ID {
+		t.Errorf("Expected %s, got %s", session.ID, resolved)
+	}
+}
+
+func TestResolveSessionID_ByName(t *testing.T) {
+	tmpDir := t.TempDir()
+	sm := NewSessionManager(tmpDir)
+
+	// Create a session with a name
+	session := sm.NewSession()
+	session.Name = "junior"
+	if err := sm.SaveSessionMessages(session); err != nil {
+		t.Fatalf("SaveSessionMessages error: %v", err)
+	}
+
+	// Resolve by name
+	resolved, err := sm.ResolveSessionID("junior")
+	if err != nil {
+		t.Fatalf("ResolveSessionID by name error: %v", err)
+	}
+	if resolved != session.ID {
+		t.Errorf("Expected %s, got %s", session.ID, resolved)
+	}
+}
+
+func TestResolveSessionID_NotFound(t *testing.T) {
+	tmpDir := t.TempDir()
+	sm := NewSessionManager(tmpDir)
+
+	_, err := sm.ResolveSessionID("nonexistent")
+	if err == nil {
+		t.Error("Expected error for nonexistent session, got nil")
+	}
+}
+
+func TestResolveSessionID_ByPrefix(t *testing.T) {
+	tmpDir := t.TempDir()
+	sm := NewSessionManager(tmpDir)
+
+	// Create a session
+	session := sm.NewSession()
+	if err := sm.SaveSessionMessages(session); err != nil {
+		t.Fatalf("SaveSessionMessages error: %v", err)
+	}
+
+	// Resolve by partial ID (first 10 chars)
+	prefix := session.ID[:10]
+	resolved, err := sm.ResolveSessionID(prefix)
+	if err != nil {
+		t.Fatalf("ResolveSessionID by prefix error: %v", err)
+	}
+	if resolved != session.ID {
+		t.Errorf("Expected %s, got %s", session.ID, resolved)
+	}
+}
 func TestLoadSession_LargeToolResult(t *testing.T) {
 	// Тест: tool_result длиннее 64KB (буфер bufio.Scanner по умолчанию)
 	// должен загружаться полностью, а не теряться

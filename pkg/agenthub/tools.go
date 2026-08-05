@@ -110,7 +110,13 @@ func (t *HubMessageTool) Execute(params map[string]string) tools.ToolResult {
 		agentName = a.Name
 	}
 
-	return tools.ToolResult{Output: fmt.Sprintf("📨 Message sent to %s (%s)", agentName, resolvedID)}
+	// Get self name for display
+	selfName := "me"
+	if profile, ok := t.hub.GetAgent(t.hub.SelfID()); ok {
+		selfName = profile.Name
+	}
+
+	return tools.ToolResult{Output: fmt.Sprintf("📨 Message sent to %s (%s)\n   From: %s\n   Content: %s", agentName, resolvedID, selfName, content)}
 }
 
 // HubBroadcastTool broadcasts a message to all agents
@@ -156,7 +162,13 @@ func (t *HubBroadcastTool) Execute(params map[string]string) tools.ToolResult {
 		return tools.ToolResult{Error: err.Error()}
 	}
 
-	return tools.ToolResult{Output: "📢 Broadcast sent to all agents"}
+	// Get self name for display
+	selfName := "me"
+	if profile, ok := t.hub.GetAgent(t.hub.SelfID()); ok {
+		selfName = profile.Name
+	}
+
+	return tools.ToolResult{Output: fmt.Sprintf("📢 Broadcast sent to all agents\n   From: %s\n   Content: %s", selfName, content)}
 }
 
 // HubAlertTool sends an urgent alert to all agents
@@ -202,7 +214,13 @@ func (t *HubAlertTool) Execute(params map[string]string) tools.ToolResult {
 		return tools.ToolResult{Error: err.Error()}
 	}
 
-	return tools.ToolResult{Output: "⚠️ Alert sent to all agents"}
+	// Get self name for display
+	selfName := "me"
+	if profile, ok := t.hub.GetAgent(t.hub.SelfID()); ok {
+		selfName = profile.Name
+	}
+
+	return tools.ToolResult{Output: fmt.Sprintf("⚠️ Alert sent to all agents\n   From: %s\n   Content: %s", selfName, content)}
 }
 
 // HubInfoTool gets detailed info about a specific agent
@@ -656,7 +674,13 @@ func (t *HubRequestTool) Execute(params map[string]string) tools.ToolResult {
 		priorityIcon = "🟠"
 	}
 
-	return tools.ToolResult{Output: fmt.Sprintf("%s Request sent to %s [%s/%s]: %s\nRequest ID: %s\nThe agent can accept or decline this request.", priorityIcon, agentName, action, priority, content, msg.ID)}
+	// Get self name for display
+	selfName := "me"
+	if profile, ok := t.hub.GetAgent(t.hub.SelfID()); ok {
+		selfName = profile.Name
+	}
+
+	return tools.ToolResult{Output: fmt.Sprintf("%s Request sent to %s [%s/%s]\n   From: %s\n   Content: %s\n   Request ID: %s\n   The agent can accept or decline this request.", priorityIcon, agentName, action, priority, selfName, content, msg.ID)}
 }
 
 // HubRespondTool responds to a request from another agent
@@ -727,13 +751,21 @@ func (t *HubRespondTool) Execute(params map[string]string) tools.ToolResult {
 		icon = "❌"
 	}
 
-	// Get agent name for display
-	fromName := msg.To
-	if a, ok := t.hub.GetAgent(msg.To); ok {
-		fromName = a.Name
+	// Get self name for display
+	selfName := "me"
+	if profile, ok := t.hub.GetAgent(t.hub.SelfID()); ok {
+		selfName = profile.Name
 	}
 
-	return tools.ToolResult{Output: fmt.Sprintf("%s Response sent to %s: %s\nResponse ID: %s", icon, fromName, content, msg.ID)}
+	// Get target agent name for display
+	targetName := "agent"
+	if msg.To != "" {
+		if a, ok := t.hub.GetAgent(msg.To); ok {
+			targetName = a.Name
+		}
+	}
+
+	return tools.ToolResult{Output: fmt.Sprintf("%s Response sent to %s\n   From: %s\n   Content: %s\n   Response ID: %s", icon, targetName, selfName, content, msg.ID)}
 }
 
 // HubCheckTool checks for unread messages and pending requests
@@ -776,65 +808,350 @@ func (t *HubCheckTool) Execute(params map[string]string) tools.ToolResult {
 	var sb strings.Builder
 
 	if len(unread) == 0 && len(pending) == 0 {
-		return tools.ToolResult{Output: "📭 No unread messages or pending requests."}
-	}
-
-	if len(pending) > 0 {
-		sb.WriteString(fmt.Sprintf("📋 Pending Requests (%d):\n", len(pending)))
-		sb.WriteString(strings.Repeat("─", 40) + "\n")
-		for _, req := range pending {
-			fromName := req.From
-			if a, ok := agents[req.From]; ok {
-				fromName = a.Name
-			}
-			priorityIcon := "📋"
-			if req.Priority == "urgent" {
-				priorityIcon = "🔴"
-			} else if req.Priority == "high" {
-				priorityIcon = "🟠"
-			}
-			sb.WriteString(fmt.Sprintf("  %s [%s] From: %s\n", priorityIcon, req.Action, fromName))
-			sb.WriteString(fmt.Sprintf("     %s\n", req.Content))
-			sb.WriteString(fmt.Sprintf("     Request ID: %s (use hub_respond to accept/decline)\n", req.ID))
-		}
-		sb.WriteString("\n")
-	}
-
-	if len(unread) > 0 {
-		// Filter out pending requests (already shown above)
-		var otherUnread []*Message
-		for _, m := range unread {
-			if m.Type != "request" {
-				otherUnread = append(otherUnread, m)
-			}
-		}
-		if len(otherUnread) > 0 {
-			sb.WriteString(fmt.Sprintf("📨 Unread Messages (%d):\n", len(otherUnread)))
+		sb.WriteString("📭 No unread messages or pending requests.\n")
+	} else {
+		if len(pending) > 0 {
+			sb.WriteString(fmt.Sprintf("📋 Pending Requests (%d):\n", len(pending)))
 			sb.WriteString(strings.Repeat("─", 40) + "\n")
-			for _, m := range otherUnread {
-				fromName := m.From
-				if a, ok := agents[m.From]; ok {
+			for _, req := range pending {
+				fromName := req.From
+				if a, ok := agents[req.From]; ok {
 					fromName = a.Name
 				}
-				switch m.Type {
-				case "direct":
-					sb.WriteString(fmt.Sprintf("  📨 %s: %s\n", fromName, m.Content))
-				case "broadcast":
-					sb.WriteString(fmt.Sprintf("  📢 %s (broadcast): %s\n", fromName, m.Content))
-				case "alert":
-					sb.WriteString(fmt.Sprintf("  %s\n", m.Content))
-				case "status":
-					sb.WriteString(fmt.Sprintf("  🔹 %s\n", m.Content))
-				case "response":
-					acceptIcon := "✅"
-					if m.Accepted != nil && !*m.Accepted {
-						acceptIcon = "❌"
+				priorityIcon := "📋"
+				if req.Priority == "urgent" {
+					priorityIcon = "🔴"
+				} else if req.Priority == "high" {
+					priorityIcon = "🟠"
+				}
+				sb.WriteString(fmt.Sprintf("  %s [%s] From: %s\n", priorityIcon, req.Action, fromName))
+				sb.WriteString(fmt.Sprintf("     %s\n", req.Content))
+				sb.WriteString(fmt.Sprintf("     Request ID: %s (use hub_respond to accept/decline)\n", req.ID))
+			}
+			sb.WriteString("\n")
+		}
+
+		if len(unread) > 0 {
+			// Filter out pending requests (already shown above)
+			var otherUnread []*Message
+			for _, m := range unread {
+				if m.Type != "request" {
+					otherUnread = append(otherUnread, m)
+				}
+			}
+			if len(otherUnread) > 0 {
+				sb.WriteString(fmt.Sprintf("📨 Unread Messages (%d):\n", len(otherUnread)))
+				sb.WriteString(strings.Repeat("─", 40) + "\n")
+				for _, m := range otherUnread {
+					fromName := m.From
+					if a, ok := agents[m.From]; ok {
+						fromName = a.Name
 					}
-					sb.WriteString(fmt.Sprintf("  %s %s responded: %s\n", acceptIcon, fromName, m.Content))
+					switch m.Type {
+					case "direct":
+						sb.WriteString(fmt.Sprintf("  📨 %s: %s\n", fromName, m.Content))
+					case "broadcast":
+						sb.WriteString(fmt.Sprintf("  📢 %s (broadcast): %s\n", fromName, m.Content))
+					case "alert":
+						sb.WriteString(fmt.Sprintf("  %s\n", m.Content))
+					case "status":
+						sb.WriteString(fmt.Sprintf("  🔹 %s\n", m.Content))
+					case "response":
+						acceptIcon := "✅"
+						if m.Accepted != nil && !*m.Accepted {
+							acceptIcon = "❌"
+						}
+						sb.WriteString(fmt.Sprintf("  %s %s responded: %s\n", acceptIcon, fromName, m.Content))
+					}
 				}
 			}
 		}
+	}
+
+	// Show status of recent messages involving this agent (including outgoing),
+	// so the model can see whether its messages were read / replied to.
+	selfID := t.hub.SelfID()
+	recent := t.hub.GetHistory(selfID, 8)
+	if len(recent) > 0 {
+		sb.WriteString("\n📊 Recent Message Statuses:\n")
+		sb.WriteString(strings.Repeat("─", 40) + "\n")
+		for _, m := range recent {
+			// Skip deleted
+			if m.Status == MsgStatusDeleted {
+				continue
+			}
+			fromName := m.From
+			if a, ok := agents[m.From]; ok {
+				fromName = a.Name
+			}
+			toName := m.To
+			if a, ok := agents[m.To]; ok {
+				toName = a.Name
+			}
+			// Direction
+			dir := "←"
+			if m.From == selfID {
+				dir = "→"
+			}
+			// Status icon
+			si := statusIcon(m.Status)
+			if m.Status == "" {
+				si = "📤"
+			}
+			// Type icon
+			typeIcon := "💬"
+			switch m.Type {
+			case "direct":
+				typeIcon = "📨"
+			case "broadcast":
+				typeIcon = "📢"
+			case "alert":
+				typeIcon = "🚨"
+			case "request":
+				typeIcon = "📋"
+			case "response":
+				typeIcon = "↩️"
+			}
+			// Short content
+			content := m.Content
+			if len(content) > 60 {
+				content = content[:57] + "..."
+			}
+			content = strings.ReplaceAll(content, "\n", " ")
+			// Short ID
+			shortID := m.ID
+			if len(m.ID) > 6 {
+				shortID = m.ID[len(m.ID)-6:]
+			}
+			sb.WriteString(fmt.Sprintf("  %s %s %s→%s %s [%s]: %s\n", typeIcon, dir, fromName, toName, si, shortID, content))
+		}
+		sb.WriteString("\nUse hub_msg_status <message_id> <status> to update a message status (read/acked/replied/ignored).")
 	}
 
 	return tools.ToolResult{Output: sb.String()}
 }
+
+// HubMsgStatusTool changes the status of a message (read, acked, replied, ignored)
+type HubMsgStatusTool struct {
+	hub *Hub
+}
+
+func NewHubMsgStatusTool(hub *Hub) *HubMsgStatusTool {
+	return &HubMsgStatusTool{hub: hub}
+}
+
+func (t *HubMsgStatusTool) Name() string { return "hub_msg_status" }
+
+func (t *HubMsgStatusTool) Description() string {
+	return `hub_msg_status — change the status of a message. Parameters: message_id (required) — ID of the message, status (required) — new status: "read" (I read it), "acked" (I took note), "replied" (I replied to it), "ignored" (I'm ignoring this). Use this to track message lifecycle and avoid re-reading old messages. Statuses: sent → delivered → read → acked/replied/ignored.`
+}
+
+func (t *HubMsgStatusTool) Parameters() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"message_id": map[string]any{
+				"type":        "string",
+				"description": "ID of the message to update (from hub_check or hub_history)",
+			},
+			"status": map[string]any{
+				"type":        "string",
+				"description": `New status: "read" (I read it), "acked" (I took note), "replied" (I replied), "ignored" (I'm ignoring this)`,
+			},
+			"note": map[string]any{
+				"type":        "string",
+				"description": "Optional note about the status change",
+			},
+		},
+		"required": []string{"message_id", "status"},
+	}
+}
+
+func (t *HubMsgStatusTool) Execute(params map[string]string) tools.ToolResult {
+	messageID := params["message_id"]
+	status := params["status"]
+	note := params["note"]
+
+	if messageID == "" {
+		return tools.ToolResult{Error: "message_id is required"}
+	}
+	if status == "" {
+		return tools.ToolResult{Error: "status is required"}
+	}
+
+	// Validate status
+	validStatuses := map[string]bool{
+		"read": true, "acked": true, "replied": true, "ignored": true, "deleted": true,
+	}
+	if !validStatuses[status] {
+		return tools.ToolResult{Error: fmt.Sprintf("invalid status '%s'. Valid: read, acked, replied, ignored, deleted", status)}
+	}
+
+	if err := t.hub.UpdateMessageStatus(messageID, MessageStatus(status), note); err != nil {
+		return tools.ToolResult{Error: err.Error()}
+	}
+
+	statusIcons := map[string]string{
+		"read":    "📖",
+		"acked":   "✅",
+		"replied": "💬",
+		"ignored": "🚫",
+		"deleted": "🗑️",
+	}
+	icon := statusIcons[status]
+
+	result := fmt.Sprintf("%s Message %s status changed to: %s", icon, messageID, status)
+	if note != "" {
+		result += fmt.Sprintf("\n   Note: %s", note)
+	}
+	return tools.ToolResult{Output: result}
+}
+
+// HubMsgCommentTool adds a comment to a message
+type HubMsgCommentTool struct {
+	hub *Hub
+}
+
+func NewHubMsgCommentTool(hub *Hub) *HubMsgCommentTool {
+	return &HubMsgCommentTool{hub: hub}
+}
+
+func (t *HubMsgCommentTool) Name() string { return "hub_msg_comment" }
+
+func (t *HubMsgCommentTool) Description() string {
+	return `hub_msg_comment — add a comment to a message. Parameters: message_id (required) — ID of the message, content (required) — comment text. Use this to add context, notes, or follow-up information to messages. Both sender and recipient can comment.`
+}
+
+func (t *HubMsgCommentTool) Parameters() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"message_id": map[string]any{
+				"type":        "string",
+				"description": "ID of the message to comment on (from hub_check or hub_history)",
+			},
+			"content": map[string]any{
+				"type":        "string",
+				"description": "Comment text to add",
+			},
+		},
+		"required": []string{"message_id", "content"},
+	}
+}
+
+func (t *HubMsgCommentTool) Execute(params map[string]string) tools.ToolResult {
+	messageID := params["message_id"]
+	content := params["content"]
+
+	if messageID == "" {
+		return tools.ToolResult{Error: "message_id is required"}
+	}
+	if content == "" {
+		return tools.ToolResult{Error: "content is required"}
+	}
+
+	if err := t.hub.AddComment(messageID, content); err != nil {
+		return tools.ToolResult{Error: err.Error()}
+	}
+
+	// Get self name for display
+	selfName := "me"
+	if profile, ok := t.hub.GetAgent(t.hub.SelfID()); ok {
+		selfName = profile.Name
+	}
+
+	return tools.ToolResult{Output: fmt.Sprintf("💬 Comment added by %s to message %s\n   Content: %s", selfName, messageID, content)}
+}
+
+// HubMsgEditTool edits the content of a message (only sender can edit)
+type HubMsgEditTool struct {
+	hub *Hub
+}
+
+func NewHubMsgEditTool(hub *Hub) *HubMsgEditTool {
+	return &HubMsgEditTool{hub: hub}
+}
+
+func (t *HubMsgEditTool) Name() string { return "hub_msg_edit" }
+
+func (t *HubMsgEditTool) Description() string {
+	return `hub_msg_edit — edit the content of a message you sent. Parameters: message_id (required) — ID of the message, content (required) — new content. Only the sender can edit. Original content is preserved in message history. Use this to fix typos, add details, or clarify your message.`
+}
+
+func (t *HubMsgEditTool) Parameters() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"message_id": map[string]any{
+				"type":        "string",
+				"description": "ID of the message to edit (only messages you sent)",
+			},
+			"content": map[string]any{
+				"type":        "string",
+				"description": "New content for the message",
+			},
+		},
+		"required": []string{"message_id", "content"},
+	}
+}
+
+func (t *HubMsgEditTool) Execute(params map[string]string) tools.ToolResult {
+	messageID := params["message_id"]
+	content := params["content"]
+
+	if messageID == "" {
+		return tools.ToolResult{Error: "message_id is required"}
+	}
+	if content == "" {
+		return tools.ToolResult{Error: "content is required"}
+	}
+
+	if err := t.hub.EditMessage(messageID, content); err != nil {
+		return tools.ToolResult{Error: err.Error()}
+	}
+
+	return tools.ToolResult{Output: fmt.Sprintf("✏️ Message %s edited. Original content preserved in history.", messageID)}
+}
+
+// HubMsgDeleteTool soft-deletes a message (marks as deleted)
+type HubMsgDeleteTool struct {
+	hub *Hub
+}
+
+func NewHubMsgDeleteTool(hub *Hub) *HubMsgDeleteTool {
+	return &HubMsgDeleteTool{hub: hub}
+}
+
+func (t *HubMsgDeleteTool) Name() string { return "hub_msg_delete" }
+
+func (t *HubMsgDeleteTool) Description() string {
+	return `hub_msg_delete — delete a message (soft delete, marks as deleted). Parameters: message_id (required) — ID of the message to delete. Both sender and recipient can delete. Deleted messages are marked but preserved in history.`
+}
+
+func (t *HubMsgDeleteTool) Parameters() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"message_id": map[string]any{
+				"type":        "string",
+				"description": "ID of the message to delete",
+			},
+		},
+		"required": []string{"message_id"},
+	}
+}
+
+func (t *HubMsgDeleteTool) Execute(params map[string]string) tools.ToolResult {
+	messageID := params["message_id"]
+
+	if messageID == "" {
+		return tools.ToolResult{Error: "message_id is required"}
+	}
+
+	if err := t.hub.DeleteMessage(messageID); err != nil {
+		return tools.ToolResult{Error: err.Error()}
+	}
+
+	return tools.ToolResult{Output: fmt.Sprintf("🗑️ Message %s deleted.", messageID)}
+}
+

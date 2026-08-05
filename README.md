@@ -98,6 +98,10 @@ bugbuster "Fix the bug"     # one-shot
 | `hub_check` | 🔔 Check pending requests |
 | `hub_tasks` | 📋 View agent's task list |
 | `hub_status` | 🔄 Update own status & task |
+| `hub_msg_status` | 📖 Change message status (read/acked/replied/ignored) |
+| `hub_msg_comment` | 💬 Add comment to a message |
+| `hub_msg_edit` | ✏️ Edit a message you sent |
+| `hub_msg_delete` | 🗑️ Soft-delete a message |
 
 ## ✨ Highlights
 
@@ -106,7 +110,7 @@ bugbuster "Fix the bug"     # one-shot
 - 🧠 **Self-Awareness** — `self_info` tool lets the model know its provider, context usage, and environment
 - 🔐 **Granular Permissions** — per-tool permission overrides (`bash: ask`, `web_fetch: deny`, etc.)
 - 🔄 **Fallback Providers** — automatic switch to backup provider when primary fails
-- 🏠 **Agent Hub** — coordinate multiple agents in a shared workspace: message, broadcast, request help, share tasks. Enabled by default. Per-provider roles (coder, reviewer, tester).
+- 🏠 **Agent Hub** — coordinate multiple agents in a shared workspace: message, broadcast, request help, share tasks. Per-provider roles (coder, reviewer, tester).
 - 🖥️ **Screenshots & Vision** — capture desktop, window, or region; send images to vision models
 - 🎤🔊 **Voice** — speech-to-text (Whisper) and text-to-speech (OpenAI TTS or system)
 - 🌍 **8 Languages** — English, Russian, Spanish, French, German, Japanese, Chinese, Portuguese
@@ -184,7 +188,7 @@ Run multiple BugBuster Code agents in separate terminals — they discover each 
 
 ```yaml
 hub:
-  enabled: true                    # Enabled by default
+  enabled: false                   # Disabled by default
   name: "bugbuster-coder"          # Agent display name
   role: "coder"                    # Role: coder, reviewer, tester, architect
   intelligence: "expert"           # low, medium, high, expert, superior (or 1-5)
@@ -221,6 +225,10 @@ providers:
 | `hub_check` | Check pending requests |
 | `hub_tasks` | View another agent's task list |
 | `hub_status` | Update own status and current task |
+| `hub_msg_status` | Change message status (read, acked, replied, ignored) |
+| `hub_msg_comment` | Add a comment to a message |
+| `hub_msg_edit` | Edit a message you sent |
+| `hub_msg_delete` | Soft-delete a message |
 
 **Example workflow:** Open 3 terminals, each running BugBuster with a different role. The coder writes code, the reviewer reviews it, the tester runs tests — all coordinated through the hub.
 

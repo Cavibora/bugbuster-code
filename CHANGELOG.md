@@ -5,6 +5,21 @@ All notable changes to BugBuster Code will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.7] - 2026-08-05
+
+### Added
+- **Config validation on load** — BugBuster now validates the config file at startup and prints errors/warnings in prominent red/yellow text. YAML parse errors show the exact line number (e.g. `yaml: line 2: did not find expected key`), so you can locate the problem immediately.
+- **Hub message status visibility** — `hub_check` now shows a "Recent Message Statuses" section so the model can see whether its outgoing messages were read / replied to / ignored.
+- **Hub message size limit** — new `hub.max_context_tokens` config option caps how many tokens of hub messages are injected per drain. Default (0) = 10% of context window, capped at 4096. Prevents small local models from having their context flooded by hub traffic.
+
+### Changed
+- **Agent Hub disabled by default** — `hub.enabled` now defaults to `false` (was `true`). Enable explicitly with `hub.enabled: true`.
+- **Long bash/write/edit commands wrap to multiple lines** — in both TUI progress bar and CLI tool-call output, very long commands are now wrapped instead of being truncated or overflowing the terminal.
+
+### Fixed
+- **Session selection: typing a task instead of a number** — when choosing a session, if you type a task (not a session number), a new session is created and your text becomes the first request (previously the text was lost).
+- **Command history after reopening a session** — readline is now recreated with the correct session history file after session selection, so `↑` history works when reopening a session.
+
 ## [1.2.6] - 2026-07-23
 
 ### Added

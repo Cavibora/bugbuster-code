@@ -50,6 +50,12 @@ type StreamEvent struct {
 	ToolOK         bool          // tool success/error
 	ToolProgress   float64       // tool execution progress (0.0-1.0)
 	ToolMessage    string        // message about tool progress
+	// Compaction fields
+	TokensBefore int // tokens before compaction
+	TokensAfter  int // tokens after compaction
+	MessagesBefore int // messages before compaction
+	MessagesAfter  int // messages after compaction
+	CompactionType string // "auto" or "force"
 }
 
 // Provider — interface LLM-provider
