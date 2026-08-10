@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,6 +18,7 @@ import (
 	"bugbuster-code/pkg/provider"
 	"bugbuster-code/pkg/tools"
 
+	"github.com/chzyer/readline"
 	"github.com/fatih/color"
 
 	"encoding/json"
@@ -148,6 +150,12 @@ type streamEventMsg struct {
 
 // streamDoneMsg — streaming completion signal
 type streamDoneMsg struct{}
+
+// streamStartMsg — starts a stream with the given input (used for the
+// first request when the user typed a task during session selection).
+type streamStartMsg struct {
+	input string
+}
 
 // autoContinueMsg — autopilot command for automatic continuation
 type autoContinueMsg struct {
@@ -338,6 +346,42 @@ func (m TUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case autoContinueMsg:
 		// Autopilot: start next request automatically
 		if m.autoMode && !m.streaming {
+			m.textarea.Reset()
+			m.updateTextareaHeight()
+			m.historyIdx = 0
+			m.historySave = ""
+
+			// Reset statistics
+			m.totalInTokens = 0
+			m.totalOutTokens = 0
+			m.totalDuration = 0
+			m.thinkingStarted = false
+			m.thinkingSummary = ""
+
+			m.streaming = true
+
+			// Create AskChannel for ask_user
+			askCh := &tools.AskChannel{
+				Question: make(chan string, 1),
+				Answer:   make(chan string, 1),
+			}
+			if m.askUserTool != nil {
+				m.askUserTool.SetAskChannel(askCh)
+			}
+			m.askUserChannel = askCh
+
+			ctx, cancel := context.WithCancel(context.Background())
+			m.ctx = ctx
+			m.cancel = cancel
+
+			go m.runStream(msg.input, ctx, m.program)
+			return m, m.spinnerCmd()
+		}
+
+	case streamStartMsg:
+		// Start a stream with the given input (first request from session
+		// selection where the user typed a task).
+		if !m.streaming {
 			m.textarea.Reset()
 			m.updateTextareaHeight()
 			m.historyIdx = 0
@@ -1570,6 +1614,7 @@ func runTUI(cfg *config.BugBusterConfig, loop *agent.AgentLoop, ct *ChangeTracke
 	sessionMgr := agent.NewSessionManager(sessionsDir)
 
 	var currentSession *agent.Session
+	pendingInput := ""
 	if sessionID != "" {
 		resolvedID, err := sessionMgr.ResolveSessionID(sessionID)
 		if err != nil {
@@ -1586,7 +1631,14 @@ func runTUI(cfg *config.BugBusterConfig, loop *agent.AgentLoop, ct *ChangeTracke
 			}
 		}
 	} else {
-		currentSession = sessionMgr.NewSession()
+		// Offer session selection via readline (same logic as CLI).
+		// - "0" → new session, no prompt
+		// - number → restore that session
+		// - free text → new session with the text as the first request
+		currentSession, pendingInput = selectSessionTUI(sessionMgr)
+		if currentSession.Messages != nil {
+			loop.Context.Messages = currentSession.Messages // safe: not streaming yet
+		}
 	}
 
 	m.session = currentSession
@@ -1645,6 +1697,20 @@ func runTUI(cfg *config.BugBusterConfig, loop *agent.AgentLoop, ct *ChangeTracke
 	}
 	m.program = p
 
+	// If the user typed a task instead of a session number during session
+	// selection, run it as the first request once the TUI starts.
+	if pendingInput != "" {
+		firstInput := pendingInput
+		pendingInput = ""
+		go func() {
+			// Wait for the TUI to be ready, then inject the first request.
+			time.Sleep(300 * time.Millisecond)
+			if p != nil {
+				p.Send(streamStartMsg{input: firstInput})
+			}
+		}()
+	}
+
 	// Start SIGUSR1 handler for hub message injection
 	// When another agent sends a hub message, it sends SIGUSR1 to this process.
 	// We listen for it and inject the messages into the TUI.
@@ -1697,6 +1763,90 @@ func runTUI(cfg *config.BugBusterConfig, loop *agent.AgentLoop, ct *ChangeTracke
 	}
 
 	return false
+}
+
+// selectSessionTUI offers session selection via readline before TUI starts.
+// Returns the session and, if the user typed a task instead of a session
+// number, the pending first-request text ("" if none).
+// - "0" → new session, no prompt
+// - number → restore that session
+// - free text → new session with the text as the first request
+func selectSessionTUI(sessionMgr *agent.SessionManager) (*agent.Session, string) {
+	sessions, err := sessionMgr.ListSessions()
+	if err != nil || len(sessions) == 0 {
+		return sessionMgr.NewSession(), ""
+	}
+
+	sort.Slice(sessions, func(i, j int) bool {
+		return sessions[i].UpdatedAt.After(sessions[j].UpdatedAt)
+	})
+
+	// Create a temporary readline for session selection.
+	rl, rlErr := readline.NewEx(&readline.Config{
+		Prompt:          color.HiGreenString("❯ "),
+		HistoryLimit:    100,
+		InterruptPrompt: "^C",
+		EOFPrompt:       "exit",
+	})
+	if rlErr != nil {
+		// Fallback — new session
+		return sessionMgr.NewSession(), ""
+	}
+	defer rl.Close()
+
+	if len(sessions) == 1 {
+		s := sessions[0]
+		displayName := s.ID
+		if s.Name != "" {
+			displayName = s.Name + " (" + s.ID + ")"
+		}
+		fmt.Fprint(cmdOutput, color.HiCyanString("%s", i18n.T("cli_session.restore_prompt", displayName, s.UpdatedAt.Format("2006-01-02 15:04"), len(s.Messages)))+" ")
+		answer, _ := rl.Readline()
+		answer = strings.TrimSpace(strings.ToLower(answer))
+		if answer == "" || isYesAnswer(answer) {
+			return s, ""
+		}
+		// "0" (or any number) → new session, no prompt
+		if _, err := strconv.Atoi(answer); err == nil {
+			color.Yellow("%s", i18n.T("cli_session.new_session"))
+			return sessionMgr.NewSession(), ""
+		}
+		// Any other text → new session with the text as the first request.
+		color.Yellow("%s", i18n.T("cli_session.new_session"))
+		return sessionMgr.NewSession(), answer
+	}
+
+	color.Cyan("%s", i18n.T("cli_session.restore_list", len(sessions)))
+	fmt.Fprintln(cmdOutput, i18n.T("cli_session.restore_new"))
+	maxShow := 5
+	if len(sessions) < maxShow {
+		maxShow = len(sessions)
+	}
+	for i, s := range sessions[:maxShow] {
+		displayName := s.ID
+		if s.Name != "" {
+			displayName = s.Name + " (" + s.ID + ")"
+		}
+		fmt.Fprintln(cmdOutput, i18n.T("cli_session.restore_entry", i+1, displayName, s.UpdatedAt.Format("2006-01-02 15:04"), len(s.Messages)))
+	}
+
+	fmt.Fprint(cmdOutput, i18n.T("cli_session.restore_choice"))
+	answer, _ := rl.Readline()
+	answer = strings.TrimSpace(answer)
+
+	// Determine if the input is a number (session selection) or free text (new task).
+	if choice, err := strconv.Atoi(answer); err == nil {
+		if choice >= 1 && choice <= maxShow {
+			return sessions[choice-1], ""
+		}
+		// choice == 0 (or out of range) → new session, no prompt
+		color.Yellow("%s", i18n.T("cli_session.new_session"))
+		return sessionMgr.NewSession(), ""
+	}
+
+	// Non-numeric input → treat as a task for a new session.
+	color.Yellow("%s", i18n.T("cli_session.new_session"))
+	return sessionMgr.NewSession(), answer
 }
 
 // handleDreamCommandTUI handles /dream command in TUI mode

@@ -661,8 +661,12 @@ func restoreOrCreateSession(sessionMgr *agent.SessionManager, rl *readline.Insta
 		if answer == "" || isYesAnswer(answer) {
 			return s, ""
 		}
-		// User typed something that is not a "yes" — treat it as a task
-		// to start a new session with (the text becomes the first request).
+		// "0" (or any number) → new session, no prompt
+		if _, err := strconv.Atoi(answer); err == nil {
+			color.Yellow("%s", i18n.T("cli_session.new_session"))
+			return sessionMgr.NewSession(), ""
+		}
+		// Any other text → new session with the text as the first request.
 		color.Yellow("%s", i18n.T("cli_session.new_session"))
 		return sessionMgr.NewSession(), answer
 	}
@@ -684,15 +688,21 @@ func restoreOrCreateSession(sessionMgr *agent.SessionManager, rl *readline.Insta
 	fmt.Fprint(cmdOutput, i18n.T("cli_session.restore_choice"))
 	answer, _ := rl.Readline()
 	answer = strings.TrimSpace(answer)
-	choice := 0
-	fmt.Sscanf(answer, "%d", &choice)
 
-	if choice >= 1 && choice <= maxShow {
-		return sessions[choice-1], ""
+	// Determine if the input is a number (session selection) or free text (new task).
+	// - "0" → new session, no prompt
+	// - 1..maxShow → restore that session
+	// - any non-numeric text → new session with the text as the first request
+	if choice, err := strconv.Atoi(answer); err == nil {
+		if choice >= 1 && choice <= maxShow {
+			return sessions[choice-1], ""
+		}
+		// choice == 0 (or out of range) → new session, no prompt
+		color.Yellow("%s", i18n.T("cli_session.new_session"))
+		return sessionMgr.NewSession(), ""
 	}
 
-	// User did not enter a valid session number — treat the input as a task
-	// to start a new session with (the text becomes the first request).
+	// Non-numeric input → treat as a task for a new session.
 	color.Yellow("%s", i18n.T("cli_session.new_session"))
 	return sessionMgr.NewSession(), answer
 }
