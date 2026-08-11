@@ -504,6 +504,11 @@ func (st *SplitTerminal) runStreamingQuery(input string, currentCancel *context.
 		st.rl.Close()
 		st.rl = nil
 	}
+	// Restore terminal to cooked mode. Readline leaves the terminal in raw
+	// mode, where \r does not return the cursor to the start of the line.
+	// The spinner relies on \r\033[2K to overwrite the current line; in raw
+	// mode each tick would print a new line instead (tool duplication bug).
+	restoreTerminalToNormal()
 
 	rlClose := func() {
 		// Readline already closed above — nothing to do
