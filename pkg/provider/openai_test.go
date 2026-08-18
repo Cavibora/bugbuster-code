@@ -191,6 +191,44 @@ func TestOpenAIBuildRequest_WithTools(t *testing.T) {
 	}
 }
 
+// TestOpenAIBuildRequest_SystemFirst verifies that all system messages are
+// reordered to the beginning of the request. llama.cpp requires the system
+// message to be first; BugBuster may inject system messages mid-conversation
+// (performance mirror, memory facts, compaction notices).
+func TestOpenAIBuildRequest_SystemFirst(t *testing.T) {
+	p := newOpenAIProvider(t)
+	msgs := []Message{
+		UserMsg("hello"),
+		SystemMsg("performance mirror"),
+		UserMsg("continue"),
+		SystemMsg("memory facts"),
+		{Role: "assistant", Text: "working..."},
+	}
+	req := p.buildRequest(msgs, nil, false)
+	msgsArr, ok := req["messages"].([]map[string]any)
+	if !ok {
+		t.Fatalf("messages = %T, want []map[string]any", req["messages"])
+	}
+	if len(msgsArr) != 5 {
+		t.Fatalf("messages len = %d, want 5", len(msgsArr))
+	}
+	// First two must be system
+	if msgsArr[0]["role"] != "system" {
+		t.Errorf("messages[0].role = %v, want 'system'", msgsArr[0]["role"])
+	}
+	if msgsArr[1]["role"] != "system" {
+		t.Errorf("messages[1].role = %v, want 'system'", msgsArr[1]["role"])
+	}
+	// Remaining preserve original order: user, user, assistant
+	expected := []string{"user", "user", "assistant"}
+	for i, want := range expected {
+		got := msgsArr[i+2]["role"]
+		if got != want {
+			t.Errorf("messages[%d].role = %v, want %q", i+2, got, want)
+		}
+	}
+}
+
 // --- OpenAI setHeaders ---
 
 func TestOpenAISetHeaders(t *testing.T) {

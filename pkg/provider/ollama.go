@@ -168,13 +168,24 @@ func (p *OllamaProvider) streamNative(messages []Message, tools []ToolDef) (<-ch
 }
 
 func (p *OllamaProvider) buildNativeRequest(messages []Message, tools []ToolDef, stream bool) map[string]any {
-	var ollamaMsgs []map[string]any
+	// Reorder messages: all system messages first, then the rest in original order.
+	// llama.cpp (and some OpenAI-compatible servers) require that the system
+	// message be the FIRST message. BugBuster may inject system messages
+	// mid-conversation (performance mirror, memory facts, compaction notices).
+	var systemMsgs []map[string]any
+	var otherMsgs []map[string]any
 	for _, msg := range messages {
-		ollamaMsgs = append(ollamaMsgs, map[string]any{
+		entry := map[string]any{
 			"role":    msg.Role,
 			"content": msg.GetText(),
-		})
+		}
+		if msg.Role == "system" {
+			systemMsgs = append(systemMsgs, entry)
+		} else {
+			otherMsgs = append(otherMsgs, entry)
+		}
 	}
+	ollamaMsgs := append(systemMsgs, otherMsgs...)
 
 	numPredict := p.maxTokens
 	if numPredict <= 0 {

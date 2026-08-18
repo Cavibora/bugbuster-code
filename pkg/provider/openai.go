@@ -339,12 +339,22 @@ func (p *OpenAIProvider) setHeaders(req *http.Request) {
 }
 
 func (p *OpenAIProvider) buildRequest(messages []Message, tools []ToolDef, stream bool) map[string]any {
-	// Convert messages to OpenAI format
-	var openaiMsgs []map[string]any
+	// Convert messages to OpenAI format.
+	// llama.cpp (and some OpenAI-compatible servers) require that the system
+	// message be the FIRST message. BugBuster may inject system messages
+	// mid-conversation (performance mirror, memory facts, compaction notices),
+	// so we reorder: all system messages first, then the rest in original order.
+	var systemMsgs []map[string]any
+	var otherMsgs []map[string]any
 	for _, msg := range messages {
 		om := p.convertMessage(msg)
-		openaiMsgs = append(openaiMsgs, om...)
+		if msg.Role == "system" {
+			systemMsgs = append(systemMsgs, om...)
+		} else {
+			otherMsgs = append(otherMsgs, om...)
+		}
 	}
+	openaiMsgs := append(systemMsgs, otherMsgs...)
 
 	req := map[string]any{
 		"model":    p.model,
