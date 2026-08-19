@@ -52,6 +52,16 @@ type Spinner struct {
 	genEnd       time.Time // when last output token was received
 	totalGenDur  time.Duration // accumulated generation time
 
+	// lastLines — number of terminal lines the previous frame occupied.
+	// Used to clear the whole wrapped block (not just the current line)
+	// so long messages don't multiply on each tick.
+	lastLines int
+
+	// noTruncate — when true, the message is not truncated to fit the width.
+	// Used for bash/write/edit commands where the user must see the full
+	// command for security. The message is wrapped instead of truncated.
+	noTruncate bool
+
 	// Buffered output: accumulated while spinner is active.
 	// Printed atomically when spinner stops.
 	pendingLines []string
@@ -65,6 +75,29 @@ func terminalWidth() int {
 		return w
 	}
 	return 80
+}
+
+// stripANSIForWidth removes ANSI escape sequences from a string.
+// Used to compute the visible width of a colored string for line wrapping.
+// Named differently from stripANSI (in session_history_test.go) to avoid
+// redeclaration in tests.
+func stripANSIForWidth(s string) string {
+	var sb strings.Builder
+	inEscape := false
+	for _, r := range s {
+		if inEscape {
+			if r == 'm' {
+				inEscape = false
+			}
+			continue
+		}
+		if r == '\x1b' {
+			inEscape = true
+			continue
+		}
+		sb.WriteRune(r)
+	}
+	return sb.String()
 }
 
 func truncateMessage(msg string, maxWidth int) string {
@@ -121,10 +154,19 @@ func (s *Spinner) Start() {
 				elapsed := time.Since(s.startTime)
 				tokensIn := s.tokensIn
 				tokensOut := s.tokensOut
+				noTruncate := s.noTruncate
 				s.mu.Unlock()
 
 				width := terminalWidth()
-				msg = truncateMessage(msg, width)
+				if !noTruncate {
+					msg = truncateMessage(msg, width)
+				} else {
+					// For bash/write/edit — wrap long commands to multiple lines
+					// so the full command stays visible (no truncation).
+					if utf8.RuneCountInString(msg) > width-10 {
+						msg = wrapText(msg, 2, width-4)
+					}
+				}
 
 				parts := []string{msg}
 				parts = append(parts, FormatDuration(elapsed))
@@ -164,9 +206,39 @@ func (s *Spinner) Start() {
 				}
 				display := strings.Join(parts, appTheme.Dim.ANSICode()+" · "+ansiReset)
 
-				// Clear current line and write spinner frame
-				fmt.Fprintf(cmdOutput, "\r\033[2K  %s%s%s %s", appTheme.Primary.ANSICode(), string(s.frames[i%len(s.frames)]), ansiReset, display)
+				// Clear previous frame (may span multiple terminal lines if the
+				// message wrapped). Move cursor up by lastLines, then clear.
+				s.mu.Lock()
+				prevLines := s.lastLines
+				s.mu.Unlock()
+				if prevLines > 1 {
+					fmt.Fprintf(cmdOutput, "\033[%dA", prevLines-1)
+				}
+				fmt.Fprintf(cmdOutput, "\r\033[2K")
+				if prevLines > 1 {
+					// Clear the remaining lines of the previous block
+					for i := 1; i < prevLines; i++ {
+						fmt.Fprintf(cmdOutput, "\033[B\033[2K")
+					}
+					// Move back to the top of the block
+					fmt.Fprintf(cmdOutput, "\033[%dA", prevLines-1)
+				}
+
+				// Write new frame
+				fmt.Fprintf(cmdOutput, "\r  %s%s%s %s", appTheme.Primary.ANSICode(), string(s.frames[i%len(s.frames)]), ansiReset, display)
 				os.Stdout.Sync()
+
+				// Compute how many terminal lines this frame occupies (for next clear)
+				lineCount := 1
+				if len(display) > 0 {
+					// Account for ANSI codes: strip them for accurate width calc
+					plain := stripANSIForWidth(display)
+					lineCount = (len(plain) / width) + 1
+				}
+				s.mu.Lock()
+				s.lastLines = lineCount
+				s.mu.Unlock()
+
 				i++
 				time.Sleep(100 * time.Millisecond)
 			}
@@ -182,13 +254,24 @@ func (s *Spinner) Stop() {
 		return
 	}
 	s.active = false
+	prevLines := s.lastLines
 	s.mu.Unlock()
 
 	close(s.stopCh)
 	<-s.doneCh // wait for goroutine to finish
 
-	// Clear spinner line
-	fmt.Fprintf(cmdOutput, "\r\033[2K\033[?25h")
+	// Clear the whole spinner block (may span multiple terminal lines).
+	if prevLines > 1 {
+		fmt.Fprintf(cmdOutput, "\033[%dA", prevLines-1)
+	}
+	fmt.Fprintf(cmdOutput, "\r\033[2K")
+	if prevLines > 1 {
+		for i := 1; i < prevLines; i++ {
+			fmt.Fprintf(cmdOutput, "\033[B\033[2K")
+		}
+		fmt.Fprintf(cmdOutput, "\033[%dA", prevLines-1)
+	}
+	fmt.Fprintf(cmdOutput, "\033[?25h")
 
 	// Flush buffered output
 	s.outputMu.Lock()
@@ -216,6 +299,16 @@ func (s *Spinner) Printf(format string, args ...any) {
 func (s *Spinner) UpdateMessage(msg string) {
 	s.mu.Lock()
 	s.message = msg
+	s.mu.Unlock()
+}
+
+// SetNoTruncate enables/disables truncation of the message.
+// When enabled, long messages are wrapped to multiple lines instead of
+// being truncated. Used for bash/write/edit commands where the user must
+// see the full command for security.
+func (s *Spinner) SetNoTruncate(noTruncate bool) {
+	s.mu.Lock()
+	s.noTruncate = noTruncate
 	s.mu.Unlock()
 }
 
@@ -1198,9 +1291,17 @@ func formatToolSummary(toolName string, params map[string]string) string {
 		if v, ok := params[key]; ok {
 			display := v
 			if noTruncate {
-				// Показываем полную команду/путь/код без обрезки
+				// Показываем полную команду/путь/код без обрезки.
+				// Многострочные — заменяем \n на ⏎ для однострочного отображения.
+				// Длинные однострочные — переносим по строкам, чтобы не обрезались
+				// и не создавали лишних строк при каждом тике спиннера.
 				display = strings.ReplaceAll(display, "\n", " ⏎ ")
 				display = strings.ReplaceAll(display, "\r", "")
+				// Wrap very long commands to multiple lines so the full command
+				// stays visible (no truncation, no single-line overflow).
+				if utf8.RuneCountInString(display) > 120 {
+					display = wrapText(display, 4, terminalWidth())
+				}
 			} else if key == "task" {
 				// Tasks can be very long — truncate aggressively
 				if idx := strings.Index(v, "\n"); idx >= 0 {

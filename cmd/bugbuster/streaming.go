@@ -433,6 +433,10 @@ streamLoop:
 				spinner = NewSpinner(fmt.Sprintf("⏺ %s", event.ToolName))
 				oldSpinner.CopyStatsTo(spinner)
 				spinner.UpdateProvider(providerDisplayName(providerName, provCfg), provCfg.Model)
+				// bash/write/edit — show full command without truncation (wrapped)
+				if event.ToolName == "bash" || event.ToolName == "write" || event.ToolName == "edit" || event.ToolName == "delegate_task" {
+					spinner.SetNoTruncate(true)
+				}
 				spinner.Start()
 
 			case provider.EventToolCallDelta:
