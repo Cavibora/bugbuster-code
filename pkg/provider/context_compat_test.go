@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// mockProvider — простой mock для тестирования context_compat
+// mockProvider — simple mock for testing context_compat
 type mockProvider struct {
 	completeResult *CompletionResult
 	completeErr    error

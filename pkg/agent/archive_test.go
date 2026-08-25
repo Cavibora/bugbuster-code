@@ -92,7 +92,7 @@ func TestArchiveStore_ArchiveMessages(t *testing.T) {
 		t.Errorf("SourcePhase mismatch: got %q, want %q", block.SourcePhase, "compaction")
 	}
 
-	// Проверяем, что индекс обновлён для сессии
+	// Verify that the index is updated for the session
 	idx, err := store.LoadIndexForSession("sess_test")
 	if err != nil {
 		t.Fatalf("LoadIndexForSession failed: %v", err)
@@ -124,7 +124,7 @@ func TestArchiveStore_PruneBlocks(t *testing.T) {
 	store := NewArchiveStore(dir, 3) // лимит 3 блока
 	_ = store.Init()
 
-	// Создаём 5 блоков
+	// Create 5 blocks
 	for i := 0; i < 5; i++ {
 		msgs := []provider.Message{provider.UserMsg("message " + string(rune('A'+i)))}
 		_, err := store.ArchiveMessages(msgs, "sess_test")
@@ -133,7 +133,7 @@ func TestArchiveStore_PruneBlocks(t *testing.T) {
 		}
 	}
 
-	// После PruneBlocks должно остаться 3 блока
+	// After PruneBlocks, 3 blocks should remain
 	idx, _ := store.LoadIndex()
 	if len(idx.Entries) > 3 {
 		t.Errorf("Expected at most 3 entries after pruning, got %d", len(idx.Entries))
@@ -178,7 +178,7 @@ func TestExtractTopics(t *testing.T) {
 
 	topics := extractTopics(msgs)
 
-	// Должен извлечь имя файла из tool_use
+	// Should extract the file name from tool_use
 	found := false
 	for _, t := range topics {
 		if t == "handler.go" {
@@ -190,8 +190,8 @@ func TestExtractTopics(t *testing.T) {
 		t.Errorf("Expected 'handler.go' in topics, got %v", topics)
 	}
 
-	// Должен извлечь ключевые слова из user-сообщения
-	// (слова длиннее 3 символов, не стоп-слова)
+	// Should extract keywords from the user message
+	// (words longer than 3 characters, not stop-words)
 	for _, t := range topics {
 		if t == "authentication" || t == "login" {
 			return // нашли ключевое слово
@@ -205,7 +205,7 @@ func TestSearchContextTool_Execute(t *testing.T) {
 	store := NewArchiveStore(dir, 50)
 	_ = store.Init()
 
-	// Создаём тестовые блоки
+	// Create test blocks
 	msgs1 := []provider.Message{
 		provider.UserMsg("Fix the authentication bug in login handler"),
 		provider.AssistantText("I'll fix the JWT validation in the login handler"),
@@ -223,7 +223,7 @@ func TestSearchContextTool_Execute(t *testing.T) {
 
 	tool := NewSearchContextTool(store)
 
-	// Тест: поиск по "auth"
+	// Test: search for "auth"
 	result := tool.Execute(map[string]string{"query": "auth"})
 	if result.Error != "" {
 		t.Errorf("Unexpected error: %s", result.Error)
@@ -232,7 +232,7 @@ func TestSearchContextTool_Execute(t *testing.T) {
 		t.Error("Expected non-empty output for 'auth' query")
 	}
 
-	// Тест: поиск по "database"
+	// Test: search for "database"
 	result = tool.Execute(map[string]string{"query": "database"})
 	if result.Error != "" {
 		t.Errorf("Unexpected error: %s", result.Error)
@@ -241,13 +241,13 @@ func TestSearchContextTool_Execute(t *testing.T) {
 		t.Error("Expected non-empty output for 'database' query")
 	}
 
-	// Тест: пустой запрос
+	// Test: empty request
 	result = tool.Execute(map[string]string{"query": ""})
 	if result.Error == "" {
 		t.Error("Expected error for empty query")
 	}
 
-	// Тест: несуществующий запрос
+	// Test: non-existent request
 	result = tool.Execute(map[string]string{"query": "quantum_physics_xyz"})
 	if result.Output == "" {
 		t.Error("Expected 'no results' message for non-matching query")
@@ -259,7 +259,7 @@ func TestSearchContextTool_MaxResults(t *testing.T) {
 	store := NewArchiveStore(dir, 50)
 	_ = store.Init()
 
-	// Создаём 3 блока
+	// Create 3 blocks
 	for i := 0; i < 3; i++ {
 		msgs := []provider.Message{
 			provider.UserMsg("Test message about authentication " + string(rune('A'+i))),
@@ -272,13 +272,13 @@ func TestSearchContextTool_MaxResults(t *testing.T) {
 
 	tool := NewSearchContextTool(store)
 
-	// Тест: max_results=1
+	// Test: max_results=1
 	result := tool.Execute(map[string]string{"query": "auth", "max_results": "1"})
 	if result.Error != "" {
 		t.Errorf("Unexpected error: %s", result.Error)
 	}
-	// Результат должен содержать только 1 блок (проверяем что нет "---" разделителя второго блока)
-	// Это не строгая проверка, но хотя бы убеждаемся что результат не пустой
+	// The result should contain only 1 block (verify there is no "---" separator of a second block)
+	// This is not a strict check, but at least we ensure the result is not empty
 	if result.Output == "" {
 		t.Error("Expected non-empty output")
 	}
@@ -383,7 +383,7 @@ func TestFormatArchiveBlock(t *testing.T) {
 }
 
 func TestFilterMessagesForArchive(t *testing.T) {
-	// Тест: tool_result с ошибкой — удаляется
+	// Test: tool_result with an error — removed
 	msgs := []provider.Message{
 		provider.UserMsg("Fix the auth bug"),
 		provider.AssistantText("I'll fix it"),
@@ -398,12 +398,12 @@ func TestFilterMessagesForArchive(t *testing.T) {
 
 	filtered := filterMessagesForArchive(msgs)
 
-	// Должно остаться 2 сообщения (user text + 2 assistant text)
+	// Should remain 2 messages (user text + 2 assistant text)
 	if len(filtered) != 3 {
 		t.Errorf("Expected 3 filtered messages, got %d", len(filtered))
 	}
 
-	// Ни одно сообщение не должно содержать tool_result или tool_use
+	// No message should contain tool_result or tool_use
 	for _, msg := range filtered {
 		for _, block := range msg.Content {
 			if block.Type == "tool_result" || block.Type == "tool_use" {
@@ -414,7 +414,7 @@ func TestFilterMessagesForArchive(t *testing.T) {
 }
 
 func TestFilterMessagesForArchive_ToolUse(t *testing.T) {
-	// Тест: assistant с tool_use — блоки tool_use удаляются, text остаётся
+	// Test: assistant with tool_use — tool_use blocks removed, text remains
 	msgs := []provider.Message{
 		provider.UserMsg("Read the file"),
 		{
@@ -435,12 +435,12 @@ func TestFilterMessagesForArchive_ToolUse(t *testing.T) {
 
 	filtered := filterMessagesForArchive(msgs)
 
-	// Должно остаться 3 сообщения: user text, assistant text, assistant text
+	// Should remain 3 messages: user text, assistant text, assistant text
 	if len(filtered) != 3 {
 		t.Errorf("Expected 3 filtered messages, got %d", len(filtered))
 	}
 
-	// Проверяем, что tool_use и tool_result удалены
+	// Verify that tool_use and tool_result are removed
 	for _, msg := range filtered {
 		for _, block := range msg.Content {
 			if block.Type == "tool_use" || block.Type == "tool_result" {
@@ -451,7 +451,7 @@ func TestFilterMessagesForArchive_ToolUse(t *testing.T) {
 }
 
 func TestFilterMessagesForArchive_SystemMessages(t *testing.T) {
-	// Тест: system-сообщения не архивируются
+	// Test: system messages are not archived
 	msgs := []provider.Message{
 		provider.SystemMsg("system prompt"),
 		provider.UserMsg("hello"),
@@ -460,7 +460,7 @@ func TestFilterMessagesForArchive_SystemMessages(t *testing.T) {
 
 	filtered := filterMessagesForArchive(msgs)
 
-	// Должно остаться 2 сообщения (user + assistant), system удалён
+	// Should remain 2 messages (user + assistant), system removed
 	if len(filtered) != 2 {
 		t.Errorf("Expected 2 filtered messages, got %d", len(filtered))
 	}
@@ -473,7 +473,7 @@ func TestFilterMessagesForArchive_SystemMessages(t *testing.T) {
 }
 
 func TestFilterMessagesForArchive_OnlyToolResult(t *testing.T) {
-	// Тест: user-сообщение с только tool_result — удаляется целиком
+	// Test: user message with only tool_result — removed entirely
 	msgs := []provider.Message{
 		provider.UserMsg("Read the file"),
 		{
@@ -487,7 +487,7 @@ func TestFilterMessagesForArchive_OnlyToolResult(t *testing.T) {
 
 	filtered := filterMessagesForArchive(msgs)
 
-	// Должно остаться 2 сообщения (user text + assistant text)
+	// Should remain 2 messages (user text + assistant text)
 	if len(filtered) != 2 {
 		t.Errorf("Expected 2 filtered messages, got %d", len(filtered))
 	}

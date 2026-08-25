@@ -270,7 +270,7 @@ func TestFormatPermissionRequest(t *testing.T) {
 	if result == "" {
 		t.Error("FormatPermissionRequest returned empty string")
 	}
-	// Проверяем что ключевые элементы присутствуют
+	// Verify that key elements are present
 	if !contains(result, "bash") {
 		t.Error("FormatPermissionRequest should contain tool name")
 	}

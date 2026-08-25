@@ -13,18 +13,18 @@ import (
 )
 
 func init() {
-	// Инициализируем i18n и тему для тестов
+	// Initialize i18n and the theme for tests
 	i18n.Init("en")
 	appTheme = theme.ResolveTheme(config.ThemeConfig{Mode: "dark"})
 }
 
-// stripANSI убирает ANSI escape-коды из строки для проверки содержимого
+// stripANSI removes ANSI escape codes from a string to check content
 func stripANSI(s string) string {
 	re := regexp.MustCompile(`\x1b\[[0-9;]*m`)
 	return re.ReplaceAllString(s, "")
 }
 
-// captureOutput перенаправляет stdout и возвращает перехваченный вывод
+// captureOutput redirects stdout and returns the captured output
 func captureOutput(fn func()) string {
 	old := os.Stdout
 	r, w, _ := os.Pipe()
@@ -53,12 +53,12 @@ func TestRenderSessionHistoryCLI_BasicConversation(t *testing.T) {
 		renderSessionHistoryCLI(messages)
 	})
 
-	// Системное сообщение не должно отображаться
+	// The system message should not be displayed
 	if strings.Contains(result, "system prompt") {
 		t.Error("system message should not be rendered")
 	}
 
-	// Сообщения пользователя должны быть
+	// User messages should be present
 	if !strings.Contains(result, "❯ Hello") {
 		t.Error("user message 'Hello' should be rendered")
 	}
@@ -66,7 +66,7 @@ func TestRenderSessionHistoryCLI_BasicConversation(t *testing.T) {
 		t.Error("user message 'How are you?' should be rendered")
 	}
 
-	// Ответы ассистента должны быть (glamour оборачивает в ANSI, проверяем без них)
+	// Assistant responses should be present (glamour wraps in ANSI, we check without them)
 	plain := stripANSI(result)
 	if !strings.Contains(plain, "Hi there!") {
 		t.Error("assistant text 'Hi there!' should be rendered")
@@ -103,7 +103,7 @@ func TestRenderSessionHistoryCLI_ToolCalls(t *testing.T) {
 		renderSessionHistoryCLI(messages)
 	})
 
-	// Должен быть вызов инструмента
+	// Should be a tool call
 	if !strings.Contains(result, "⏺") {
 		t.Error("tool call indicator should be rendered")
 	}
@@ -111,12 +111,12 @@ func TestRenderSessionHistoryCLI_ToolCalls(t *testing.T) {
 		t.Error("tool name 'read' should be rendered")
 	}
 
-	// Должен быть результат инструмента
+	// Should be a tool result
 	if !strings.Contains(result, "read") {
 		t.Error("tool result should contain tool name 'read'")
 	}
 
-	// tool_result в user-сообщении не должен рендерить ❯
+	// tool_result in a user message should not render ❯
 	userMsgCount := strings.Count(result, "❯")
 	if userMsgCount != 1 {
 		t.Errorf("expected 1 user message indicator, got %d", userMsgCount)
@@ -144,7 +144,7 @@ func TestRenderSessionHistoryCLI_ToolError(t *testing.T) {
 		renderSessionHistoryCLI(messages)
 	})
 
-	// Проверяем что ошибка рендерится
+	// Verify that the error is rendered
 	if !strings.Contains(result, "file not found") {
 		t.Error("tool error output should be rendered")
 	}
@@ -179,10 +179,10 @@ func TestRenderSessionHistoryCLI_ThinkingBlock(t *testing.T) {
 }
 
 func TestRenderSessionHistoryCLI_Empty(t *testing.T) {
-	// Пустые сообщения — просто не должно быть паники
+	// Empty messages — just should not panic
 	renderSessionHistoryCLI(nil)
 
-	// Только системное сообщение
+	// Only the system message
 	messages := []provider.Message{provider.SystemMsg("system")}
 	renderSessionHistoryCLI(messages)
 }
@@ -302,7 +302,7 @@ func TestRenderSessionHistoryCLI_MultipleToolCalls(t *testing.T) {
 		renderSessionHistoryCLI(messages)
 	})
 
-	// Должны быть оба файла
+	// Both files should be present
 	if !strings.Contains(result, "/a.go") {
 		t.Error("first file path should be rendered")
 	}

@@ -26,7 +26,7 @@ func TestSessionManager_Init(t *testing.T) {
 		t.Fatalf("Init error: %v", err)
 	}
 
-	// Проверяем что директория создана
+	// Verify that the directory was created
 	if _, err := os.Stat(sessionsDir); os.IsNotExist(err) {
 		t.Error("Sessions directory should exist after Init")
 	}
@@ -61,12 +61,12 @@ func TestSaveAndLoadSession(t *testing.T) {
 	session.Messages = append(session.Messages, provider.UserMsg("Привет"))
 	session.Messages = append(session.Messages, provider.AssistantText("Здравствуй!"))
 
-	// Сохраняем
+	// Save
 	if err := sm.SaveSessionMessages(session); err != nil {
 		t.Fatalf("SaveSessionMessages error: %v", err)
 	}
 
-	// Загружаем
+	// Load
 	loaded, err := sm.LoadSession(session.ID)
 	if err != nil {
 		t.Fatalf("LoadSession error: %v", err)
@@ -97,7 +97,7 @@ func TestListSessions(t *testing.T) {
 	tmpDir := t.TempDir()
 	sm := NewSessionManager(tmpDir)
 
-	// Создаём 3 сессии
+	// Create 3 sessions
 	for i := 0; i < 3; i++ {
 		session := sm.NewSession()
 		session.Messages = append(session.Messages, provider.UserMsg("test"))
@@ -125,12 +125,12 @@ func TestDeleteSession(t *testing.T) {
 		t.Fatalf("SaveSessionMessages error: %v", err)
 	}
 
-	// Удаляем
+	// Remove
 	if err := sm.DeleteSession(session.ID); err != nil {
 		t.Fatalf("DeleteSession error: %v", err)
 	}
 
-	// Проверяем что сессия удалена
+	// Verify that the session was deleted
 	_, err := sm.LoadSession(session.ID)
 	if err == nil {
 		t.Error("Expected error after deletion")
@@ -142,7 +142,7 @@ func TestSessionManager_SaveAndLoadEmpty(t *testing.T) {
 	sm := NewSessionManager(tmpDir)
 
 	session := sm.NewSession()
-	// Пустая сессия без сообщений
+	// Empty session without messages
 
 	if err := sm.SaveSessionMessages(session); err != nil {
 		t.Fatalf("SaveSessionMessages error: %v", err)
@@ -174,19 +174,19 @@ func TestRenameSession(t *testing.T) {
 	tmpDir := t.TempDir()
 	sm := NewSessionManager(tmpDir)
 
-	// Создаём сессию
+	// Create a session
 	session := sm.NewSession()
 	session.Messages = append(session.Messages, provider.UserMsg("test"))
 	if err := sm.SaveSessionMessages(session); err != nil {
 		t.Fatalf("SaveSessionMessages error: %v", err)
 	}
 
-	// Переименовываем
+	// Rename
 	if err := sm.RenameSession(session.ID, "my-session"); err != nil {
 		t.Fatalf("RenameSession error: %v", err)
 	}
 
-	// Загружаем и проверяем имя
+	// Load and verify the name
 	loaded, err := sm.LoadSession(session.ID)
 	if err != nil {
 		t.Fatalf("LoadSession error: %v", err)
@@ -332,8 +332,8 @@ func TestResolveSessionID_ByPrefix(t *testing.T) {
 	}
 }
 func TestLoadSession_LargeToolResult(t *testing.T) {
-	// Тест: tool_result длиннее 64KB (буфер bufio.Scanner по умолчанию)
-	// должен загружаться полностью, а не теряться
+	// Test: tool_result longer than 64KB (default bufio.Scanner buffer)
+	// should load fully, not be lost
 	tmpDir := t.TempDir()
 	sm := NewSessionManager(tmpDir)
 
@@ -341,7 +341,7 @@ func TestLoadSession_LargeToolResult(t *testing.T) {
 	session.Messages = append(session.Messages, provider.SystemMsg("Ты помощник"))
 	session.Messages = append(session.Messages, provider.UserMsg("Запусти команду"))
 
-	// Создаём очень длинный tool_result (> 64KB)
+	// Create a very long tool_result (> 64KB)
 	longOutput := strings.Repeat("output line with some data\n", 3000) // ~75KB
 	session.Messages = append(session.Messages, provider.Message{
 		Role: "assistant",
@@ -358,28 +358,28 @@ func TestLoadSession_LargeToolResult(t *testing.T) {
 	session.Messages = append(session.Messages, provider.AssistantText("Готово"))
 	session.Messages = append(session.Messages, provider.UserMsg("Следующий вопрос"))
 
-	// Сохраняем
+	// Save
 	if err := sm.SaveSessionMessages(session); err != nil {
 		t.Fatalf("SaveSessionMessages error: %v", err)
 	}
 
-	// Загружаем
+	// Load
 	loaded, err := sm.LoadSession(session.ID)
 	if err != nil {
 		t.Fatalf("LoadSession error: %v", err)
 	}
 
-	// Все сообщения должны быть загружены (включая system)
+	// All messages should be loaded (including system)
 	expectedCount := len(session.Messages)
 	if len(loaded.Messages) != expectedCount {
-		// Отладка: показать что загружено
+		// Debug: show what was loaded
 		for i, m := range loaded.Messages {
 			t.Logf("  [%d] role=%s text=%q", i, m.Role, m.GetResponseText()[:min(50, len(m.GetResponseText()))])
 		}
 		t.Errorf("Expected %d messages, got %d — large tool_result was probably truncated by scanner buffer", expectedCount, len(loaded.Messages))
 	}
 
-	// Последнее сообщение должно быть "Следующий вопрос"
+	// The last message should be "Следующий вопрос"
 	if len(loaded.Messages) >= 1 {
 		lastMsg := loaded.Messages[len(loaded.Messages)-1]
 		if lastMsg.Role != "user" {

@@ -72,26 +72,26 @@ func TestSaveSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Создаём сессию
+	// Create a session
 	sess := sm.NewSession()
 
-	// Добавляем сообщения
+	// Add messages
 	sess.Messages = append(sess.Messages, provider.UserMsg("Hello"))
 	sess.Messages = append(sess.Messages, provider.AssistantText("Hi there!"))
 
-	// Сохраняем
+	// Save
 	err := sm.SaveSession(sess)
 	if err != nil {
 		t.Fatalf("SaveSession failed: %v", err)
 	}
 
-	// Проверяем что файл создан
+	// Verify that the file was created
 	sessionFile := filepath.Join(tmpDir, sess.ID+".jsonl")
 	if _, err := os.Stat(sessionFile); os.IsNotExist(err) {
 		t.Error("session file not created")
 	}
 
-	// Загружаем и проверяем
+	// Load and verify
 	loaded, err := sm.LoadSession(sess.ID)
 	if err != nil {
 		t.Fatalf("LoadSession failed: %v", err)
@@ -184,7 +184,7 @@ func TestGeneralizeOldBlocks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Создаём блоки
+	// Create blocks
 	store.ArchiveMessages([]provider.Message{
 		provider.UserMsg("old message 1"),
 		provider.AssistantText("old reply 1"),
@@ -198,7 +198,7 @@ func TestGeneralizeOldBlocks(t *testing.T) {
 	optimizer := NewArchiveOptimizer(store, nil)
 	result := optimizer.Optimize(context.Background())
 	_ = result
-	// Проверяем что оптимизация не падает
+	// Verify that optimization does not crash
 }
 
 func TestRemoveEmptyBlocks(t *testing.T) {
@@ -211,7 +211,7 @@ func TestRemoveEmptyBlocks(t *testing.T) {
 	optimizer := NewArchiveOptimizer(store, nil)
 	result := optimizer.Optimize(context.Background())
 	_ = result
-	// Проверяем что оптимизация пустого архива не падает
+	// Verify that optimization of an empty archive does not crash
 }
 
 func TestRebuildIndex(t *testing.T) {
@@ -221,7 +221,7 @@ func TestRebuildIndex(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Создаём блок
+	// Create a block
 	store.ArchiveMessages([]provider.Message{
 		provider.UserMsg("test"),
 		provider.AssistantText("reply"),
@@ -239,7 +239,7 @@ func TestMergeSimilarBlocks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Создаём похожие блоки
+	// Create similar blocks
 	store.ArchiveMessages([]provider.Message{
 		provider.UserMsg("read file.go"),
 		provider.AssistantText("package main"),

@@ -12,7 +12,7 @@ import (
 )
 
 // =============================================================================
-// HTTP-тесты для OpenAI: Complete, Stream, parseStream, convertMessage
+// HTTP tests for OpenAI: Complete, Stream, parseStream, convertMessage
 // =============================================================================
 
 func TestOpenAIComplete_Success(t *testing.T) {

@@ -33,7 +33,7 @@ func TestReadTool_FileNotFound(t *testing.T) {
 }
 
 func TestReadTool_ReadFile(t *testing.T) {
-	// Создаём временный файл
+	// Create a temporary file
 	tmpDir := t.TempDir()
 	tmpFile := filepath.Join(tmpDir, "test.txt")
 	content := "hello world"
@@ -82,13 +82,13 @@ func TestReadTool_AllowedDirs(t *testing.T) {
 	tool := NewReadTool()
 	tool.AllowedDirs = []string{tmpDir}
 
-	// Доступ разрешён
+	// Access allowed
 	result := tool.Execute(map[string]string{"path": tmpFile})
 	if result.Error != "" {
 		t.Errorf("Expected success, got error: %s", result.Error)
 	}
 
-	// Доступ запрещён
+	// Access denied
 	result = tool.Execute(map[string]string{"path": "/etc/hosts"})
 	if result.Error == "" {
 		t.Error("Expected error for disallowed directory")
@@ -109,7 +109,7 @@ func TestWriteTool_WriteFile(t *testing.T) {
 		t.Errorf("Unexpected error: %s", result.Error)
 	}
 
-	// Проверяем что файл создан
+	// Verify that the file was created
 	data, err := os.ReadFile(tmpFile)
 	if err != nil {
 		t.Fatal(err)
@@ -249,7 +249,7 @@ func TestBashTool_NetworkBlocked(t *testing.T) {
 func TestBashTool_NetworkAllowed(t *testing.T) {
 	tool := NewBashTool()
 	tool.AllowNetwork = true
-	// Не выполняем реальный curl, просто проверяем что не блокируется
+	// Do not run real curl, just verify it does not block
 	result := tool.Execute(map[string]string{"command": "echo curl"})
 	if result.Error != "" {
 		t.Errorf("Unexpected error when AllowNetwork=true: %s", result.Error)
@@ -263,7 +263,7 @@ func TestBashTool_TimeoutParsing(t *testing.T) {
 	if result.Error != "" {
 		t.Errorf("Unexpected error: %s", result.Error)
 	}
-	// Проверяем что таймаут парсится (не можем проверить напрямую, но хотя бы нет ошибки)
+	// Verify the timeout parses (cannot check directly, but at least no error)
 }
 
 func TestGrepTool_Search(t *testing.T) {

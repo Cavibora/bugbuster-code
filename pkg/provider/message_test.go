@@ -123,7 +123,7 @@ func TestToPlainText_Empty(t *testing.T) {
 // --- HasToolCalls edge cases ---
 
 func TestHasToolCalls_WithToolResult(t *testing.T) {
-	// tool_result — это не tool_use
+	// tool_result is not tool_use
 	msg := ToolResultMsg("id1", "read", "content", false)
 	if msg.HasToolCalls() {
 		t.Error("tool_result should not be detected as tool_use")

@@ -11,7 +11,7 @@ import (
 )
 
 // =============================================================================
-// HTTP-тесты для Anthropic: Complete, Stream, StreamWithCtx
+// HTTP tests for Anthropic: Complete, Stream, StreamWithCtx
 // =============================================================================
 
 func TestAnthropicComplete_Success(t *testing.T) {

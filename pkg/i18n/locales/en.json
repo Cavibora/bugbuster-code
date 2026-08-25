@@ -26,6 +26,7 @@
   "cli.auto_max_iterations": "Autopilot reached maximum iterations (%d). Stopping.",
   "cli.auto_phrases": "Continue|Great, continue|Keep going|Next phase|Let's keep going|Continue implementation|Go on|Keep it up|Good, continue|Forward|Continue working|Move to the next step",
   "cli.auto_plan_completed": "Plan completed, autopilot disabled.",
+  "cli.auto_continue_after_error": "Continuing after error...",
   "cli.cancel_request": "\nCancelling current request...",
   "cli.cavibora_only": "This command requires Cavibora provider",
   "cli.cmd_dream": "🌙 Dream — memory consolidation (Cavibora only)",

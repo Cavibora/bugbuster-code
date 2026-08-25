@@ -49,7 +49,7 @@ func TestBugBusterMCPServer_RegisterTools(t *testing.T) {
 	tool := &mockTool{name: "read", description: "Read", params: map[string]any{"type": "object"}, result: tools.ToolResult{Output: "ok"}}
 	srv.RegisterTools([]tools.Tool{tool})
 
-	// Проверяем что инструмент зарегистрирован — через GetServerInfo
+	// Verify that the tool is registered — via GetServerInfo
 	name, version, transport := srv.GetServerInfo()
 	if name != "bugbuster-code" {
 		t.Errorf("expected name 'bugbuster-code', got '%s'", name)

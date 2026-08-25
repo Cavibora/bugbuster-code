@@ -3,7 +3,6 @@ package provider
 import (
 	"bufio"
 	"bytes"
-	"fmt"
 	"io"
 	"strings"
 )
@@ -135,14 +134,10 @@ func ReadFullBody(body io.Reader) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(body, 10*1024*1024))
 }
 
-// FormatHTTPError formats HTTP error with response body
+// FormatHTTPError formats HTTP error with response body.
+// For HTTP 429 returns a *RateLimitError so the agent loop can handle it specially.
 func FormatHTTPError(statusCode int, body []byte) error {
-	// Truncate long error body
-	bodyStr := string(body)
-	if len(bodyStr) > 500 {
-		bodyStr = bodyStr[:500] + "..."
-	}
-	return fmt.Errorf("HTTP %d: %s", statusCode, bodyStr)
+	return FormatHTTPErrorWithRateLimit(statusCode, body)
 }
 
 // IsJSON checks if a line looks like JSON

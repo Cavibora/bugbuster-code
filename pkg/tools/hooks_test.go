@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// TestHookedToolBeforeExecute тестирует хук BeforeExecute
+// TestHookedToolBeforeExecute tests the BeforeExecute hook
 func TestHookedToolBeforeExecute(t *testing.T) {
 	var capturedName string
 	var capturedParams map[string]string
@@ -17,7 +17,7 @@ func TestHookedToolBeforeExecute(t *testing.T) {
 		BeforeExecute: func(toolName string, params map[string]string) (map[string]string, error) {
 			capturedName = toolName
 			capturedParams = params
-			// Модифицируем параметры
+			// Modify parameters
 			params["modified"] = "true"
 			return params, nil
 		},
@@ -30,10 +30,10 @@ func TestHookedToolBeforeExecute(t *testing.T) {
 		t.Errorf("Expected name 'read', got '%s'", hooked.Name())
 	}
 
-	// Вызываем execute (прочитаем несуществующий файл — это нормально для теста хука)
+	// Call execute (we will read a non-existent file — this is fine for a hook test)
 	result := hooked.Execute(map[string]string{"path": "/nonexistent/test.txt"})
 
-	// Хук должен был захватить имя и параметры
+	// The hook should have captured the name and parameters
 	if capturedName != "read" {
 		t.Errorf("Hook should capture tool name 'read', got '%s'", capturedName)
 	}
@@ -41,11 +41,11 @@ func TestHookedToolBeforeExecute(t *testing.T) {
 		t.Error("Hook should have modified params")
 	}
 
-	// Результат будет ошибкой (файл не существует), но хук должен был отработать
+	// The result will be an error (file does not exist), but the hook should have run
 	_ = result
 }
 
-// TestHookedToolAfterExecute тестирует хук AfterExecute
+// TestHookedToolAfterExecute tests the AfterExecute hook
 func TestHookedToolAfterExecute(t *testing.T) {
 	var capturedName string
 	var capturedDuration time.Duration
@@ -71,7 +71,7 @@ func TestHookedToolAfterExecute(t *testing.T) {
 	}
 }
 
-// TestHookedToolBeforeExecuteError тестирует прерывание через хук
+// TestHookedToolBeforeExecuteError tests interruption via hook
 func TestHookedToolBeforeExecuteError(t *testing.T) {
 	hook := &ToolHook{
 		Name: "blocking_hook",
@@ -90,7 +90,7 @@ func TestHookedToolBeforeExecuteError(t *testing.T) {
 	}
 }
 
-// TestMultipleHooks тестирует цепочку хуков
+// TestMultipleHooks tests the hook chain
 func TestMultipleHooks(t *testing.T) {
 	var order []string
 
@@ -132,7 +132,7 @@ func TestMultipleHooks(t *testing.T) {
 	}
 }
 
-// TestHookedToolExecuteAsync_DelegatesToAsyncTool проверяет что HookedTool делегирует ExecuteAsync внутреннему AsyncTool
+// TestHookedToolExecuteAsync_DelegatesToAsyncTool verifies that HookedTool delegates ExecuteAsync to the inner AsyncTool
 func TestHookedToolExecuteAsync_DelegatesToAsyncTool(t *testing.T) {
 	bashTool := NewBashTool()
 	hooked := NewHookedTool(bashTool)
@@ -158,7 +158,7 @@ func TestHookedToolExecuteAsync_DelegatesToAsyncTool(t *testing.T) {
 	}
 }
 
-// TestHookedToolExecuteAsync_FallbackForNonAsync проверяет fallback для не-async инструментов
+// TestHookedToolExecuteAsync_FallbackForNonAsync verifies the fallback for non-async tools
 func TestHookedToolExecuteAsync_FallbackForNonAsync(t *testing.T) {
 	readTool := NewReadTool()
 	hooked := NewHookedTool(readTool)
@@ -179,7 +179,7 @@ func TestHookedToolExecuteAsync_FallbackForNonAsync(t *testing.T) {
 	if !result.Done {
 		t.Fatal("expected Done=true")
 	}
-	// ReadTool вернёт ошибку для несуществующего файла
+	// ReadTool will return an error for a non-existent file
 	if result.Error == "" {
 		t.Fatal("expected error for nonexistent file")
 	}

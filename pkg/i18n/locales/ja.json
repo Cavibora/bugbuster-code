@@ -26,6 +26,7 @@
   "cli.auto_max_iterations": "Autopilotが最大反復回数(%d)に達しました。停止します。",
   "cli.auto_phrases": "続けて|素晴らしい、続けて|続けよう|次のフェーズ|進もう|実装を続けて|進んで|その調子で続けて|いいね、続けて|前へ|作業を続けて|次のステップへ",
   "cli.auto_plan_completed": "計画が完了しました。Autopilotを無効にします。",
+  "cli.auto_continue_after_error": "エラー後に続行します...",
   "cli.cancel_request": "\n現在のリクエストをキャンセル中...",
   "cli.cavibora_only": "このコマンドにはCaviboraプロバイダーが必要です",
   "cli.cmd_dream": "🌙 ドリーム — 記憶の統合（Caviboraのみ）",

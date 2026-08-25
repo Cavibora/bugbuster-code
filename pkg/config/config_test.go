@@ -47,12 +47,12 @@ func TestSaveAndLoadConfig(t *testing.T) {
 		Model:  "gpt-4o",
 	}
 
-	// Сохраняем
+	// Save
 	if err := cfg.SaveConfig(configPath); err != nil {
 		t.Fatalf("SaveConfig error: %v", err)
 	}
 
-	// Загружаем
+	// Load
 	loaded, err := LoadConfig(configPath)
 	if err != nil {
 		t.Fatalf("LoadConfig error: %v", err)
@@ -82,13 +82,13 @@ func TestResolveEnvVars(t *testing.T) {
 		t.Errorf("Expected 'my-secret-key', got '%s'", result)
 	}
 
-	// Без переменных
+	// Without variables
 	result = resolveEnvVars("plain-text")
 	if result != "plain-text" {
 		t.Errorf("Expected 'plain-text', got '%s'", result)
 	}
 
-	// Несуществующая переменная
+	// Non-existent variable
 	result = resolveEnvVars("${NONEXISTENT_VAR}")
 	if result != "" {
 		t.Errorf("Expected empty string for nonexistent var, got '%s'", result)
@@ -328,9 +328,9 @@ func TestFindConfigFile_WalkUp(t *testing.T) {
 
 func TestEffectiveSecurity(t *testing.T) {
 	cfg := DefaultConfig()
-	// По умолчанию AllowNetwork=false, BlockedCommands=["rm -rf /", "mkfs", "dd if=", "format c:"]
+	// By default AllowNetwork=false, BlockedCommands=["rm -rf /", "mkfs", "dd if=", "format c:"]
 
-	// Провайдер без security — используем глобальный
+	// Provider without security — use the global one
 	provCfg := provider.ProviderConfig{Type: "anthropic"}
 	sec := cfg.EffectiveSecurity(&provCfg)
 	if sec.AllowNetwork != false {
@@ -340,7 +340,7 @@ func TestEffectiveSecurity(t *testing.T) {
 		t.Errorf("Expected 4 blocked commands from global, got %d", len(sec.BlockedCommands))
 	}
 
-	// Провайдер с allow_network: true — побеждает
+	// Provider with allow_network: true — wins
 	provCfg = provider.ProviderConfig{
 		Type: "anthropic",
 		Security: provider.ProviderSecurity{
@@ -352,7 +352,7 @@ func TestEffectiveSecurity(t *testing.T) {
 		t.Errorf("Expected AllowNetwork=true with provider override, got %v", sec.AllowNetwork)
 	}
 
-	// Провайдер с blocked_commands — заменяет глобальный
+	// Provider with blocked_commands — replaces the global one
 	provCfg = provider.ProviderConfig{
 		Type: "anthropic",
 		Security: provider.ProviderSecurity{
@@ -370,16 +370,16 @@ func TestEffectiveSecurity(t *testing.T) {
 
 func TestEffectiveContextWindow(t *testing.T) {
 	cfg := DefaultConfig()
-	// По умолчанию Agent.MaxTokens = 32768
+	// By default Agent.MaxTokens = 32768
 
-	// Провайдер без context_window — используем agent.max_tokens
+	// Provider without context_window — use agent.max_tokens
 	provCfg := provider.ProviderConfig{Type: "anthropic"}
 	ctx := cfg.EffectiveContextWindow(&provCfg)
 	if ctx != 32768 {
 		t.Errorf("Expected context_window=32768 from agent fallback, got %d", ctx)
 	}
 
-	// Провайдер с context_window — побеждает
+	// Provider with context_window — wins
 	provCfg = provider.ProviderConfig{
 		Type:          "anthropic",
 		ContextWindow: 200000,
@@ -389,7 +389,7 @@ func TestEffectiveContextWindow(t *testing.T) {
 		t.Errorf("Expected context_window=200000 from provider, got %d", ctx)
 	}
 
-	// Провайдер с context_window=0, agent.max_tokens=180000
+	// Provider with context_window=0, agent.max_tokens=180000
 	cfg.Agent.MaxTokens = 180000
 	provCfg = provider.ProviderConfig{Type: "anthropic"}
 	ctx = cfg.EffectiveContextWindow(&provCfg)
@@ -400,7 +400,7 @@ func TestEffectiveContextWindow(t *testing.T) {
 
 func TestMergeConfigs_AllowNetwork(t *testing.T) {
 	base := DefaultConfig()
-	// По умолчанию AllowNetwork=false
+	// By default AllowNetwork=false
 
 	override := &BugBusterConfig{
 		Security: SecurityConfig{
@@ -413,7 +413,7 @@ func TestMergeConfigs_AllowNetwork(t *testing.T) {
 		t.Errorf("Expected AllowNetwork=true after merge, got %v", merged.Security.AllowNetwork)
 	}
 
-	// Два override: один true, другой false — true побеждает
+	// Two overrides: one true, another false — true wins
 	override2 := &BugBusterConfig{
 		Security: SecurityConfig{
 			AllowNetwork: false,

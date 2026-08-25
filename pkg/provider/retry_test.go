@@ -8,17 +8,23 @@ import (
 func TestDefaultRetryPolicy(t *testing.T) {
 	policy := DefaultRetryPolicy()
 
-	if policy.MaxRetries != 3 {
-		t.Errorf("Expected MaxRetries=3, got %d", policy.MaxRetries)
+	if policy.MaxRetries != 5 {
+		t.Errorf("Expected MaxRetries=5, got %d", policy.MaxRetries)
 	}
-	if policy.InitialBackoff != 1*time.Second {
-		t.Errorf("Expected InitialBackoff=1s, got %v", policy.InitialBackoff)
+	if policy.InitialBackoff != 2*time.Second {
+		t.Errorf("Expected InitialBackoff=2s, got %v", policy.InitialBackoff)
 	}
-	if policy.MaxBackoff != 30*time.Second {
-		t.Errorf("Expected MaxBackoff=30s, got %v", policy.MaxBackoff)
+	if policy.MaxBackoff != 60*time.Second {
+		t.Errorf("Expected MaxBackoff=60s, got %v", policy.MaxBackoff)
 	}
-	if len(policy.RetryableErrors) != 5 {
-		t.Errorf("Expected 5 retryable errors, got %d", len(policy.RetryableErrors))
+	// 429 is NOT in RetryableErrors — it's handled by streamRetryRequest with RateLimitError
+	if len(policy.RetryableErrors) != 4 {
+		t.Errorf("Expected 4 retryable errors (no 429), got %d", len(policy.RetryableErrors))
+	}
+	for _, code := range policy.RetryableErrors {
+		if code == 429 {
+			t.Error("429 should NOT be in RetryableErrors — handled by streamRetryRequest")
+		}
 	}
 }
 
@@ -40,7 +46,7 @@ func TestIsRetryable(t *testing.T) {
 		code     int
 		expected bool
 	}{
-		{429, true},  // Too Many Requests
+		{429, false}, // NOT retryable — handled by streamRetryRequest with RateLimitError
 		{500, true},  // Internal Server Error
 		{502, true},  // Bad Gateway
 		{503, true},  // Service Unavailable
@@ -70,12 +76,12 @@ func TestBackoffDuration(t *testing.T) {
 		minDelay time.Duration
 		maxDelay time.Duration
 	}{
-		{0, 1 * time.Second, 2 * time.Second},    // 1s
-		{1, 2 * time.Second, 3 * time.Second},    // 2s
-		{2, 4 * time.Second, 5 * time.Second},    // 4s
-		{3, 8 * time.Second, 9 * time.Second},    // 8s
-		{4, 16 * time.Second, 17 * time.Second},  // 16s
-		{10, 30 * time.Second, 30 * time.Second}, // capped at 30s
+		{0, 2 * time.Second, 3 * time.Second},    // 2s
+		{1, 4 * time.Second, 5 * time.Second},    // 4s
+		{2, 8 * time.Second, 9 * time.Second},    // 8s
+		{3, 16 * time.Second, 17 * time.Second},  // 16s
+		{4, 32 * time.Second, 33 * time.Second}, // 32s
+		{10, 60 * time.Second, 60 * time.Second}, // capped at 60s
 	}
 
 	for _, tt := range tests {
@@ -113,8 +119,8 @@ func TestOpenAIProvider_SetRetryPolicy(t *testing.T) {
 	}
 
 	// Default retry policy
-	if provider.retryPolicy.MaxRetries != 3 {
-		t.Errorf("Expected default MaxRetries=3, got %d", provider.retryPolicy.MaxRetries)
+	if provider.retryPolicy.MaxRetries != 5 {
+		t.Errorf("Expected default MaxRetries=5, got %d", provider.retryPolicy.MaxRetries)
 	}
 
 	// Custom retry policy

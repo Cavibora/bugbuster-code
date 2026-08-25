@@ -5,6 +5,25 @@ All notable changes to BugBuster Code will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-08-24
+
+### Added
+- **Rate limit (HTTP 429) resilience** — automatic retry with short delay instead of stopping. Configurable via `agent.rate_limit` (`max_retries`, `delay_ms`) and the `/rate` interactive command. Rate limit messages are shown to the user but not saved to context.
+- **Configurable autopilot** — `agent.autopilot.max_iterations` and `agent.autopilot.delay_ms` replace the hardcoded 5000-iteration limit and 2s delay. Configurable via config and `/auto N`.
+- **Reasoning/thinking parsing for OpenRouter** — now parses `reasoning` and `reasoning_details` fields (OpenRouter) in addition to `reasoning_content` (DeepSeek). New `reasoning` provider config block (`enabled`, `effort`, `max_tokens`, `exclude`) enables reasoning tokens for models like GLM-5.2.
+- **Context cleanup of transient messages** — auto-continue prompts and error hints (idle timeout, loop detection) are cleaned from context, keeping only the last auto-continue. Prevents context pollution.
+- **`/rate` command** — show or configure rate limit retries in both CLI and TUI.
+
+### Changed
+- **Autopilot survives transient errors** — 429, 404, 500, 502, 503, 504 no longer stop autopilot. It continues after a short delay.
+- **Autopilot doesn't falsely report completion after error** — if a stream ends with an error, plan-completion detection is skipped and autopilot retries.
+- **HTTP 429 removed from provider retry policy** — rate limit retries are now handled by the agent loop (with `RateLimitError`), preventing double retries that caused long stalls.
+- **Full error message shown on 429** — the complete provider error body is displayed (no truncation).
+- **Comments translated to English** — all Russian comments in production and test code translated to English (except Russian string literals used as test data).
+
+### Fixed
+- **Spinner duplication in CLI** — bash and rate-limit spinners no longer stretch/duplicate; the spinner is stopped, message printed on its own line, and restarted.
+
 ## [1.2.7] - 2026-08-05
 
 ### Added

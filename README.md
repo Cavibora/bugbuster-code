@@ -110,6 +110,8 @@ bugbuster "Fix the bug"     # one-shot
 - 🧠 **Self-Awareness** — `self_info` tool lets the model know its provider, context usage, and environment
 - 🔐 **Granular Permissions** — per-tool permission overrides (`bash: ask`, `web_fetch: deny`, etc.)
 - 🔄 **Fallback Providers** — automatic switch to backup provider when primary fails
+- ⏳ **Rate Limit Resilience** — automatic retry on HTTP 429 (free-tier models), configurable via config or `/rate`
+- 🤖 **Autopilot** — configurable iteration limit and delay; survives transient errors (429, 404, 500)
 - 🏠 **Agent Hub** — coordinate multiple agents in a shared workspace: message, broadcast, request help, share tasks. Per-provider roles (coder, reviewer, tester).
 - 🖥️ **Screenshots & Vision** — capture desktop, window, or region; send images to vision models
 - 🎤🔊 **Voice** — speech-to-text (Whisper) and text-to-speech (OpenAI TTS or system)
@@ -161,6 +163,16 @@ agent:
     max_retries: 2
     retry_delay_ms: 1000
     auto_switch_back: true
+
+  # Rate limit (HTTP 429) retry settings
+  rate_limit:
+    max_retries: 50       # max 429 retries before giving up
+    delay_ms: 3000        # delay between 429 retries in ms
+
+  # Autopilot settings
+  autopilot:
+    max_iterations: 5000  # max autopilot iterations
+    delay_ms: 2000        # delay between autopilot iterations in ms
 
   # Auto-switch provider by task type
   agent_providers:

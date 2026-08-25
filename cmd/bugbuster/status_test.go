@@ -21,7 +21,7 @@ func TestFormatStatusLineWithDetails(t *testing.T) {
 	if !strings.Contains(result, "glm-5.1") {
 		t.Errorf("Expected model name, got: %q", result)
 	}
-	// Проверяем что контекст-бар на отдельной строке
+	// Verify that the context bar is on a separate line
 	lines := strings.Split(result, "\n")
 	if len(lines) < 2 {
 		t.Errorf("Expected at least 2 lines (status + context bar), got %d", len(lines))

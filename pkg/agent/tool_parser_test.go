@@ -19,7 +19,7 @@ func TestParseXMLToolCalls(t *testing.T) {
 }
 
 func TestParseXMLToolCallsParamFormat(t *testing.T) {
-	// Формат <param>key</param><param>value</param> — чередующиеся пары
+	// Format <param>key</param><param>value</param> — alternating pairs
 	response := `<tool name="read"><param>path</param><param>/Users/ss/project/main.go</param></tool>`
 	calls := ParseToolCalls(response)
 	if len(calls) != 1 {
@@ -34,7 +34,7 @@ func TestParseXMLToolCallsParamFormat(t *testing.T) {
 }
 
 func TestParseXMLToolCallsMultipleParams(t *testing.T) {
-	// Несколько пар param
+	// Multiple param pairs
 	response := `<tool name="edit"><param>path</param><param>main.go</param><param>old</param><param>func main()</param><param>new</param><param>func main() { fmt.Println("hello") }</param></tool>`
 	calls := ParseToolCalls(response)
 	if len(calls) != 1 {
@@ -107,7 +107,7 @@ func containsStr(s, substr string) bool {
 	return false
 }
 func TestParseJSONToolCallsMarkdown(t *testing.T) {
-	// JSON внутри markdown-блока
+	// JSON inside a markdown block
 	response := "I'll read the file:\n```json\n{\"tool\": \"read\", \"params\": {\"path\": \"/Users/ss/main.go\"}}\n```\nDone."
 	calls := ParseToolCalls(response)
 	if len(calls) != 1 {
@@ -122,7 +122,7 @@ func TestParseJSONToolCallsMarkdown(t *testing.T) {
 }
 
 func TestParseJSONToolCallsBoxDrawing(t *testing.T) {
-	// JSON с box-drawing символами (артефакт рендеринга)
+	// JSON with box-drawing characters (rendering artifact)
 	response := "┌json\n│ {\n│   \"tool\": \"read\",\n│   \"params\": {\"path\": \"/tmp/test.go\"}\n│ }\n└"
 	calls := ParseToolCalls(response)
 	if len(calls) != 1 {
@@ -137,7 +137,7 @@ func TestParseJSONToolCallsBoxDrawing(t *testing.T) {
 }
 
 func TestParseJSONToolCallsMarkdownWithBoxDrawing(t *testing.T) {
-	// Markdown-блок с box-drawing символами
+	// Markdown block with box-drawing characters
 	response := "```json\n│ {\n│   \"tool\": \"bash\",\n│   \"params\": {\"command\": \"ls -la\"}\n│ }\n```"
 	calls := ParseToolCalls(response)
 	if len(calls) != 1 {
@@ -171,7 +171,7 @@ func TestCleanJSON(t *testing.T) {
 }
 
 func TestParseXMLParamsParamNameAttr(t *testing.T) {
-	// Формат <param name="path">value</param> — атрибут name
+	// Format <param name="path">value</param> — name attribute
 	response := `<tool name="read"><param name="path">/Users/ss/project/main.go</param></tool>`
 	calls := ParseToolCalls(response)
 	if len(calls) != 1 {
@@ -186,7 +186,7 @@ func TestParseXMLParamsParamNameAttr(t *testing.T) {
 }
 
 func TestParseXMLParamsParamNameAttrMultiple(t *testing.T) {
-	// Несколько <param name="...">value</param>
+	// Multiple <param name="...">value</param>
 	response := `<tool name="edit"><param name="path">main.go</param><param name="old">func main()</param><param name="new">func main() { fmt.Println("hello") }</param></tool>`
 	calls := ParseToolCalls(response)
 	if len(calls) != 1 {
@@ -207,7 +207,7 @@ func TestParseXMLParamsParamNameAttrMultiple(t *testing.T) {
 }
 
 func TestParseXMLParamsParamNameAttrSingleQuotes(t *testing.T) {
-	// Атрибут name с одинарными кавычками
+	// name attribute with single quotes
 	response := `<tool name="read"><param name='path'>/tmp/test.go</param></tool>`
 	calls := ParseToolCalls(response)
 	if len(calls) != 1 {
@@ -219,7 +219,7 @@ func TestParseXMLParamsParamNameAttrSingleQuotes(t *testing.T) {
 }
 
 func TestParseXMLParamsMixedNamedAndParam(t *testing.T) {
-	// Смешанный формат: именованные теги + <param name="...">
+	// Mixed format: named tags + <param name="...">
 	response := `<tool name="bash"><param name="command">ls -la</param><param name="timeout">30</param></tool>`
 	calls := ParseToolCalls(response)
 	if len(calls) != 1 {
@@ -234,13 +234,13 @@ func TestParseXMLParamsMixedNamedAndParam(t *testing.T) {
 }
 
 func TestParseXMLParamsSingleParamOdd(t *testing.T) {
-	// Одиночный <param>value</param> — нечётное количество, ключ = "param"
+	// Single <param>value</param> — odd count, key = "param"
 	response := `<tool name="read"><param>/Users/ss/project</param></tool>`
 	calls := ParseToolCalls(response)
 	if len(calls) != 1 {
 		t.Fatalf("expected 1 call, got %d", len(calls))
 	}
-	// Ключ будет "param" — инструмент вернёт ошибку "параметр 'path' обязателен"
+	// Key will be "param" — the tool will return the error "parameter 'path' is required"
 	if calls[0].Params["param"] != "/Users/ss/project" {
 		t.Errorf("expected param=/Users/ss/project, got %v", calls[0].Params)
 	}

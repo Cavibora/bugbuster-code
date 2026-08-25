@@ -81,6 +81,11 @@ type AgentLoop struct {
 
 	// compactForceCooldown — prevents repeated compaction calls
 	compactForceCooldownUntil time.Time // time until which compact_force is blocked
+
+	// rateLimitMaxRetries — max HTTP 429 retries before giving up (default: 50)
+	rateLimitMaxRetries int
+	// rateLimitDelay — delay between HTTP 429 retries (default: 3s)
+	rateLimitDelay time.Duration
 }
 
 // NewAgentLoop creates a new agent loop
@@ -228,6 +233,34 @@ func (a *AgentLoop) SetThinkingTimeout(d time.Duration) {
 // 0 = use default (2 minutes).
 func (a *AgentLoop) SetIdleTimeout(d time.Duration) {
 	a.IdleTimeout = d
+}
+
+// SetRateLimitConfig sets the rate limit (HTTP 429) retry configuration.
+// maxRetries = max 429 retries before giving up (0 = default 50).
+// delay = delay between 429 retries (0 = default 3s).
+func (a *AgentLoop) SetRateLimitConfig(maxRetries int, delay time.Duration) {
+	if maxRetries > 0 {
+		a.rateLimitMaxRetries = maxRetries
+	}
+	if delay > 0 {
+		a.rateLimitDelay = delay
+	}
+}
+
+// effectiveRateLimitMaxRetries returns the effective rate limit max retries.
+func (a *AgentLoop) effectiveRateLimitMaxRetries() int {
+	if a.rateLimitMaxRetries > 0 {
+		return a.rateLimitMaxRetries
+	}
+	return 50
+}
+
+// effectiveRateLimitDelay returns the effective rate limit delay.
+func (a *AgentLoop) effectiveRateLimitDelay() time.Duration {
+	if a.rateLimitDelay > 0 {
+		return a.rateLimitDelay
+	}
+	return 3 * time.Second
 }
 
 // SetLoopRepeatThreshold sets the repetition threshold for loop detection.
@@ -800,6 +833,10 @@ func (a *AgentLoop) streamLoopWithCtx(ctx context.Context) (<-chan provider.Stre
 			// Check hub message injection (SIGUSR1 or periodic)
 			a.drainHubMessages(eventCh)
 
+			// Cleanup transient messages (auto-continue prompts, error hints)
+			// to prevent context pollution. Keeps only the last auto-continue.
+			a.Context.CleanupTransients()
+
 			// Compact context if needed before sending request
 			// This prevents context overflow from max_tokens continuations
 			a.maybeCompact(eventCh, ctx)
@@ -822,15 +859,40 @@ func (a *AgentLoop) streamLoopWithCtx(ctx context.Context) (<-chan provider.Stre
 			}
 
 			// Get threaded response with retry
-			stream, err := a.streamRetryRequest(ctx)
+			stream, err := a.streamRetryRequest(ctx, eventCh)
 			if err != nil {
+				// Rate limit errors should not stop the loop — show error and continue
+				// (the streamRetryRequest already retried 50 times with 3s delays)
+				if provider.IsRateLimitError(err) {
+					eventCh <- provider.StreamEvent{Type: provider.EventError, Error: err}
+					// Wait a bit before retrying the whole iteration
+					select {
+					case <-time.After(5 * time.Second):
+					case <-ctx.Done():
+						eventCh <- provider.StreamEvent{Type: provider.EventError, Error: ctx.Err()}
+						return
+					}
+					continue // retry the same iteration
+				}
 				eventCh <- provider.StreamEvent{Type: provider.EventError, Error: err}
 				return
 			}
 
-			// Collect response from thread
+			// Collect response from stream
 			result := a.collectStreamResponse(ctx, stream, eventCh, iteration)
 			if result.err != nil {
+				// Rate limit errors should not stop the loop — show error and continue
+				if provider.IsRateLimitError(result.err) {
+					eventCh <- provider.StreamEvent{Type: provider.EventError, Error: result.err}
+					// Wait a bit before retrying
+					select {
+					case <-time.After(5 * time.Second):
+					case <-ctx.Done():
+						eventCh <- provider.StreamEvent{Type: provider.EventError, Error: ctx.Err()}
+						return
+					}
+					continue // retry the same iteration
+				}
 				eventCh <- provider.StreamEvent{Type: provider.EventError, Error: result.err}
 				return
 			}

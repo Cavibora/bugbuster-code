@@ -10,13 +10,13 @@ import (
 func TestGlamourRendererRender(t *testing.T) {
 	gr := NewGlamourRenderer()
 
-	// Render буферизирует текст и возвращает пустую строку
+	// Render buffers text and returns an empty string
 	input := "Hello, **world**!\n"
 	output := gr.Render(input)
 	if output != "" {
 		t.Errorf("Expected Render to return empty string (buffered), got: %q", output)
 	}
-	// Текст должен быть доступен через Flush
+	// Text should be available via Flush
 	result := gr.Flush()
 	if !strings.Contains(result, "Hello") {
 		t.Errorf("Expected Flush to contain 'Hello', got: %q", result)
@@ -26,16 +26,16 @@ func TestGlamourRendererRender(t *testing.T) {
 func TestGlamourRendererFlush(t *testing.T) {
 	gr := NewGlamourRenderer()
 
-	// Накапливаем текст
+	// Accumulate text
 	gr.Render("# Hello\n\n**bold** text\n")
 	gr.Render("- item1\n- item2\n")
 
-	// Flush рендерит через glamour
+	// Flush renders via glamour
 	result := gr.Flush()
 	if result == "" {
 		t.Error("Expected Flush to return rendered markdown")
 	}
-	// Glamour должен отрендерить заголовок
+	// Glamour should render a heading
 	if !strings.Contains(result, "Hello") {
 		t.Errorf("Expected 'Hello' in rendered output, got: %q", result)
 	}
@@ -44,7 +44,7 @@ func TestGlamourRendererFlush(t *testing.T) {
 func TestGlamourRendererFlushEmpty(t *testing.T) {
 	gr := NewGlamourRenderer()
 
-	// Flush пустого буфера возвращает пустую строку
+	// Flushing an empty buffer returns an empty string
 	result := gr.Flush()
 	if result != "" {
 		t.Errorf("Expected empty Flush to return '', got: %q", result)
@@ -58,7 +58,7 @@ func TestGlamourRendererCodeBlock(t *testing.T) {
 	gr.Render(input)
 	result := gr.Flush()
 
-	// Glamour должен отрендерить кодовый блок
+	// Glamour should render a code block
 	if !strings.Contains(result, "hello") {
 		t.Errorf("Expected 'hello' in rendered code block, got: %q", result)
 	}
@@ -188,7 +188,7 @@ func TestFormatToolCallStartWithLines(t *testing.T) {
 
 
 func TestFormatReadSummaryDirectory(t *testing.T) {
-	// Директория — показываем "Directory /path" или "Директория /path"
+	// Directory — show "Directory /path" or "Директория /path"
 	result := formatReadSummary("Directory /Users/ss/ai/grfn/crates/grfn-core:\n  .DS_Store\n  Cargo.toml\n  📁 src", nil)
 	if !strings.Contains(result, "Directory") {
 		t.Errorf("Expected 'Directory' in directory summary, got: %q", result)
@@ -199,7 +199,7 @@ func TestFormatReadSummaryDirectory(t *testing.T) {
 }
 
 func TestFormatReadSummaryLines(t *testing.T) {
-	// Обычный файл — показываем "N lines"
+	// Regular file — show "N lines"
 	result := formatReadSummary("line1\nline2\nline3", nil)
 	if !strings.Contains(result, "3 lines") {
 		t.Errorf("Expected '3 lines' for file, got: %q", result)
@@ -207,7 +207,7 @@ func TestFormatReadSummaryLines(t *testing.T) {
 }
 
 func TestFormatDurationLessThanMs(t *testing.T) {
-	// Длительность < 1ms — показываем "<1ms"
+	// Duration < 1ms — show "<1ms"
 	result := FormatDuration(0)
 	if result != "<1ms" {
 		t.Errorf("Expected '<1ms' for 0 duration, got: %q", result)
@@ -219,7 +219,7 @@ func TestFormatDurationLessThanMs(t *testing.T) {
 }
 
 func TestFormatToolCallEnd(t *testing.T) {
-	// Read — показывает "N lines"
+	// Read — shows "N lines"
 	result := FormatToolCallEnd("read", true, "5 lines", "line1\nline2\nline3\nline4\nline5", 100*time.Millisecond, map[string]string{"path": "/tmp/test.go"})
 
 	if !strings.Contains(result, "✓") {
@@ -253,7 +253,7 @@ func TestFormatToolCallEndError(t *testing.T) {
 }
 
 func TestFormatToolCallEndReadSummary(t *testing.T) {
-	// Read — подсчёт строк из fullResult
+	// Read — line count from fullResult
 	result := FormatToolCallEnd("read", true, "line1", "line1\nline2\nline3", 0, nil)
 
 	if !strings.Contains(result, "3 lines") {
@@ -262,7 +262,7 @@ func TestFormatToolCallEndReadSummary(t *testing.T) {
 }
 
 func TestFormatToolCallEndBashSummary(t *testing.T) {
-	// Bash — первая строка вывода
+	// Bash — first line of output
 	result := FormatToolCallEnd("bash", true, "PASS", "PASS", 0, map[string]string{"command": "go test"})
 
 	if !strings.Contains(result, "PASS") {
@@ -271,7 +271,7 @@ func TestFormatToolCallEndBashSummary(t *testing.T) {
 }
 
 func TestFormatToolCallEndBashEmptyOutput(t *testing.T) {
-	// Bash — пустой вывод
+	// Bash — empty output
 	result := FormatToolCallEnd("bash", true, "(command executed successfully, empty output)", "(command executed successfully, empty output)", 0, map[string]string{"command": "ls"})
 
 	if !strings.Contains(result, "empty output") {
@@ -280,7 +280,7 @@ func TestFormatToolCallEndBashEmptyOutput(t *testing.T) {
 }
 
 func TestFormatToolCallEndWriteSummary(t *testing.T) {
-	// Write — парсинг "file /path written (N bytes)"
+	// Write — parsing "file /path written (N bytes)"
 	result := FormatToolCallEnd("write", true, "file /tmp/test.go written (1234 bytes)", "file /tmp/test.go written (1234 bytes)", 0, nil)
 
 	if !strings.Contains(result, "Wrote") {
@@ -292,7 +292,7 @@ func TestFormatToolCallEndWriteSummary(t *testing.T) {
 }
 
 func TestFormatToolCallEndEditSummary(t *testing.T) {
-	// Edit — парсинг "file /path edited"
+	// Edit — parsing "file /path edited"
 	result := FormatToolCallEnd("edit", true, "file /tmp/main.go edited", "file /tmp/main.go edited", 0, map[string]string{"path": "/tmp/main.go"})
 
 	if !strings.Contains(result, "Edited") {
@@ -304,7 +304,7 @@ func TestFormatToolCallEndEditSummary(t *testing.T) {
 }
 
 func TestFormatToolCallEndGlobSummary(t *testing.T) {
-	// Glob — подсчёт файлов
+	// Glob — file count
 	result := FormatToolCallEnd("glob", true, "3 files", "file1.go\nfile2.go\nfile3.go", 0, nil)
 
 	if !strings.Contains(result, "3 files") {
@@ -313,7 +313,7 @@ func TestFormatToolCallEndGlobSummary(t *testing.T) {
 }
 
 func TestFormatToolCallEndGlobNoFiles(t *testing.T) {
-	// Glob — нет файлов
+	// Glob — no files
 	result := FormatToolCallEnd("glob", true, "no files found", "no files found", 0, nil)
 
 	if !strings.Contains(result, "no files found") {
@@ -322,7 +322,7 @@ func TestFormatToolCallEndGlobNoFiles(t *testing.T) {
 }
 
 func TestFormatToolCallEndGrepSummary(t *testing.T) {
-	// Grep — подсчёт совпадений
+	// Grep — match count
 	result := FormatToolCallEnd("grep", true, "5 matches", "match1\nmatch2\nmatch3\nmatch4\nmatch5", 0, nil)
 
 	if !strings.Contains(result, "5 matches") {
@@ -331,7 +331,7 @@ func TestFormatToolCallEndGrepSummary(t *testing.T) {
 }
 
 func TestFormatToolCallEndGrepNoMatches(t *testing.T) {
-	// Grep — нет совпадений
+	// Grep — no matches
 	result := FormatToolCallEnd("grep", true, "no matches found", "no matches found", 0, nil)
 
 	if !strings.Contains(result, "no matches found") {
@@ -340,7 +340,7 @@ func TestFormatToolCallEndGrepNoMatches(t *testing.T) {
 }
 
 func TestFormatToolCallEndGenericSummary(t *testing.T) {
-	// Неизвестный инструмент — общий формат
+	// Unknown tool — general format
 	result := FormatToolCallEnd("custom_tool", true, "operation completed", "operation completed", 0, nil)
 
 	if !strings.Contains(result, "operation completed") {
@@ -349,7 +349,7 @@ func TestFormatToolCallEndGenericSummary(t *testing.T) {
 }
 
 func TestFormatToolCallEndGenericEmpty(t *testing.T) {
-	// Неизвестный инструмент с пустым результатом
+	// Unknown tool with empty result
 	result := FormatToolCallEnd("custom_tool", true, "", "", 0, nil)
 
 	if !strings.Contains(result, "done") {
@@ -358,7 +358,7 @@ func TestFormatToolCallEndGenericEmpty(t *testing.T) {
 }
 
 func TestFormatToolCallEndBashExtra(t *testing.T) {
-	// Bash — полный вывод с отступом и подсветкой синтаксиса
+	// Bash — full output with indentation and syntax highlighting
 	full := "line1\nline2\nline3"
 	result := FormatToolCallEnd("bash", true, "line1", full, 0, nil)
 	plain := stripANSI(result)
@@ -375,28 +375,28 @@ func TestFormatToolCallEndBashExtra(t *testing.T) {
 }
 
 func TestFormatToolCallEndReadExtra(t *testing.T) {
-	// Read — больше не показывает содержимое файла, только сводку
+	// Read — no longer shows file content, only a summary
 	full := "line1\nline2\nline3"
 	result := FormatToolCallEnd("read", true, "3 lines", full, 0, nil)
 
 	if !strings.Contains(result, "3 lines") {
 		t.Errorf("Expected '3 lines' summary, got: %q", result)
 	}
-	// Read больше не показывает extra-строки с содержимым
+	// Read no longer shows extra lines with content
 	if strings.Contains(result, "     line1") {
 		t.Errorf("Read should not show file content in extra lines, got: %q", result)
 	}
 }
 
 func TestFormatToolCallEndEditWithDiff(t *testing.T) {
-	// Edit с diff — показывает добавленные/удалённые строки
+	// Edit with diff — shows added/removed lines
 	fullResult := "file /tmp/test.go edited\n--- a//tmp/test.go\n+++ b//tmp/test.go\n@@ -1,3 +1,3 @@\n line1\n-old_line\n+new_line\n line3\n"
 	result := FormatToolCallEnd("edit", true, "Edited /tmp/test.go", fullResult, 0, nil)
 
 	if !strings.Contains(result, "Added") || !strings.Contains(result, "Removed") {
 		t.Errorf("Expected 'Added/Removed' in edit summary, got: %q", result)
 	}
-	// Diff-строки должны быть в extra
+	// Diff lines should be in extra
 	if !strings.Contains(result, "-old_line") {
 		t.Errorf("Expected '-old_line' in diff extra, got: %q", result)
 	}
@@ -406,7 +406,7 @@ func TestFormatToolCallEndEditWithDiff(t *testing.T) {
 }
 
 func TestFormatToolCallEndWriteNewFile(t *testing.T) {
-	// Write нового файла — показывает содержимое
+	// Write of a new file — shows content
 	fullResult := "file /tmp/new.go written (50 bytes)\n   1  package main\n   2  \n   3  func main() {\n   4  }\n"
 	result := FormatToolCallEnd("write", true, "Wrote 4 lines to /tmp/new.go", fullResult, 0, nil)
 
@@ -416,7 +416,7 @@ func TestFormatToolCallEndWriteNewFile(t *testing.T) {
 }
 
 func TestFormatToolCallEndWriteWithDiff(t *testing.T) {
-	// Write существующего файла — показывает diff
+	// Write of an existing file — shows diff
 	fullResult := "file /tmp/test.go written (100 bytes)\n--- a//tmp/test.go\n+++ b//tmp/test.go\n@@ -1,3 +1,3 @@\n line1\n-old\n+new\n line3\n"
 	result := FormatToolCallEnd("write", true, "Added 1, Removed 1 lines in /tmp/test.go", fullResult, 0, nil)
 
@@ -426,7 +426,7 @@ func TestFormatToolCallEndWriteWithDiff(t *testing.T) {
 }
 
 func TestFormatToolCallEndFullResultNoLimit(t *testing.T) {
-	// Большой fullResult — bash вывод без лимита строк
+	// Large fullResult — bash output without line limit
 	var lines []string
 	for i := 0; i < 55; i++ {
 		lines = append(lines, fmt.Sprintf("output line %d", i))
@@ -435,14 +435,14 @@ func TestFormatToolCallEndFullResultNoLimit(t *testing.T) {
 	result := FormatToolCallEnd("bash", true, "summary", full, 0, nil)
 	plain := stripANSI(result)
 
-	// Все строки должны присутствовать
+	// All lines should be present
 	if !strings.Contains(plain, "output line 0") {
 		t.Errorf("Expected first line, got: %q", plain)
 	}
 	if !strings.Contains(plain, "output line 54") {
 		t.Errorf("Expected last line, got: %q", plain)
 	}
-	// Не должно быть сообщения о truncation
+	// There should be no truncation message
 	if strings.Contains(plain, "more lines") {
 		t.Errorf("Expected no truncation message, got: %q", plain)
 	}
@@ -523,23 +523,23 @@ func TestFormatStatusLineEmpty(t *testing.T) {
 }
 
 func TestWrapText(t *testing.T) {
-	// Короткий текст — не переносится
+	// Short text — does not wrap
 	result := wrapText("hello world", 4, 80)
 	if !strings.Contains(result, "hello world") {
 		t.Errorf("Expected short text to be preserved, got: %q", result)
 	}
 
-	// Длинный текст — переносится по словам
+	// Long text — wraps by words
 	longText := "This is a very long line that should be wrapped at the specified column width to prevent it from stretching across the terminal"
 	result = wrapText(longText, 4, 40)
 	lines := strings.Split(result, "\n")
 	if len(lines) < 2 {
 		t.Errorf("Expected long text to be wrapped into multiple lines, got %d lines", len(lines))
 	}
-	// Каждая строка после первой должна начинаться с отступа
+	// Each line after the first should start with an indent
 	for i, line := range lines {
 		if i > 0 && strings.HasPrefix(line, " ") == false && line != "" {
-			// Допускаем пустые строки
+			// Allow empty lines
 		}
 	}
 }
@@ -563,7 +563,7 @@ func TestWrapTextEmpty(t *testing.T) {
 }
 
 func TestParsePartialToolInput(t *testing.T) {
-	// Полный JSON
+	// Full JSON
 	params := parsePartialToolInput(`{"path": "main.go", "lines": 10}`)
 	if params["path"] != "main.go" {
 		t.Errorf("Expected path=main.go, got %s", params["path"])
@@ -581,7 +581,7 @@ func TestParsePartialToolInputEmpty(t *testing.T) {
 }
 
 func TestParsePartialToolInputPartial(t *testing.T) {
-	// Частичный JSON — незакрытая скобка
+	// Partial JSON — unclosed bracket
 	params := parsePartialToolInput(`{"path": "main.go"`)
 	if params["path"] != "main.go" {
 		t.Errorf("Expected path=main.go from partial JSON, got %s", params["path"])
@@ -613,7 +613,7 @@ func TestFormatToolSummaryLongValue(t *testing.T) {
 	longPath := strings.Repeat("x", 100)
 	params := map[string]string{"path": longPath}
 	result := formatToolSummary("read", params)
-	// Полные параметры без обрезания
+	// Full parameters without truncation
 	if !strings.Contains(result, longPath) {
 		t.Errorf("Expected full path in summary, got: %q", result)
 	}
@@ -622,25 +622,25 @@ func TestFormatToolSummaryLongValue(t *testing.T) {
 	}
 }
 func TestFormatDelegateTaskSummary(t *testing.T) {
-	// Пустой результат
+	// Empty result
 	result := formatDelegateTaskSummary("")
 	if !strings.Contains(result, "subagent completed") {
 		t.Errorf("Expected 'subagent completed' for empty result, got: %q", result)
 	}
 
-	// Одна строка
+	// One line
 	result = formatDelegateTaskSummary("Found 3 bugs in main.go")
 	if !strings.Contains(result, "Found 3 bugs in main.go") {
 		t.Errorf("Expected result text, got: %q", result)
 	}
 
-	// Много строк — берём первую непустую
+	// Many lines — take the first non-empty one
 	result = formatDelegateTaskSummary("\n\nFound 3 bugs\nDetails here")
 	if !strings.Contains(result, "Found 3 bugs") {
 		t.Errorf("Expected first non-empty line, got: %q", result)
 	}
 
-	// Очень длинная строка — обрезается
+	// Very long line — truncated
 	longLine := strings.Repeat("x", 200)
 	result = formatDelegateTaskSummary(longLine)
 	if len(result) > 200 {

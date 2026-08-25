@@ -11,7 +11,7 @@ import (
 	"bugbuster-code/pkg/tools"
 )
 
-// MockTextProvider — провайдер, который всегда возвращает текстовый ответ
+// MockTextProvider — a provider that always returns a text response
 type MockTextProvider struct {
 	text string
 }
@@ -44,7 +44,7 @@ func (m *MockTextProvider) StreamWithCtx(ctx context.Context, messages []provide
 	return ch, nil
 }
 
-// TestRunLoop_WithTextResponse проверяет синхронный цикл с текстовым ответом
+// TestRunLoop_WithTextResponse verifies the synchronous loop with a text response
 func TestRunLoop_WithTextResponse(t *testing.T) {
 	if err := i18n.Init("en"); err != nil {
 		t.Fatalf("i18n.Init failed: %v", err)
@@ -61,7 +61,7 @@ func TestRunLoop_WithTextResponse(t *testing.T) {
 	}
 }
 
-// TestRunWithMessages_WithTextResponse проверяет RunWithMessages с текстовым ответом
+// TestRunWithMessages_WithTextResponse verifies RunWithMessages with a text response
 func TestRunWithMessages_WithTextResponse(t *testing.T) {
 	if err := i18n.Init("en"); err != nil {
 		t.Fatalf("i18n.Init failed: %v", err)
@@ -81,7 +81,7 @@ func TestRunWithMessages_WithTextResponse(t *testing.T) {
 	}
 }
 
-// TestStream_WithTextResponse проверяет стриминг с текстовым ответом
+// TestStream_WithTextResponse verifies streaming with a text response
 func TestStream_WithTextResponse(t *testing.T) {
 	if err := i18n.Init("en"); err != nil {
 		t.Fatalf("i18n.Init failed: %v", err)
@@ -113,7 +113,7 @@ func TestStream_WithTextResponse(t *testing.T) {
 	}
 }
 
-// MockToolCallProvider — провайдер, который возвращает tool call, а затем текст
+// MockToolCallProvider — a provider that returns a tool call, then text
 type MockToolCallProvider struct {
 	callCount int
 	toolName  string
@@ -126,7 +126,7 @@ func (m *MockToolCallProvider) Model() string { return "mock-toolcall-model" }
 func (m *MockToolCallProvider) Complete(messages []provider.Message, toolDefs []provider.ToolDef) (*provider.CompletionResult, error) {
 	m.callCount++
 	if m.callCount == 1 {
-		// Первый вызов — tool call
+		// First call — tool call
 		return &provider.CompletionResult{
 			Message: provider.Message{
 				Role: "assistant",
@@ -137,7 +137,7 @@ func (m *MockToolCallProvider) Complete(messages []provider.Message, toolDefs []
 			StopReason: "tool_use",
 		}, nil
 	}
-	// Второй вызов — текст
+	// Second call — text
 	return &provider.CompletionResult{
 		Message:    provider.AssistantText(m.finalText),
 		StopReason: "end_turn",
@@ -157,13 +157,13 @@ func (m *MockToolCallProvider) StreamWithCtx(ctx context.Context, messages []pro
 	ch := make(chan provider.StreamEvent, 10)
 	go func() {
 		if m.callCount == 1 {
-			// Первый вызов — tool call
+			// First call — tool call
 			ch <- provider.StreamEvent{Type: provider.EventToolCallStart, ToolName: m.toolName, ToolCallID: "call_1"}
 			ch <- provider.StreamEvent{Type: provider.EventToolCallDelta, ToolDelta: `{"path":"/tmp/test"}`, ToolCallID: "call_1"}
 			ch <- provider.StreamEvent{Type: provider.EventToolCallEnd, ToolCallID: "call_1"}
 			ch <- provider.StreamEvent{Type: provider.EventDone}
 		} else {
-			// Второй вызов — текст
+			// Second call — text
 			ch <- provider.StreamEvent{Type: provider.EventTextDelta, Text: m.finalText}
 			ch <- provider.StreamEvent{Type: provider.EventDone}
 		}
@@ -172,7 +172,7 @@ func (m *MockToolCallProvider) StreamWithCtx(ctx context.Context, messages []pro
 	return ch, nil
 }
 
-// TestRunLoop_WithToolCall проверяет синхронный цикл с tool call
+// TestRunLoop_WithToolCall verifies the synchronous loop with a tool call
 func TestRunLoop_WithToolCall(t *testing.T) {
 	if err := i18n.Init("en"); err != nil {
 		t.Fatalf("i18n.Init failed: %v", err)
@@ -190,12 +190,12 @@ func TestRunLoop_WithToolCall(t *testing.T) {
 	}
 }
 
-// TestRunLoop_LoopDetection проверяет детекцию зацикливания
+// TestRunLoop_LoopDetection verifies loop detection
 func TestRunLoop_LoopDetection(t *testing.T) {
 	if err := i18n.Init("en"); err != nil {
 		t.Fatalf("i18n.Init failed: %v", err)
 	}
-	// Провайдер, который всегда возвращает один и тот же tool call
+	// Provider that always returns the same tool call
 	mock := &MockStreamingProvider{}
 	loop := NewAgentLoop(mock)
 	loop.SetMaxIterations(20) // Достаточно итераций для детекции
@@ -210,32 +210,32 @@ func TestRunLoop_LoopDetection(t *testing.T) {
 		t.Fatalf("StreamWithCancel failed: %v", err)
 	}
 
-	// Собираем все события
+	// Collect all events
 	var gotDone bool
 	for range eventCh {
-		// Просто ждём завершения
+		// Just wait for completion
 	}
 	_ = gotDone
 }
 
-// TestRunLoop_UnknownTool проверяет обработку неизвестного инструмента
+// TestRunLoop_UnknownTool verifies handling of an unknown tool
 func TestRunLoop_UnknownTool(t *testing.T) {
 	if err := i18n.Init("en"); err != nil {
 		t.Fatalf("i18n.Init failed: %v", err)
 	}
 	mock := &MockToolCallProvider{toolName: "unknown_tool", finalText: "OK"}
 	loop := NewAgentLoop(mock)
-	// Не регистрируем unknown_tool — агент должен обработать ошибку
+	// Do not register unknown_tool — the agent should handle the error
 
 	result, err := loop.Run("use unknown tool")
 	if err != nil {
-		// Ошибка зацикливания — это нормально
+		// Loop error — this is normal
 		t.Logf("Run returned error (expected for unknown tool): %v", err)
 	}
 	_ = result
 }
 
-// TestRunLoop_PermissionDenied проверяет запрет инструмента
+// TestRunLoop_PermissionDenied verifies tool denial
 func TestRunLoop_PermissionDenied(t *testing.T) {
 	if err := i18n.Init("en"); err != nil {
 		t.Fatalf("i18n.Init failed: %v", err)
@@ -248,10 +248,10 @@ func TestRunLoop_PermissionDenied(t *testing.T) {
 	result, err := loop.Run("run bash command")
 	_ = result
 	_ = err
-	// Может быть ошибка зацикливания или успешное завершение
+	// May be a loop error or successful completion
 }
 
-// TestStreamWithCancel_ContextCancellation проверяет отмену контекста
+// TestStreamWithCancel_ContextCancellation verifies context cancellation
 func TestStreamWithCancel_ContextCancellation(t *testing.T) {
 	if err := i18n.Init("en"); err != nil {
 		t.Fatalf("i18n.Init failed: %v", err)
@@ -262,7 +262,7 @@ func TestStreamWithCancel_ContextCancellation(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Отменяем через 100мс
+	// Cancel after 100ms
 	go func() {
 		time.Sleep(100 * time.Millisecond)
 		cancel()
@@ -273,18 +273,18 @@ func TestStreamWithCancel_ContextCancellation(t *testing.T) {
 		t.Fatalf("StreamWithCancel failed: %v", err)
 	}
 
-	// Собираем события до отмены
+	// Collect events until cancellation
 	var gotError bool
 	for event := range eventCh {
 		if event.Type == provider.EventError {
 			gotError = true
 		}
 	}
-	// Контекст отменён — может быть ошибка или просто закрытие канала
+	// Context cancelled — may be an error or just channel closure
 	_ = gotError
 }
 
-// MockErrorProvider — провайдер, который всегда возвращает ошибку
+// MockErrorProvider — a provider that always returns an error
 type MockErrorProvider struct {
 	err error
 }
@@ -330,12 +330,12 @@ func TestStream_ProviderError(t *testing.T) {
 
 	eventCh, err := loop.Stream("test query")
 	if err != nil {
-		// Stream может вернуть ошибку сразу (если провайдер nil)
+		// Stream may return an error immediately (if provider is nil)
 		t.Logf("Stream returned error: %v", err)
 		return
 	}
 
-	// Ошибка от провайдера приходит через канал событий
+	// Provider error arrives through the events channel
 	var gotError bool
 	for event := range eventCh {
 		if event.Type == provider.EventError {
@@ -347,7 +347,7 @@ func TestStream_ProviderError(t *testing.T) {
 	}
 }
 
-// MockMaxTokensProvider — провайдер, который сначала возвращает max_tokens, а затем нормальный ответ
+// MockMaxTokensProvider — a provider that first returns max_tokens, then a normal response
 type MockMaxTokensProvider struct {
 	callCount int
 	truncatedText string
@@ -360,13 +360,13 @@ func (m *MockMaxTokensProvider) Model() string { return "mock-max-tokens-model" 
 func (m *MockMaxTokensProvider) Complete(messages []provider.Message, toolDefs []provider.ToolDef) (*provider.CompletionResult, error) {
 	m.callCount++
 	if m.callCount == 1 {
-		// Первый вызов — обрезанный ответ (max_tokens)
+		// First call — truncated response (max_tokens)
 		return &provider.CompletionResult{
 			Message:    provider.AssistantText(m.truncatedText),
 			StopReason: "max_tokens",
 		}, nil
 	}
-	// Второй вызов — нормальный ответ
+	// Second call — normal response
 	return &provider.CompletionResult{
 		Message:    provider.AssistantText(m.finalText),
 		StopReason: "end_turn",
@@ -386,12 +386,12 @@ func (m *MockMaxTokensProvider) StreamWithCtx(ctx context.Context, messages []pr
 	ch := make(chan provider.StreamEvent, 20)
 	go func() {
 		if m.callCount == 1 {
-			// Первый вызов — обрезанный ответ (max_tokens)
+			// First call — truncated response (max_tokens)
 			ch <- provider.StreamEvent{Type: provider.EventTextDelta, Text: m.truncatedText}
 			ch <- provider.StreamEvent{Type: "stop_reason", StopReason: "max_tokens"}
 			ch <- provider.StreamEvent{Type: provider.EventDone}
 		} else {
-			// Второй вызов — нормальный ответ
+			// Second call — normal response
 			ch <- provider.StreamEvent{Type: provider.EventTextDelta, Text: m.finalText}
 			ch <- provider.StreamEvent{Type: provider.EventDone}
 		}
@@ -400,8 +400,8 @@ func (m *MockMaxTokensProvider) StreamWithCtx(ctx context.Context, messages []pr
 	return ch, nil
 }
 
-// TestRunLoop_MaxTokensContinues проверяет, что при max_tokens агент продолжает работу
-// с минимальным prompt "Continue." (не длинным continuation hint)
+// TestRunLoop_MaxTokensContinues verifies that on max_tokens the agent continues working
+// with a minimal prompt "Continue." (not a long continuation hint)
 func TestRunLoop_MaxTokensContinues(t *testing.T) {
 	if err := i18n.Init("en"); err != nil {
 		t.Fatalf("i18n.Init failed: %v", err)
@@ -426,8 +426,8 @@ func TestRunLoop_MaxTokensContinues(t *testing.T) {
 	}
 }
 
-// TestStream_MaxTokensContinues проверяет, что при max_tokens стриминг продолжает работу
-// с минимальным prompt "Continue." — текст склеивается без предупреждений
+// TestStream_MaxTokensContinues verifies that on max_tokens streaming continues
+// with a minimal prompt "Continue." — text is joined without warnings
 func TestStream_MaxTokensContinues(t *testing.T) {
 	if err := i18n.Init("en"); err != nil {
 		t.Fatalf("i18n.Init failed: %v", err)
@@ -469,7 +469,7 @@ func TestStream_MaxTokensContinues(t *testing.T) {
 	}
 }
 
-// TestBuildSystemPrompt_WithTools проверяет системный промпт с инструментами
+// TestBuildSystemPrompt_WithTools verifies the system prompt with tools
 func TestBuildSystemPrompt_WithTools(t *testing.T) {
 	if err := i18n.Init("en"); err != nil {
 		t.Fatalf("i18n.Init failed: %v", err)

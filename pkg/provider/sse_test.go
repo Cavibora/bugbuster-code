@@ -168,8 +168,8 @@ func TestSplitJSON_Simple(t *testing.T) {
 }
 
 func TestSplitJSON_WithEscapedStrings(t *testing.T) {
-	// JSON с экранированными строками, содержащими { и }
-	// Это реальный кейс из OpenAI streaming с tool_calls
+	// JSON with escaped strings containing { and }
+	// This is a real case from OpenAI streaming with tool_calls
 	input := `{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"path\":"}}]},"finish_reason":null}]}`
 	result := splitJSON(input)
 	if len(result) != 1 {

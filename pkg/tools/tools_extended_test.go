@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// === EditTool расширенные тесты ===
+// === EditTool extended tests ===
 
 func TestEditTool_PathTraversal(t *testing.T) {
 	tool := NewEditTool()
@@ -31,7 +31,7 @@ func TestEditTool_AllowedDirs(t *testing.T) {
 	tool := NewEditTool()
 	tool.AllowedDirs = []string{tmpDir}
 
-	// Доступ разрешён
+	// Access allowed
 	result := tool.Execute(map[string]string{
 		"path": tmpFile,
 		"old":  "world",
@@ -41,7 +41,7 @@ func TestEditTool_AllowedDirs(t *testing.T) {
 		t.Errorf("Expected success, got error: %s", result.Error)
 	}
 
-	// Доступ запрещён
+	// Access denied
 	result = tool.Execute(map[string]string{
 		"path": "/etc/hosts",
 		"old":  "localhost",
@@ -58,7 +58,7 @@ func TestEditTool_MultipleReplacements(t *testing.T) {
 	os.WriteFile(tmpFile, []byte("aaa bbb aaa"), 0644)
 
 	tool := NewEditTool()
-	// Замена только первого вхождения
+	// Replace only the first occurrence
 	result := tool.Execute(map[string]string{
 		"path": tmpFile,
 		"old":  "aaa",
@@ -74,7 +74,7 @@ func TestEditTool_MultipleReplacements(t *testing.T) {
 	}
 }
 
-// === WriteTool расширенные тесты ===
+// === WriteTool extended tests ===
 
 func TestWriteTool_PathTraversal(t *testing.T) {
 	tool := NewWriteTool()
@@ -94,7 +94,7 @@ func TestWriteTool_AllowedDirs(t *testing.T) {
 	tool := NewWriteTool()
 	tool.AllowedDirs = []string{tmpDir}
 
-	// Доступ разрешён
+	// Access allowed
 	result := tool.Execute(map[string]string{
 		"path":    tmpFile,
 		"content": "allowed",
@@ -103,7 +103,7 @@ func TestWriteTool_AllowedDirs(t *testing.T) {
 		t.Errorf("Expected success, got error: %s", result.Error)
 	}
 
-	// Доступ запрещён
+	// Access denied
 	result = tool.Execute(map[string]string{
 		"path":    "/tmp/outside.txt",
 		"content": "outside",
@@ -133,12 +133,12 @@ func TestWriteTool_OverwriteExisting(t *testing.T) {
 	}
 }
 
-// === ReadTool расширенные тесты ===
+// === ReadTool extended tests ===
 
 func TestReadTool_MaxSize(t *testing.T) {
 	tmpDir := t.TempDir()
 	tmpFile := filepath.Join(tmpDir, "large.txt")
-	// Создаём файл больше 1KB
+	// Create a file larger than 1KB
 	content := strings.Repeat("x", 2048)
 	os.WriteFile(tmpFile, []byte(content), 0644)
 
@@ -163,7 +163,7 @@ func TestReadTool_SecretPath(t *testing.T) {
 	}
 }
 
-// === GrepTool расширенные тесты ===
+// === GrepTool extended tests ===
 
 func TestGrepTool_CaseInsensitive(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -178,7 +178,7 @@ func TestGrepTool_CaseInsensitive(t *testing.T) {
 	if result.Error != "" {
 		t.Errorf("Unexpected error: %s", result.Error)
 	}
-	// Должно найти все 3 строки
+	// Should find all 3 lines
 	lines := strings.Split(strings.TrimSpace(result.Output), "\n")
 	if len(lines) < 3 {
 		t.Errorf("Expected at least 3 matches with case_insensitive, got %d: %s", len(lines), result.Output)
@@ -199,7 +199,7 @@ func TestGrepTool_FilePattern(t *testing.T) {
 	if result.Error != "" {
 		t.Errorf("Unexpected error: %s", result.Error)
 	}
-	// Должен найти только в .go файле
+	// Should find only in the .go file
 	if !strings.Contains(result.Output, "test.go") {
 		t.Errorf("Expected test.go in results, got: %s", result.Output)
 	}
@@ -220,7 +220,7 @@ func TestGrepTool_NoMatches(t *testing.T) {
 	if result.Error != "" {
 		t.Errorf("Unexpected error: %s", result.Error)
 	}
-	// Нет совпадений — не ошибка, а пустой результат
+	// No matches — not an error, but an empty result
 }
 
 func TestGrepTool_PathTraversal(t *testing.T) {
@@ -244,7 +244,7 @@ func TestGrepTool_InvalidRegex(t *testing.T) {
 	}
 }
 
-// === GlobTool расширенные тесты ===
+// === GlobTool extended tests ===
 
 func TestGlobTool_PathTraversal(t *testing.T) {
 	tool := NewGlobTool()
@@ -264,7 +264,7 @@ func TestGlobTool_AllowedDirs(t *testing.T) {
 	tool := NewGlobTool()
 	tool.AllowedDirs = []string{tmpDir}
 
-	// Доступ разрешён
+	// Access allowed
 	result := tool.Execute(map[string]string{
 		"pattern": "*.go",
 		"path":    tmpDir,
@@ -273,7 +273,7 @@ func TestGlobTool_AllowedDirs(t *testing.T) {
 		t.Errorf("Expected success, got error: %s", result.Error)
 	}
 
-	// Доступ запрещён
+	// Access denied
 	result = tool.Execute(map[string]string{
 		"pattern": "*.go",
 		"path":    "/etc",
@@ -298,7 +298,7 @@ func TestGlobTool_NoMatches(t *testing.T) {
 
 func TestGlobTool_MaxResults(t *testing.T) {
 	tmpDir := t.TempDir()
-	// Создаём много файлов
+	// Create many files
 	for i := 0; i < 150; i++ {
 		os.WriteFile(filepath.Join(tmpDir, "file_"+string(rune('A'+i%26))+".txt"), []byte("x"), 0644)
 	}
@@ -313,14 +313,14 @@ func TestGlobTool_MaxResults(t *testing.T) {
 	if result.Error != "" {
 		t.Errorf("Unexpected error: %s", result.Error)
 	}
-	// Результат должен быть обрезан
+	// The result should be truncated
 	lines := strings.Split(result.Output, "\n")
 	if len(lines) > 12 { // 10 результатов + строка truncation
 		t.Errorf("Expected max 10 results + truncation message, got %d lines", len(lines))
 	}
 }
 
-// === BashTool расширенные тесты ===
+// === BashTool extended tests ===
 
 func TestBashTool_DefaultDir(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -332,8 +332,8 @@ func TestBashTool_DefaultDir(t *testing.T) {
 	if result.Error != "" {
 		t.Errorf("Unexpected error: %s", result.Error)
 	}
-	// Вывод должен содержать tmpDir
-	// Примечание: pwd может вернуть symlink, поэтому просто проверяем что нет ошибки
+	// Output should contain tmpDir
+	// Note: pwd may return a symlink, so we just verify there is no error
 }
 
 func TestBashTool_WorkingDir(t *testing.T) {
@@ -349,14 +349,14 @@ func TestBashTool_WorkingDir(t *testing.T) {
 
 func TestBashTool_SecretCommand(t *testing.T) {
 	tool := NewBashTool()
-	// Команды с секретными файлами должны блокироваться
+	// Commands with secret files should be blocked
 	result := tool.Execute(map[string]string{"command": "cat .env"})
 	if result.Error == "" {
 		t.Error("Expected error for secret file access")
 	}
 }
 
-// === LearnTool тесты ===
+// === LearnTool tests ===
 
 func TestLearnTool_Name(t *testing.T) {
 	tool := NewLearnTool()
@@ -368,13 +368,13 @@ func TestLearnTool_Name(t *testing.T) {
 func TestLearnTool_MissingParams(t *testing.T) {
 	tool := NewLearnTool()
 
-	// Без input
+	// Without input
 	result := tool.Execute(map[string]string{})
 	if result.Error == "" {
 		t.Error("Expected error for missing input")
 	}
 
-	// Без output
+	// Without output
 	result = tool.Execute(map[string]string{"input": "test"})
 	if result.Error == "" {
 		t.Error("Expected error for missing output")
@@ -400,10 +400,10 @@ func TestLearnTool_WithTeachURL(t *testing.T) {
 		"input":  "What is Go?",
 		"output": "Go is a programming language",
 	})
-	// TeachURL задан, но реального сервера нет — проверяем что нет ошибки "not available"
-	// (в текущей реализации возвращается Success, т.к. HTTP-запрос ещё не реализован)
+	// TeachURL is set but there is no real server — verify there is no "not available" error
+	// (in the current implementation returns Success, since the HTTP request is not yet implemented)
 	if result.Error != "" && !strings.Contains(result.Error, "not_available") {
-		// Если ошибка не "not_available" — это нормально (HTTP не реализован)
+		// If the error is not "not_available" — that is fine (HTTP not implemented)
 		t.Logf("Result: %s", result.Output)
 	}
 }
@@ -416,7 +416,7 @@ func TestLearnTool_Parameters(t *testing.T) {
 	}
 }
 
-// === AskTool тесты ===
+// === AskTool tests ===
 
 func TestAskTool_Name(t *testing.T) {
 	tool := NewAskTool()
@@ -456,7 +456,7 @@ func TestAskTool_Parameters(t *testing.T) {
 	}
 }
 
-// === AskUserTool расширенные тесты ===
+// === AskUserTool extended tests ===
 
 func TestAskUserTool_NonInteractive(t *testing.T) {
 	tool := NewAskUserTool()
@@ -466,10 +466,10 @@ func TestAskUserTool_NonInteractive(t *testing.T) {
 	if result.Error != "" {
 		t.Errorf("Unexpected error in non-interactive mode: %s", result.Error)
 	}
-	// В неинтерактивном режиме должен вернуть skipped
+	// In non-interactive mode should return skipped
 }
 
-// === WebFetchTool расширенные тесты ===
+// === WebFetchTool extended tests ===
 
 func TestWebFetchTool_MethodNotAllowed(t *testing.T) {
 	tool := NewWebFetchTool()
@@ -484,7 +484,7 @@ func TestWebFetchTool_MethodNotAllowed(t *testing.T) {
 	}
 }
 
-// === TodoWriteTool расширенные тесты ===
+// === TodoWriteTool extended tests ===
 
 func TestTodoWriteTool_EmptyArray(t *testing.T) {
 	tw := NewTodoWriteTool()
@@ -503,7 +503,7 @@ func TestTodoWriteTool_EmptyArray(t *testing.T) {
 func TestTodoWriteTool_ConcurrentAccess(t *testing.T) {
 	tw := NewTodoWriteTool()
 
-	// Запускаем конкурентную запись
+	// Run concurrent writes
 	done := make(chan bool, 2)
 	go func() {
 		tw.Execute(map[string]string{
@@ -518,18 +518,18 @@ func TestTodoWriteTool_ConcurrentAccess(t *testing.T) {
 		done <- true
 	}()
 
-	// Ждём завершения обеих горутин
+	// Wait for both goroutines to finish
 	<-done
 	<-done
 
-	// Проверяем что GetTodos возвращает валидный результат
+	// Verify that GetTodos returns a valid result
 	todos := tw.GetTodos()
 	if len(todos) != 1 {
 		t.Errorf("Expected 1 item after concurrent writes, got %d", len(todos))
 	}
 }
 
-// === LSPTool расширенные тесты ===
+// === LSPTool extended tests ===
 
 func TestLSPTool_AllowedDirs(t *testing.T) {
 	tool := NewLSPTool()
@@ -539,7 +539,7 @@ func TestLSPTool_AllowedDirs(t *testing.T) {
 		"operation": "hover",
 		"file_path": "/etc/passwd",
 	})
-	// Должен вернуть ошибку доступа (путь не в AllowedDirs)
+	// Should return an access error (path not in AllowedDirs)
 	if result.Error == "" {
 		t.Error("Expected error for disallowed path")
 	}
@@ -569,7 +569,7 @@ func TestLSPTool_ServerNotFound(t *testing.T) {
 
 	tool := NewLSPTool()
 	tool.AllowedDirs = []string{tmpDir}
-	// Нет серверов в конфигурации
+	// No servers in the configuration
 
 	result := tool.Execute(map[string]string{
 		"operation": "hover",
@@ -580,7 +580,7 @@ func TestLSPTool_ServerNotFound(t *testing.T) {
 	}
 }
 
-// === BashTool Timeout тест ===
+// === BashTool Timeout test ===
 
 func TestBashTool_Timeout(t *testing.T) {
 	tool := NewBashTool()
@@ -596,7 +596,7 @@ func TestBashTool_Timeout(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 }
 
-// === min() helper тест (из learn.go) ===
+// === min() helper test (from learn.go) ===
 
 func TestMin(t *testing.T) {
 	tests := []struct {

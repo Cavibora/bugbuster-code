@@ -29,7 +29,7 @@ func TestDefaultKeyBindings(t *testing.T) {
 }
 
 func TestResolveDefaults(t *testing.T) {
-	// Пустой конфиг должен резолвиться в дефолты
+	// Empty config should resolve to defaults
 	kb := KeyBindings{}
 	resolved := kb.Resolve()
 
@@ -57,7 +57,7 @@ func TestResolveDefaults(t *testing.T) {
 }
 
 func TestResolveCustom(t *testing.T) {
-	// Кастомный конфиг должен перекрывать дефолты
+	// Custom config should override defaults
 	kb := KeyBindings{
 		Send:    []string{"enter"},
 		Newline: []string{"ctrl+j"}, // кастомный перенос строки
@@ -80,7 +80,7 @@ func TestResolveCustom(t *testing.T) {
 	if !resolved.Cancel["ctrl+q"] {
 		t.Error("Resolved Cancel should contain 'ctrl+q'")
 	}
-	// Неуказанные поля — дефолтные
+	// Unspecified fields — defaults
 	if !resolved.Interrupt["esc"] {
 		t.Error("Resolved Interrupt should contain 'esc' (default)")
 	}
@@ -92,7 +92,7 @@ func TestResolveCustom(t *testing.T) {
 func TestMatchesEnter(t *testing.T) {
 	resolved := DefaultKeyBindings().Resolve()
 
-	// Enter должен матчить Send
+	// Enter should match Send
 	msg := tea.KeyPressMsg{Code: tea.KeyEnter}
 	if !resolved.Matches(msg, ActionSend) {
 		t.Error("Enter should match ActionSend")
@@ -105,7 +105,7 @@ func TestMatchesEnter(t *testing.T) {
 func TestMatchesAltEnter(t *testing.T) {
 	resolved := DefaultKeyBindings().Resolve()
 
-	// Alt+Enter должен матчить Newline
+	// Alt+Enter should match Newline
 	msg := tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModAlt}
 	if !resolved.Matches(msg, ActionNewline) {
 		t.Error("Alt+Enter should match ActionNewline")
@@ -192,7 +192,7 @@ func TestAllKeys(t *testing.T) {
 func TestMatchesCtrlJ(t *testing.T) {
 	resolved := DefaultKeyBindings().Resolve()
 
-	// Ctrl+J как Ctrl+J (модификатор + клавиша)
+	// Ctrl+J as Ctrl+J (modifier + key)
 	msg := tea.KeyPressMsg{Code: 'j', Mod: tea.ModCtrl}
 	if !resolved.Matches(msg, ActionNewline) {
 		t.Error("Ctrl+J should match ActionNewline")
@@ -201,7 +201,7 @@ func TestMatchesCtrlJ(t *testing.T) {
 		t.Error("Ctrl+J should NOT match ActionSend")
 	}
 
-	// Ctrl+J как \n (код 10) — fallback для терминалов без CSI-u
+	// Ctrl+J as \n (code 10) — fallback for terminals without CSI-u
 	msg2 := tea.KeyPressMsg{Code: 10}
 	if !resolved.Matches(msg2, ActionNewline) {
 		t.Error("Ctrl+J (code 10) should match ActionNewline")
@@ -214,7 +214,7 @@ func TestMatchesCtrlJ(t *testing.T) {
 func TestMatchesShiftEnter(t *testing.T) {
 	resolved := DefaultKeyBindings().Resolve()
 
-	// Shift+Enter должен матчить Newline (дефолт теперь включает shift+enter)
+	// Shift+Enter should match Newline (default now includes shift+enter)
 	msg := tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModShift}
 	if !resolved.Matches(msg, ActionNewline) {
 		t.Error("Shift+Enter should match ActionNewline")
@@ -227,7 +227,7 @@ func TestMatchesShiftEnter(t *testing.T) {
 func TestFormatHelp(t *testing.T) {
 	resolved := DefaultKeyBindings().Resolve()
 
-	// Простая функция перевода для теста
+	// Simple translation function for the test
 	translate := func(key string, _ ...interface{}) string {
 		m := map[string]string{
 			"keys.send":      "отправить",
@@ -249,7 +249,7 @@ func TestFormatHelp(t *testing.T) {
 	if help == "" {
 		t.Error("FormatHelp should return non-empty string")
 	}
-	// Должен содержать "enter" и "отправить"
+	// Should contain "enter" and "отправить"
 	if !containsAll(help, "enter", "отправить") {
 		t.Errorf("FormatHelp idle = %q, should contain 'enter' and 'отправить'", help)
 	}

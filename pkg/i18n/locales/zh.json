@@ -26,6 +26,7 @@
   "cli.auto_max_iterations": "Autopilot已达到最大迭代次数(%d)。停止。",
   "cli.auto_phrases": "继续|很好，继续|继续吧|下一阶段|继续前进|继续实现|继续走|保持下去|好的，继续|向前|继续工作|进入下一步",
   "cli.auto_plan_completed": "计划已完成，autopilot已禁用。",
+  "cli.auto_continue_after_error": "错误后继续...",
   "cli.cancel_request": "\n正在取消当前请求...",
   "cli.cavibora_only": "此命令需要Cavibora提供商",
   "cli.cmd_dream": "🌙 梦境 — 记忆整合（仅限Cavibora）",

@@ -10,7 +10,7 @@ import (
 func TestTodoWriteToolExecute(t *testing.T) {
 	tw := NewTodoWriteTool()
 
-	// Пишем чеклист
+	// Write a checklist
 	params := map[string]string{
 		"todos": `[{"id":"1","subject":"Setup project","status":"completed"},{"id":"2","subject":"Add tests","status":"in_progress"},{"id":"3","subject":"Deploy","status":"pending"}]`,
 	}
@@ -19,7 +19,7 @@ func TestTodoWriteToolExecute(t *testing.T) {
 		t.Fatalf("Execute failed: %s", result.Error)
 	}
 
-	// Проверяем что Output — валидный JSON
+	// Verify that Output is valid JSON
 	var items []TodoItem
 	if err := json.Unmarshal([]byte(result.Output), &items); err != nil {
 		t.Fatalf("Output is not valid JSON: %v", err)
@@ -89,12 +89,12 @@ func TestTodoReadToolAfterWrite(t *testing.T) {
 	tw := NewTodoWriteTool()
 	tr := NewTodoReadTool(tw)
 
-	// Пишем чеклист
+	// Write a checklist
 	tw.Execute(map[string]string{
 		"todos": `[{"id":"1","subject":"Task 1","status":"completed"}]`,
 	})
 
-	// Читаем
+	// Read
 	result := tr.Execute(map[string]string{})
 	if result.Error != "" {
 		t.Fatalf("Execute failed: %s", result.Error)
@@ -115,12 +115,12 @@ func TestTodoReadToolAfterWrite(t *testing.T) {
 func TestTodoWriteToolUpdate(t *testing.T) {
 	tw := NewTodoWriteTool()
 
-	// Первый вызов
+	// First call
 	tw.Execute(map[string]string{
 		"todos": `[{"id":"1","subject":"Task 1","status":"pending"}]`,
 	})
 
-	// Обновляем статус
+	// Update status
 	result := tw.Execute(map[string]string{
 		"todos": `[{"id":"1","subject":"Task 1","status":"completed"}]`,
 	})

@@ -7,24 +7,26 @@ import (
 	"time"
 
 	"bugbuster-code/pkg/agent"
+	"bugbuster-code/pkg/config"
 	"bugbuster-code/pkg/i18n"
 )
 
 const (
 	// autoMaxIterations — maximum count iterations autopilot default.
-	autoMaxIterations = 50
+	autoMaxIterations = 5000
 	// autoDelayBetweenIterations — delay between autopilot iterations.
 	autoDelayBetweenIterations = 2 * time.Second
 )
 
 // AutoPilotState stores autopilot mode state.
 type AutoPilotState struct {
-	Enabled     bool
-	Iteration   int
+	Enabled       bool
+	Iteration     int
 	MaxIterations int
 }
 
 // NewAutoPilotState creates autopilot state with iteration limit.
+// If maxIterations <= 0, uses the default (autoMaxIterations).
 func NewAutoPilotState(maxIterations int) *AutoPilotState {
 	if maxIterations <= 0 {
 		maxIterations = autoMaxIterations
@@ -34,10 +36,29 @@ func NewAutoPilotState(maxIterations int) *AutoPilotState {
 	}
 }
 
+// NewAutoPilotStateFromConfig creates autopilot state with iteration limit
+// from the config. If maxIterations <= 0, uses cfg.Agent.Autopilot.MaxIterations.
+func NewAutoPilotStateFromConfig(cfg *config.BugBusterConfig, maxIterations int) *AutoPilotState {
+	if maxIterations <= 0 {
+		maxIterations = cfg.Agent.Autopilot.MaxIterations
+	}
+	if maxIterations <= 0 {
+		maxIterations = autoMaxIterations
+	}
+	return &AutoPilotState{
+		MaxIterations: maxIterations,
+	}
+}
+
+// autoDelay returns the delay between autopilot iterations from config.
+func autoDelay(cfg *config.BugBusterConfig) time.Duration {
+	if cfg != nil && cfg.Agent.Autopilot.DelayMs > 0 {
+		return time.Duration(cfg.Agent.Autopilot.DelayMs) * time.Millisecond
+	}
+	return autoDelayBetweenIterations
+}
+
 // isPlanCompleted checks if text contains plan completion indicators.
-// Checks last 500 characters of assistant messages.
-// Markers are loaded from i18n — ALL languages are checked concurrently,
-// to correctly detect completion regardless of agent response language.
 // Also checks for recap/summary markers (※ Recap:, Recap:, Итог:, Summary:).
 func isPlanCompleted(text string) bool {
 	// First check recap markers — these are strong completion signals

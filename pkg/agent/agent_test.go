@@ -140,8 +140,8 @@ func TestConvertInputToParams_Empty(t *testing.T) {
 }
 
 func TestConvertInputToParams_Array(t *testing.T) {
-	// Баг: fmt.Sprintf("%v", v) давал Go-синтаксис [map[id:1 ...]]
-	// вместо JSON [{"id":"1",...}]
+	// Bug: fmt.Sprintf("%v", v) produced Go syntax [map[id:1 ...]]
+	// instead of JSON [{"id":"1",...}]
 	input := map[string]any{
 		"todos": []any{
 			map[string]any{"id": "1", "subject": "Test task", "status": "pending"},
@@ -151,7 +151,7 @@ func TestConvertInputToParams_Array(t *testing.T) {
 	params := convertInputToParams(input)
 
 	todosJSON := params["todos"]
-	// Должен быть валидный JSON
+	// Should be valid JSON
 	var items []map[string]any
 	if err := json.Unmarshal([]byte(todosJSON), &items); err != nil {
 		t.Fatalf("todos should be valid JSON, got: %s, error: %v", todosJSON, err)
@@ -209,7 +209,7 @@ func TestConvertInputToParams_Number(t *testing.T) {
 		"character": 5,
 	}
 	params := convertInputToParams(input)
-	// Числа должны маршалиться в JSON-строку
+	// Numbers should marshal into a JSON string
 	if params["line"] != "10" {
 		t.Errorf("Expected line '10', got '%s'", params["line"])
 	}
@@ -269,7 +269,7 @@ func TestConversationContext_Add(t *testing.T) {
 }
 
 func TestConversationContext_Trim(t *testing.T) {
-	// Тест с малым токен-лимитом — при превышении должна сработать компакция
+	// Test with a small token limit — compaction should trigger when exceeded
 	ctx := NewConversationContextWithTokens(100, 2)
 	ctx.Add(provider.SystemMsg("system prompt"))
 
@@ -277,12 +277,12 @@ func TestConversationContext_Trim(t *testing.T) {
 		ctx.Add(provider.UserMsg("This is a longer message to exceed the token limit and trigger compaction"))
 	}
 
-	// После компакции системный промпт должен быть сохранён
+	// After compaction the system prompt should be preserved
 	if ctx.Messages[0].Role != "system" {
 		t.Error("System prompt should be preserved")
 	}
 
-	// Сообщений должно быть меньше 21 (компакция сработала)
+	// Messages should be fewer than 21 (compaction triggered)
 	if len(ctx.Messages) > 15 {
 		t.Errorf("Expected compaction to reduce messages, got %d", len(ctx.Messages))
 	}
@@ -296,7 +296,7 @@ func TestConversationContext_Reset(t *testing.T) {
 
 	ctx.Reset()
 
-	// Должен остаться только системный промпт
+	// Only the system prompt should remain
 	if len(ctx.Messages) != 1 {
 		t.Errorf("Expected 1 message after reset, got %d", len(ctx.Messages))
 	}
@@ -327,7 +327,7 @@ func TestBuildSystemPrompt(t *testing.T) {
 }
 
 func TestBuildSystemPromptIncludesCapabilities(t *testing.T) {
-	// Инициализируем i18n для теста
+	// Initialize i18n for the test
 	i18n.Init("en")
 
 	toolList := map[string]tools.Tool{
@@ -336,37 +336,37 @@ func TestBuildSystemPromptIncludesCapabilities(t *testing.T) {
 
 	prompt := BuildSystemPrompt("/tmp", toolList)
 
-	// Должен содержать указание о наличии инструментов
+	// Should contain a note about available tools
 	if !strings.Contains(prompt, "tools") && !strings.Contains(prompt, "инструмент") {
 		t.Error("prompt should mention tools")
 	}
 
-	// Должен содержать XML пример с name атрибутом
+	// Should contain an XML example with a name attribute
 	if !strings.Contains(prompt, `<param name="path">`) {
 		t.Error("prompt should contain XML example with name attribute")
 	}
 
-	// Должен содержать закрывающий тег tool
+	// Should contain the closing tool tag
 	if !strings.Contains(prompt, `</tool>`) {
 		t.Error("prompt should contain closing </tool> tag")
 	}
 
-	// Должен содержать секцию примеров
+	// Should contain an examples section
 	if !strings.Contains(prompt, "Examples:") {
 		t.Error("prompt should contain examples section")
 	}
 
-	// Должен содержать пример чтения файла
+	// Should contain a file read example
 	if !strings.Contains(prompt, `Read a file:`) {
 		t.Error("prompt should contain read file example")
 	}
 
-	// Должен содержать пример записи файла
+	// Should contain a file write example
 	if !strings.Contains(prompt, `Write a file:`) {
 		t.Error("prompt should contain write file example")
 	}
 
-	// Должен содержать пример bash
+	// Should contain a bash example
 	if !strings.Contains(prompt, `Run a command:`) {
 		t.Error("prompt should contain bash example")
 	}
@@ -386,7 +386,7 @@ func TestParseToolInput(t *testing.T) {
 	}
 }
 
-// MockProvider для тестов
+// MockProvider for tests
 type MockProvider struct {
 	response provider.CompletionResult
 	err      error
@@ -424,7 +424,7 @@ func TestMaybeCompact_NonBlockingSend(t *testing.T) {
 		provider.UserMsg("hello world this is a test message"),
 	}
 
-	// Заполняем канал до отказа — maybeCompact попытается отправить событие
+	// Fill the channel to capacity — maybeCompact will try to send an event
 	eventCh := make(chan provider.StreamEvent, 1)
 	eventCh <- provider.StreamEvent{Type: provider.EventTextDelta, Text: "fill"}
 
@@ -436,7 +436,7 @@ func TestMaybeCompact_NonBlockingSend(t *testing.T) {
 
 	select {
 	case <-done:
-		// OK — не заблокировалось
+		// OK — did not block
 	case <-time.After(2 * time.Second):
 		t.Error("maybeCompact blocked on full event channel")
 	}
@@ -446,12 +446,12 @@ func TestAgentLoop_SetPermissionChecker(t *testing.T) {
 	mock := &MockProvider{}
 	loop := NewAgentLoop(mock)
 
-	// По умолчанию PermissionChecker nil
+	// By default PermissionChecker is nil
 	if loop.PermissionChecker != nil {
 		t.Error("Expected nil PermissionChecker by default")
 	}
 
-	// Устанавливаем deny-режим
+	// Set deny mode
 	checker := NewDefaultPermissionChecker(PermissionDeny, "/tmp")
 	loop.SetPermissionChecker(checker)
 
@@ -459,7 +459,7 @@ func TestAgentLoop_SetPermissionChecker(t *testing.T) {
 		t.Error("Expected non-nil PermissionChecker after SetPermissionChecker")
 	}
 
-	// Проверяем что deny-режим блокирует bash
+	// Verify that deny mode blocks bash
 	req := PermissionRequest{
 		ToolName: "bash",
 		Level:    PermDangerFullAccess,
@@ -469,7 +469,7 @@ func TestAgentLoop_SetPermissionChecker(t *testing.T) {
 		t.Errorf("Expected PermDenied for bash in deny mode, got %s", result)
 	}
 
-	// Проверяем что deny-режим разрешает read
+	// Verify that deny mode allows read
 	req = PermissionRequest{
 		ToolName: "read",
 		Level:    PermReadOnly,
@@ -480,22 +480,22 @@ func TestAgentLoop_SetPermissionChecker(t *testing.T) {
 	}
 }
 
-// TestSessionRestore_SystemPromptPreserved проверяет, что при восстановлении
-// сессии текущий системный промпт сохраняется, а старые system-сообщения удаляются.
+// TestSessionRestore_SystemPromptPreserved verifies that on restore
+// the current system prompt is preserved, and old system messages are removed.
 func TestSessionRestore_SystemPromptPreserved(t *testing.T) {
 	loop := NewAgentLoop(nil)
 	loop.Context = NewConversationContextWithTokens(8000, 6)
 
-	// Устанавливаем системный промпт (как это делает agent_setup)
+	// Set the system prompt (as agent_setup does)
 	loop.SetSystemPrompt("Ты BugBuster — AI-ассистент для разработки")
 
-	// Проверяем, что системный промпт установлен
+	// Verify that the system prompt is set
 	prompt := loop.Context.GetSystemPrompt()
 	if prompt != "Ты BugBuster — AI-ассистент для разработки" {
 		t.Errorf("Expected system prompt, got: %s", prompt)
 	}
 
-	// Симулируем загрузку сессии с 10 сообщениями, включая старый system-промпт
+	// Simulate loading a session with 10 messages, including an old system prompt
 	sessionMessages := []provider.Message{
 		provider.SystemMsg("Старый системный промпт из сессии"), // Должен быть удалён
 		provider.UserMsg("Привет!"),
@@ -509,11 +509,11 @@ func TestSessionRestore_SystemPromptPreserved(t *testing.T) {
 		provider.UserMsg("Сохрани изменения"),
 	}
 
-	// Воспроизводим логику restoreSessionMessages:
-	// 1. Сохраняем текущий системный промпт
+	// Reproduce the restoreSessionMessages logic:
+	// 1. Save the current system prompt
 	currentSystemPrompt := loop.Context.GetSystemPrompt()
 
-	// 2. Удаляем старые system-сообщения из загруженной сессии
+	// 2. Remove old system messages from the loaded session
 	var filtered []provider.Message
 	for _, m := range sessionMessages {
 		if m.Role != "system" {
@@ -521,35 +521,35 @@ func TestSessionRestore_SystemPromptPreserved(t *testing.T) {
 		}
 	}
 
-	// 3. Отключаем автокомпакцию
+	// 3. Disable auto-compaction
 	wasAutoCompact := loop.Context.AutoCompact
 	loop.Context.AutoCompact = false
 
-	// 4. Очищаем контекст и добавляем системный промпт + сообщения сессии
+	// 4. Clear the context and add system prompt + session messages
 	loop.Context.Messages = nil
 	if currentSystemPrompt != "" {
 		loop.Context.Messages = append(loop.Context.Messages, provider.SystemMsg(currentSystemPrompt))
 	}
 	loop.Context.Messages = append(loop.Context.Messages, filtered...)
 
-	// 5. Восстанавливаем автокомпакцию
+	// 5. Restore auto-compaction
 	loop.Context.AutoCompact = wasAutoCompact
 
-	// Проверяем:
-	// 1. Системный промпт — текущий, не старый
+	// Verify:
+	// 1. System prompt is the current one, not the old one
 	prompt = loop.Context.GetSystemPrompt()
 	if prompt != "Ты BugBuster — AI-ассистент для разработки" {
 		t.Errorf("Expected current system prompt, got: %s", prompt)
 	}
 
-	// 2. Нет старого system-сообщения из сессии
+	// 2. No old system message from the session
 	for i, m := range loop.Context.Messages {
 		if m.Role == "system" && m.GetText() == "Старый системный промпт из сессии" {
 			t.Errorf("Found old system message at index %d, should have been removed", i)
 		}
 	}
 
-	// 3. Все не-system сообщения из сессии сохранены
+	// 3. All non-system messages from the session are preserved
 	userCount := 0
 	for _, m := range loop.Context.Messages {
 		if m.Role == "user" {
@@ -560,38 +560,38 @@ func TestSessionRestore_SystemPromptPreserved(t *testing.T) {
 		t.Errorf("Expected 5 user messages, got %d", userCount)
 	}
 
-	// 4. Общее количество сообщений: 1 (system) + 9 (не-system из сессии)
+	// 4. Total message count: 1 (system) + 9 (non-system from session)
 	if len(loop.Context.Messages) != 10 {
 		t.Errorf("Expected 10 messages (1 system + 9 session), got %d", len(loop.Context.Messages))
 	}
 
-	// 5. Первое сообщение — текущий system-промпт
+	// 5. First message is the current system prompt
 	if loop.Context.Messages[0].Role != "system" {
 		t.Errorf("Expected first message to be system, got %s", loop.Context.Messages[0].Role)
 	}
 }
 
-// TestSessionRestore_AutoCompactDisabled проверяет, что при загрузке сессии
-// автокомпакция не обрезает контекст немедленно.
+// TestSessionRestore_AutoCompactDisabled verifies that when loading a session
+// auto-compaction does not trim the context immediately.
 func TestSessionRestore_AutoCompactDisabled(t *testing.T) {
 	loop := NewAgentLoop(nil)
 	loop.Context = NewConversationContextWithTokens(100, 3) // Очень маленький лимит
 
 	loop.SetSystemPrompt("System prompt")
 
-	// Добавляем много сообщений (превышает лимит 100 токенов)
+	// Add many messages (exceeds the 100 token limit)
 	for i := 0; i < 20; i++ {
 		loop.Context.Add(provider.UserMsg("This is a test message that should be preserved during session restore"))
 	}
 
-	// После добавления контекст должен быть компактным (компакция сработала)
+	// After adding, the context should be compact (compaction triggered)
 	compactedCount := len(loop.Context.Messages)
 
-	// Теперь симулируем восстановление сессии с отключённой автокомпакцией
+	// Now simulate session restore with auto-compaction disabled
 	sessionMessages := make([]provider.Message, len(loop.Context.Messages))
 	copy(sessionMessages, loop.Context.Messages)
 
-	// Отключаем автокомпакцию
+	// Disable auto-compaction
 	loop.Context.AutoCompact = false
 	loop.Context.Messages = nil
 	loop.Context.Messages = append(loop.Context.Messages, provider.SystemMsg("System prompt"))
@@ -601,29 +601,29 @@ func TestSessionRestore_AutoCompactDisabled(t *testing.T) {
 		}
 	}
 
-	// Все сообщения должны быть загружены без обрезки
+	// All messages should be loaded without trimming
 	totalLoaded := len(loop.Context.Messages)
 	if totalLoaded < compactedCount {
 		t.Errorf("After restore with AutoCompact=false, expected >= %d messages, got %d", compactedCount, totalLoaded)
 	}
 
-	// Включаем автокомпакцию обратно
+	// Re-enable auto-compaction
 	loop.Context.AutoCompact = true
 
-	// Добавляем ещё одно сообщение — теперь компакция может сработать
+	// Add one more message — now compaction can trigger
 	loop.Context.Add(provider.UserMsg("New message after restore"))
 
-	// После компакции контекст должен быть компактным
+	// After compaction the context should be compact
 	if len(loop.Context.Messages) > totalLoaded+1 {
 		t.Errorf("Context should be compacted after adding new message, got %d messages", len(loop.Context.Messages))
 	}
 }
 
-// TestTimeoutDefaults проверяет, что таймауты имеют правильные дефолтные значения
+// TestTimeoutDefaults verifies that timeouts have correct default values
 func TestTimeoutDefaults(t *testing.T) {
 	loop := NewAgentLoop(nil)
 
-	// По умолчанию таймауты = 0 (используются effective-методы с дефолтами)
+	// By default timeouts = 0 (effective methods with defaults are used)
 	if loop.RequestTimeout != 0 {
 		t.Errorf("Expected default RequestTimeout=0, got %v", loop.RequestTimeout)
 	}
@@ -634,7 +634,7 @@ func TestTimeoutDefaults(t *testing.T) {
 		t.Errorf("Expected default IdleTimeout=0, got %v", loop.IdleTimeout)
 	}
 
-	// Effective таймауты должны возвращать дефолтные значения
+	// Effective timeouts should return default values
 	if loop.effectiveRequestTimeout() != 40*time.Minute {
 		t.Errorf("Expected effective request timeout 40m, got %v", loop.effectiveRequestTimeout())
 	}
@@ -646,7 +646,7 @@ func TestTimeoutDefaults(t *testing.T) {
 	}
 }
 
-// TestTimeoutSetters проверяет сеттеры таймаутов
+// TestTimeoutSetters verifies the timeout setters
 func TestTimeoutSetters(t *testing.T) {
 	loop := NewAgentLoop(nil)
 
@@ -664,7 +664,7 @@ func TestTimeoutSetters(t *testing.T) {
 		t.Errorf("Expected IdleTimeout=3m, got %v", loop.IdleTimeout)
 	}
 
-	// Effective таймауты должны возвращать установленные значения
+	// Effective timeouts should return the set values
 	if loop.effectiveRequestTimeout() != 30*time.Minute {
 		t.Errorf("Expected effective request timeout 30m, got %v", loop.effectiveRequestTimeout())
 	}
@@ -676,8 +676,8 @@ func TestTimeoutSetters(t *testing.T) {
 	}
 }
 
-// MockStreamingProvider — провайдер, который всегда возвращает tool_use,
-// чтобы агент продолжал итерации бесконечно (пока не сработает ограничение).
+// MockStreamingProvider — a provider that always returns tool_use,
+// so the agent keeps iterating indefinitely (until the limit triggers).
 type MockStreamingProvider struct {
 	iterationCount int
 	events         []provider.StreamEvent // if set, use these events instead of default tool_use
@@ -724,7 +724,7 @@ func (m *MockStreamingProvider) streamEvents() (<-chan provider.StreamEvent, err
 	return ch, nil
 }
 
-// MockNoOpTool — инструмент, который ничего не делает (для тестов)
+// MockNoOpTool — a tool that does nothing (for tests)
 type MockNoOpTool struct{}
 
 func (t *MockNoOpTool) Name() string        { return "read" }
@@ -758,7 +758,7 @@ func TestStreamWithCancel_MaxIterations(t *testing.T) {
 		t.Fatalf("StreamWithCancel failed: %v", err)
 	}
 
-	// Собираем все события
+	// Collect all events
 	var iterations int
 	var gotDone bool
 	for event := range eventCh {
@@ -772,7 +772,7 @@ func TestStreamWithCancel_MaxIterations(t *testing.T) {
 		}
 	}
 
-	// Агент должен был остановиться после maxIterations (3)
+	// The agent should have stopped after maxIterations (3)
 	if iterations > 3 {
 		t.Errorf("Expected at most 3 iterations, got %d", iterations)
 	}
@@ -782,13 +782,13 @@ func TestStreamWithCancel_MaxIterations(t *testing.T) {
 }
 
 func TestStreamWithCancel_NoMaxIterations(t *testing.T) {
-	// Проверяем что без maxIterations (0) ограничение не срабатывает
-	// Используем короткий таймаут контекста чтобы тест не висел
+	// Verify that without maxIterations (0) the limit does not trigger
+	// Use a short context timeout so the test does not hang
 	i18n.Init("en")
 
 	mock := &MockStreamingProvider{}
 	loop := NewAgentLoop(mock)
-	// maxIterations = 0 (безлимит по умолчанию)
+	// maxIterations = 0 (unlimited by default)
 	loop.RegisterTool(&MockNoOpTool{})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -799,9 +799,9 @@ func TestStreamWithCancel_NoMaxIterations(t *testing.T) {
 		t.Fatalf("StreamWithCancel failed: %v", err)
 	}
 
-	// Просто ждём завершения — без maxIterations агент работает пока:
-	// 1) модель не перестанет вызывать инструменты, или
-	// 2) контекст не отменится
+	// Just wait for completion — without maxIterations the agent works while:
+	// 1) the model will not stop calling tools, or
+	// 2) the context will not be cancelled
 	var gotAnyEvent bool
 	for event := range eventCh {
 		gotAnyEvent = true

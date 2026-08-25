@@ -4,11 +4,12 @@ import (
 	"strings"
 	"testing"
 
+	"bugbuster-code/pkg/config"
 	"bugbuster-code/pkg/i18n"
 )
 
 func init() {
-	// Инициализируем i18n для тестов
+	// Initialize i18n for tests
 	i18n.Init("en")
 }
 
@@ -18,7 +19,7 @@ func TestIsPlanCompleted(t *testing.T) {
 		text     string
 		expected bool
 	}{
-		// Русские — завершение плана
+		// Russian — plan completion
 		{"все фазы завершены", "Отлично! Все фазы завершены. Проект готов.", true},
 		{"все спринты выполнены", "Все спринты выполнены успешно.", true},
 		{"все пункты завершены", "Все пункты завершены, можно переходить к тестированию.", true},
@@ -35,7 +36,7 @@ func TestIsPlanCompleted(t *testing.T) {
 		{"последний спринт выполнен", "Последний спринт выполнен.", true},
 		{"последний этап завершен", "Последний этап завершен.", true},
 
-		// Английские — завершение плана
+		// English — plan completion
 		{"all phases completed", "All phases completed successfully.", true},
 		{"all steps done", "All steps done.", true},
 		{"all sprints completed", "All sprints completed.", true},
@@ -49,14 +50,14 @@ func TestIsPlanCompleted(t *testing.T) {
 		{"all completed", "All completed.", true},
 		{"all finished", "All finished.", true},
 
-		// НЕ завершение — промежуточные фазы
+		// NOT completion — intermediate phases
 		{"фаза 1 завершена", "Фаза 1 завершена. Переходим к фазе 2.", false},
 		{"шаг 3 выполнен", "Шаг 3 выполнен. Следующий шаг — интеграция.", false},
 		{"спринт 2 завершен", "Спринт 2 завершен, начинаем спринт 3.", false},
 		{"этап 1 завершен", "Этап 1 завершен.", false},
 		{"пункт 2 выполнен", "Пункт 2 выполнен.", false},
 
-		// НЕ завершение — обычный текст
+		// NOT completion — plain text
 		{"просто текст", "Привет, я проанализировал код и нашёл несколько проблем.", false},
 		{"empty", "", false},
 		{"английский промежуточный", "Phase 1 completed. Moving to phase 2.", false},
@@ -74,7 +75,7 @@ func TestIsPlanCompleted(t *testing.T) {
 }
 
 func TestIsPlanCompleted_LongText(t *testing.T) {
-	// Проверяем что детектор работает на последних 500 символах длинного текста
+	// Verify detector works on last 500 chars of long text
 	longPrefix := strings.Repeat("x", 1000) + " "
 	completed := longPrefix + "Все фазы завершены."
 	notCompleted := "Все фазы завершены." + longPrefix
@@ -106,26 +107,26 @@ func TestIsPlanCompleted_CaseInsensitive(t *testing.T) {
 }
 
 func TestIsPlanCompleted_Multilingual(t *testing.T) {
-	// Проверяем что маркеры из разных языков работают одновременно
+	// Verify markers from different languages work simultaneously
 	tests := []struct {
 		name     string
 		text     string
 		expected bool
 	}{
-		// Немецкие маркеры
+		// German markers
 		{"de: alle phasen abgeschlossen", "Alle Phasen abgeschlossen.", true},
 		{"de: plan beendet", "Plan beendet.", true},
-		// Испанские маркеры
+		// Spanish markers
 		{"es: todas las fases completadas", "Todas las fases completadas.", true},
 		{"es: plan completado", "Plan completado.", true},
-		// Французские маркеры
+		// French markers
 		{"fr: toutes les phases terminées", "Toutes les phases terminées.", true},
 		{"fr: plan terminé", "Plan terminé.", true},
-		// Японские маркеры
+		// Japanese markers
 		{"ja: 全フェーズ完了", "全フェーズ完了。", true},
-		// Китайские маркеры
+		// Chinese markers
 		{"zh: 所有阶段完成", "所有阶段完成。", true},
-		// Португальские маркеры
+		// Portuguese markers
 		{"pt: todas as fases concluídas", "Todas as fases concluídas.", true},
 	}
 
@@ -140,7 +141,7 @@ func TestIsPlanCompleted_Multilingual(t *testing.T) {
 }
 
 func TestRandomContinuePhrase(t *testing.T) {
-	// Проверяем что функция возвращает непустую строку
+	// Verify function returns non-empty string
 	for i := 0; i < 50; i++ {
 		phrase := randomContinuePhrase()
 		if phrase == "" {
@@ -150,7 +151,7 @@ func TestRandomContinuePhrase(t *testing.T) {
 }
 
 func TestRandomContinuePhrase_Multilingual(t *testing.T) {
-	// Проверяем что фразы зависят от текущего языка
+	// Verify phrases depend on current language
 	tests := []struct {
 		lang string
 	}{
@@ -171,7 +172,7 @@ func TestRandomContinuePhrase_Multilingual(t *testing.T) {
 		})
 	}
 
-	// Восстанавливаем
+	// Restore
 	i18n.SetLanguage("en")
 }
 
@@ -180,7 +181,7 @@ func TestGetCompletionMarkers(t *testing.T) {
 	if len(markers) == 0 {
 		t.Error("getCompletionMarkers() returned empty list")
 	}
-	// Проверяем что есть английские маркеры
+	// Verify English markers exist
 	foundEn := false
 	for _, m := range markers {
 		if strings.Contains(m, "all phases") {
@@ -191,7 +192,7 @@ func TestGetCompletionMarkers(t *testing.T) {
 	if !foundEn {
 		t.Error("getCompletionMarkers() should contain English markers")
 	}
-	// Проверяем что есть русские маркеры
+	// Verify Russian markers exist
 	foundRu := false
 	for _, m := range markers {
 		if strings.Contains(m, "все фазы") {
@@ -205,10 +206,10 @@ func TestGetCompletionMarkers(t *testing.T) {
 }
 
 func TestNewAutoPilotState(t *testing.T) {
-	// По умолчанию — 50 итераций
+	// Default — autoMaxIterations (5000)
 	state := NewAutoPilotState(0)
-	if state.MaxIterations != 50 {
-		t.Errorf("NewAutoPilotState(0).MaxIterations = %d, want 50", state.MaxIterations)
+	if state.MaxIterations != autoMaxIterations {
+		t.Errorf("NewAutoPilotState(0).MaxIterations = %d, want %d", state.MaxIterations, autoMaxIterations)
 	}
 	if state.Iteration != 0 {
 		t.Errorf("NewAutoPilotState(0).Iteration = %d, want 0", state.Iteration)
@@ -217,35 +218,52 @@ func TestNewAutoPilotState(t *testing.T) {
 		t.Error("NewAutoPilotState(0).Enabled should be false")
 	}
 
-	// Кастомный лимит
+	// Custom limit
 	state = NewAutoPilotState(10)
 	if state.MaxIterations != 10 {
 		t.Errorf("NewAutoPilotState(10).MaxIterations = %d, want 10", state.MaxIterations)
 	}
 
-	// Отрицательный — дефолт
+	// Negative — default
 	state = NewAutoPilotState(-5)
-	if state.MaxIterations != 50 {
-		t.Errorf("NewAutoPilotState(-5).MaxIterations = %d, want 50", state.MaxIterations)
+	if state.MaxIterations != autoMaxIterations {
+		t.Errorf("NewAutoPilotState(-5).MaxIterations = %d, want %d", state.MaxIterations, autoMaxIterations)
 	}
 
-	// Единица
+	// One
 	state = NewAutoPilotState(1)
 	if state.MaxIterations != 1 {
 		t.Errorf("NewAutoPilotState(1).MaxIterations = %d, want 1", state.MaxIterations)
 	}
 }
 
+func TestNewAutoPilotStateFromConfig(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Agent.Autopilot.MaxIterations = 100
+
+	// maxIterations=0 → use config value
+	state := NewAutoPilotStateFromConfig(cfg, 0)
+	if state.MaxIterations != 100 {
+		t.Errorf("NewAutoPilotStateFromConfig(cfg, 0).MaxIterations = %d, want 100", state.MaxIterations)
+	}
+
+	// maxIterations>0 → use explicit value
+	state = NewAutoPilotStateFromConfig(cfg, 25)
+	if state.MaxIterations != 25 {
+		t.Errorf("NewAutoPilotStateFromConfig(cfg, 25).MaxIterations = %d, want 25", state.MaxIterations)
+	}
+}
+
 func TestFormatAutoIteration(t *testing.T) {
 	i18n.Init("en")
 
-	// Проверяем форматирование
+	// Verify formatting
 	result := formatAutoIteration(3, 10, "Continue")
 	if !strings.Contains(result, "3") || !strings.Contains(result, "10") || !strings.Contains(result, "Continue") {
 		t.Errorf("formatAutoIteration(3, 10, 'Continue') = %q, should contain iteration/max/phrase", result)
 	}
 
-	// Проверяем что формат содержит разделители
+	// Verify format contains separators
 	result = formatAutoIteration(1, 50, "Keep going")
 	if !strings.Contains(result, "1") || !strings.Contains(result, "50") {
 		t.Errorf("formatAutoIteration(1, 50, 'Keep going') = %q, should contain 1/50", result)

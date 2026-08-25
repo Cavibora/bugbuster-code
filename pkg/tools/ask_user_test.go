@@ -9,7 +9,7 @@ import (
 func TestAskUserTool_AskChannel(t *testing.T) {
 	tool := NewAskUserTool()
 
-	// Устанавливаем AskChannel
+	// Set AskChannel
 	ch := &AskChannel{
 		Question: make(chan string, 1),
 		Answer:   make(chan string, 1),
@@ -20,13 +20,13 @@ func TestAskUserTool_AskChannel(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(1)
 
-	// Запускаем Execute в горутине — он отправит вопрос и заблокируется на Answer
+	// Run Execute in a goroutine — it will send a question and block on Answer
 	go func() {
 		defer wg.Done()
 		result = tool.Execute(map[string]string{"question": "What is your name?"})
 	}()
 
-	// Ждём вопрос из канала
+	// Wait for a question from the channel
 	select {
 	case question := <-ch.Question:
 		if question != "What is your name?" {
@@ -36,10 +36,10 @@ func TestAskUserTool_AskChannel(t *testing.T) {
 		t.Fatal("Timed out waiting for question")
 	}
 
-	// Отправляем ответ
+	// Send the response
 	ch.Answer <- "Alice"
 
-	// Ждём завершения Execute
+	// Wait for Execute to finish
 	wg.Wait()
 
 	if result.Error != "" {
@@ -76,7 +76,7 @@ func TestAskUserTool_AskChannel_EmptyAnswer(t *testing.T) {
 	if result.Error != "" {
 		t.Errorf("Unexpected error: %s", result.Error)
 	}
-	// Пустой ответ должен вернуть no_answer (i18n-ключ)
+	// Empty response should return no_answer (i18n key)
 	if result.Output == "" {
 		t.Error("Expected non-empty output for empty answer (no_answer message)")
 	}
@@ -84,11 +84,11 @@ func TestAskUserTool_AskChannel_EmptyAnswer(t *testing.T) {
 
 func TestAskUserTool_AskChannel_NoChannel(t *testing.T) {
 	tool := NewAskUserTool()
-	// Без AskChannel и без NonInteractive — попытается читать stdin
-	// Проверяем что SetAskChannel(nil) очищает канал
+	// Without AskChannel and without NonInteractive — will try to read stdin
+	// Verify that SetAskChannel(nil) clears the channel
 	tool.SetAskChannel(nil)
 
-	// NonInteractive — чтобы не блокироваться на stdin
+	// NonInteractive — to avoid blocking on stdin
 	tool.NonInteractive = true
 	result := tool.Execute(map[string]string{"question": "Test?"})
 	if result.Error != "" {
@@ -105,10 +105,10 @@ func TestAskUserTool_ExecuteAsync_WithChannel(t *testing.T) {
 	}
 	tool.SetAskChannel(ch)
 
-	// Запускаем ExecuteAsync
+	// Run ExecuteAsync
 	asyncCh := tool.ExecuteAsync(map[string]string{"question": "Color?"})
 
-	// Ждём вопрос
+	// Wait for a question
 	select {
 	case question := <-ch.Question:
 		if question != "Color?" {
@@ -118,10 +118,10 @@ func TestAskUserTool_ExecuteAsync_WithChannel(t *testing.T) {
 		t.Fatal("Timed out waiting for question")
 	}
 
-	// Отправляем ответ
+	// Send the response
 	ch.Answer <- "blue"
 
-	// Читаем результат из async-канала
+	// Read the result from the async channel
 	var event AsyncEvent
 	select {
 	case event = <-asyncCh:
@@ -164,7 +164,7 @@ func TestAskUserTool_ExecuteAsync_NonInteractive(t *testing.T) {
 func TestAskUserTool_AskFunc(t *testing.T) {
 	tool := NewAskUserTool()
 
-	// Устанавливаем AskFunc — имитирует readline
+	// Set AskFunc — simulates readline
 	tool.SetAskFunc(func(question string) string {
 		if question != "What is your name?" {
 			t.Errorf("Expected question 'What is your name?', got '%s'", question)
@@ -192,7 +192,7 @@ func TestAskUserTool_AskFunc_EmptyAnswer(t *testing.T) {
 	if result.Error != "" {
 		t.Errorf("Unexpected error: %s", result.Error)
 	}
-	// Пустой ответ → no_answer
+	// Empty response → no_answer
 	if result.Output == "" {
 		t.Error("Expected non-empty output for empty answer")
 	}
@@ -200,12 +200,12 @@ func TestAskUserTool_AskFunc_EmptyAnswer(t *testing.T) {
 
 func TestAskUserTool_AskFunc_PriorityOverFallback(t *testing.T) {
 	tool := NewAskUserTool()
-	// Без AskChannel и без AskFunc — fallback (no_answer)
+	// Without AskChannel and without AskFunc — fallback (no_answer)
 	result := tool.Execute(map[string]string{"question": "Test?"})
 	if result.Error != "" {
 		t.Errorf("Unexpected error: %s", result.Error)
 	}
-	// Должен вернуть no_answer
+	// Should return no_answer
 	if result.Output == "" {
 		t.Error("Expected non-empty output for fallback")
 	}
@@ -214,7 +214,7 @@ func TestAskUserTool_AskFunc_PriorityOverFallback(t *testing.T) {
 func TestAskUserTool_AskChannel_PriorityOverAskFunc(t *testing.T) {
 	tool := NewAskUserTool()
 
-	// Устанавливаем и AskChannel, и AskFunc — AskChannel должен иметь приоритет
+	// Set both AskChannel and AskFunc — AskChannel should take priority
 	ch := &AskChannel{
 		Question: make(chan string, 1),
 		Answer:   make(chan string, 1),
@@ -246,7 +246,7 @@ func TestAskUserTool_AskChannel_PriorityOverAskFunc(t *testing.T) {
 func TestAskUserTool_SetAskChannel_ConcurrentSafe(t *testing.T) {
 	tool := NewAskUserTool()
 
-	// Параллельная установка канала не должна вызывать панику
+	// Concurrent channel setup should not cause a panic
 	var wg sync.WaitGroup
 	for i := 0; i < 10; i++ {
 		wg.Add(1)

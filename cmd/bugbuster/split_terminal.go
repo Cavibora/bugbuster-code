@@ -412,7 +412,7 @@ func (st *SplitTerminal) Run() bool {
 			}
 			st.autoMode = !st.autoMode
 			if st.autoMode {
-				st.autoState = NewAutoPilotState(maxIter)
+				st.autoState = NewAutoPilotStateFromConfig(st.cfg, maxIter)
 				st.autoState.Iteration = 0
 				color.HiCyan("🤖 %s", i18n.T("cli.auto_enabled"))
 				if st.autoState.MaxIterations != autoMaxIterations {
@@ -422,6 +422,43 @@ func (st *SplitTerminal) Run() bool {
 				st.autoState = nil
 				color.Yellow("🤖 %s", i18n.T("cli.auto_disabled"))
 			}
+			continue
+		}
+		// /rate — show or configure rate limit retries
+		if input == "/rate" || strings.HasPrefix(input, "/rate ") {
+			if input == "/rate" {
+				// Show current config
+				color.Cyan("⏳ Rate limit settings:")
+				color.Yellow("  Max retries: %d", st.cfg.Agent.RateLimit.MaxRetries)
+				color.Yellow("  Delay: %dms", st.cfg.Agent.RateLimit.DelayMs)
+				color.HiBlack("  Usage: /rate <max_retries> [delay_ms]")
+				continue
+			}
+			parts := strings.Fields(input)
+			if len(parts) < 2 {
+				color.Yellow("  ⚠ Usage: /rate <max_retries> [delay_ms]")
+				continue
+			}
+			maxRetries := 0
+			if _, err := fmt.Sscanf(parts[1], "%d", &maxRetries); err != nil {
+				maxRetries = 0
+			}
+			if maxRetries <= 0 {
+				color.Yellow("  ⚠ Invalid max_retries: %s", parts[1])
+				continue
+			}
+			delayMs := 0
+			if len(parts) >= 3 {
+				if _, err := fmt.Sscanf(parts[2], "%d", &delayMs); err != nil {
+					delayMs = 0
+				}
+			}
+			st.cfg.Agent.RateLimit.MaxRetries = maxRetries
+			if delayMs > 0 {
+				st.cfg.Agent.RateLimit.DelayMs = delayMs
+			}
+			st.loop.SetRateLimitConfig(maxRetries, time.Duration(st.cfg.Agent.RateLimit.DelayMs)*time.Millisecond)
+			color.Green("  ✓ Rate limit: max_retries=%d, delay=%dms", maxRetries, st.cfg.Agent.RateLimit.DelayMs)
 			continue
 		}
 		// Regular request to model
@@ -442,6 +479,19 @@ func (st *SplitTerminal) Run() bool {
 				color.Yellow("🤖 %s", i18n.T("cli.auto_max_iterations", st.autoState.MaxIterations))
 				break
 			}
+			// If last stream ended with an error (429, 404, 500, etc.),
+			// do NOT check plan completion — the task was interrupted, not completed.
+			// Continue autopilot after a short delay.
+			if lastStreamError {
+				lastStreamError = false // reset for next iteration
+				color.Yellow("🤖 %s", i18n.T("cli.auto_continue_after_error"))
+				time.Sleep(autoDelay(st.cfg))
+				phrase := randomContinuePhrase()
+				st.autoState.Iteration++
+				color.HiCyan("%s", formatAutoIteration(st.autoState.Iteration, st.autoState.MaxIterations, phrase))
+				st.runStreamingQuery(phrase, &currentCancel, &interrupted)
+				continue
+			}
 			// Check plan completion
 			lastMsg := getLastAssistantMessage(st.loop)
 			if isPlanCompleted(lastMsg) {
@@ -450,7 +500,7 @@ func (st *SplitTerminal) Run() bool {
 				break
 			}
 			// Delay between iterations for rate limiting
-			time.Sleep(autoDelayBetweenIterations)
+			time.Sleep(autoDelay(st.cfg))
 			// Generate encouraging phrase and start
 			phrase := randomContinuePhrase()
 			st.autoState.Iteration++
@@ -470,6 +520,10 @@ func (st *SplitTerminal) Run() bool {
 
 // runStreamingQuery starts request to model with all context settings and AskChannel
 func (st *SplitTerminal) runStreamingQuery(input string, currentCancel *context.CancelFunc, interrupted *bool) {
+	// Set autopilot-active flag so streaming.go knows whether to continue
+	// after transient errors (429, 404, 500, etc.).
+	isAutopilotActive = func() bool { return st.autoMode }
+
 	// Use context with cancel for Ctrl+C support.
 	// No timeout — idle timeout and thinking timeout in agent_stream.go
 	// handle stalled connections. Hard timeout was removed because it

@@ -144,6 +144,22 @@ type AgentConfig struct {
 	LoopDetection   LoopDetectionConfig `yaml:"loop_detection"`   // loop detection settings
 	Subagent        SubagentYAMLConfig  `yaml:"subagent"`         // subagent configuration
 	Fallback        FallbackConfig      `yaml:"fallback"`         // fallback provider configuration
+	RateLimit       RateLimitConfig     `yaml:"rate_limit"`       // rate limit (HTTP 429) retry settings
+	Autopilot       AutopilotConfig     `yaml:"autopilot"`        // autopilot settings
+}
+
+// RateLimitConfig — rate limit (HTTP 429) retry settings.
+// When the provider returns HTTP 429 (rate limited), the agent retries
+// with a short delay instead of stopping. Configurable via YAML and /rate CLI command.
+type RateLimitConfig struct {
+	MaxRetries int `yaml:"max_retries"` // max 429 retries before giving up (default: 50)
+	DelayMs    int `yaml:"delay_ms"`    // delay between 429 retries in ms (default: 3000)
+}
+
+// AutopilotConfig — autopilot settings.
+type AutopilotConfig struct {
+	MaxIterations int `yaml:"max_iterations"` // max autopilot iterations (default: 5000)
+	DelayMs       int `yaml:"delay_ms"`       // delay between autopilot iterations in ms (default: 2000)
 }
 
 // FallbackConfig — fallback provider settings
@@ -403,6 +419,14 @@ func DefaultConfig() *BugBusterConfig {
 				RetryDelayMs:   1000,
 				AutoSwitchBack: true,
 			},
+			RateLimit: RateLimitConfig{
+				MaxRetries: 50,
+				DelayMs:    3000,
+			},
+			Autopilot: AutopilotConfig{
+				MaxIterations: 5000,
+				DelayMs:       2000,
+			},
 			LoopDetection: LoopDetectionConfig{
 				RepeatThreshold:         6,
 				ToolRepeatThreshold:     8,
@@ -649,6 +673,20 @@ func MergeConfigs(configs ...*BugBusterConfig) *BugBusterConfig {
 		// AutoSwitchBack: true always wins (if any config enables — enable)
 		if cfg.Agent.Fallback.AutoSwitchBack {
 			result.Agent.Fallback.AutoSwitchBack = true
+		}
+		// RateLimit
+		if cfg.Agent.RateLimit.MaxRetries > 0 {
+			result.Agent.RateLimit.MaxRetries = cfg.Agent.RateLimit.MaxRetries
+		}
+		if cfg.Agent.RateLimit.DelayMs > 0 {
+			result.Agent.RateLimit.DelayMs = cfg.Agent.RateLimit.DelayMs
+		}
+		// Autopilot
+		if cfg.Agent.Autopilot.MaxIterations > 0 {
+			result.Agent.Autopilot.MaxIterations = cfg.Agent.Autopilot.MaxIterations
+		}
+		if cfg.Agent.Autopilot.DelayMs > 0 {
+			result.Agent.Autopilot.DelayMs = cfg.Agent.Autopilot.DelayMs
 		}
 		// LoopDetection
 		if cfg.Agent.LoopDetection.RepeatThreshold > 0 {

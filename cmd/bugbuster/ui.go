@@ -567,8 +567,8 @@ func FormatToolCallStart(name string, params map[string]string) string {
 	var parts []string
 	displayKeys := []string{"path", "command", "pattern", "query", "prompt", "url", "file", "dir", "lines", "task", "content", "agent_id", "action"}
 	shown := make(map[string]bool)
-	// bash, write, edit, delegate_task, hub tools — показывать параметры полностью, без обрезки
-	// Это критично: пользователь должен видеть полный текст сообщений
+	// bash, write, edit, delegate_task, hub tools — show parameters in full, no truncation
+	// Critical: the user must see the full message text
 	noTruncate := name == "bash" || name == "write" || name == "edit" || name == "delegate_task" ||
 		name == "hub_message" || name == "hub_broadcast" || name == "hub_alert" ||
 		name == "hub_request" || name == "hub_respond"
@@ -577,10 +577,10 @@ func FormatToolCallStart(name string, params map[string]string) string {
 		if v, ok := params[key]; ok {
 			display := v
 			if noTruncate {
-				// Показываем полную команду/путь/код без обрезки.
-				// Многострочные — заменяем \n на ⏎ для однострочного отображения.
-				// Длинные однострочные — переносим по строкам, чтобы не обрезались
-				// и не создавали лишних строк при каждом тике спиннера.
+				// Show the full command/path/code without truncation.
+				// Multi-line values — replace \n with ⏎ for single-line display.
+				// Long single-line values — wrap to multiple lines so they don't
+				// get truncated or create extra lines on each spinner tick.
 				display = strings.ReplaceAll(display, "\n", " ⏎ ")
 				display = strings.ReplaceAll(display, "\r", "")
 				// Wrap very long commands to multiple lines so the full command
@@ -729,8 +729,8 @@ func formatBashSummary(result string, params map[string]string) string {
 		return appTheme.ToolSummary.ANSICode() + "empty output" + ansiReset
 	}
 	if cmd, ok := params["command"]; ok {
-		// bash — показываем полную команду без обрезки
-		// Это критично для безопасности: пользователь должен видеть что именно выполняется
+		// bash — show the full command without truncation
+		// Critical for security: the user must see exactly what is executed
 		display := strings.ReplaceAll(cmd, "\n", " ⏎ ")
 		display = strings.ReplaceAll(display, "\r", "")
 		return appTheme.ToolSummary.ANSICode() + display + ansiReset
@@ -1285,16 +1285,16 @@ func formatToolSummary(toolName string, params map[string]string) string {
 	var parts []string
 	displayKeys := []string{"path", "command", "pattern", "query", "prompt", "url", "file", "dir", "lines", "task"}
 	shown := make(map[string]bool)
-	// bash, write, edit — показывать параметры полностью, без обрезки
+	// bash, write, edit — show parameters in full, no truncation
 	noTruncate := toolName == "bash" || toolName == "write" || toolName == "edit" || toolName == "delegate_task"
 	for _, key := range displayKeys {
 		if v, ok := params[key]; ok {
 			display := v
 			if noTruncate {
-				// Показываем полную команду/путь/код без обрезки.
-				// Многострочные — заменяем \n на ⏎ для однострочного отображения.
-				// Длинные однострочные — переносим по строкам, чтобы не обрезались
-				// и не создавали лишних строк при каждом тике спиннера.
+				// Show the full command/path/code without truncation.
+				// Multi-line values — replace \n with ⏎ for single-line display.
+				// Long single-line values — wrap to multiple lines so they don't
+				// get truncated or create extra lines on each spinner tick.
 				display = strings.ReplaceAll(display, "\n", " ⏎ ")
 				display = strings.ReplaceAll(display, "\r", "")
 				// Wrap very long commands to multiple lines so the full command

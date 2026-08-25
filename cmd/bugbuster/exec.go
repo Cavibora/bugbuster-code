@@ -246,16 +246,26 @@ func runExecStream(ctx context.Context, loop *agent.AgentLoop, cfg *config.BugBu
 			}
 			return 0
 
-		case provider.EventError:
-			errorSeen = true
-			if execJSON {
-				emitJSONL(map[string]any{
-					"type":    "error",
-					"message": event.Error.Error(),
-				})
-			} else {
-				fmt.Fprintf(os.Stderr, "error: %v\n", event.Error)
-			}
+	case provider.EventRateLimit:
+		// Rate limit (429) — show warning to user, don't save to context
+		if execJSON {
+			emitJSONL(map[string]any{
+				"type":    "rate_limit",
+				"message": event.Text,
+			})
+		} else {
+			fmt.Fprintf(os.Stderr, "  %s\n", event.Text)
+		}
+	case provider.EventError:
+		errorSeen = true
+		if execJSON {
+			emitJSONL(map[string]any{
+				"type":    "error",
+				"message": event.Error.Error(),
+			})
+		} else {
+			fmt.Fprintf(os.Stderr, "error: %v\n", event.Error)
+		}
 
 		case provider.EventUsage:
 			// Tokens — use in final status line

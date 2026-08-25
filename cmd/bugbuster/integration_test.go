@@ -9,7 +9,7 @@ import (
 	"bugbuster-code/pkg/theme"
 )
 
-// TestMain инициализирует тему для тестов
+// TestMain initializes the theme for tests
 func TestMain(m *testing.M) {
 	appTheme = theme.ResolveTheme(config.ThemeConfig{Mode: "dark", WordWrap: 80})
 	m.Run()
@@ -18,7 +18,7 @@ func TestMain(m *testing.M) {
 func TestGlamourRendererStreamingCodeBlockIntegration(t *testing.T) {
 	gr := NewGlamourRenderer()
 
-	// Симулируем полный поток: текст → код → текст
+	// Simulate a full flow: text → code → text
 	gr.Render("Here is some code:\n")
 	gr.Render("```go\n")
 	gr.Render("func main() {\n")
@@ -29,12 +29,12 @@ func TestGlamourRendererStreamingCodeBlockIntegration(t *testing.T) {
 
 	result := gr.Flush()
 
-	// Glamour рендерит кодовый блок — должен содержать код
+	// Glamour renders a code block — should contain the code
 	if !strings.Contains(result, "hello") {
 		t.Error("Code block content missing")
 	}
-	// Glamour может разбивать текст на отдельные ANSI-фрагменты,
-	// поэтому проверяем "Done" без "!"
+	// Glamour may split text into separate ANSI fragments,
+	// so we check "Done" without "!"
 	if !strings.Contains(result, "Done") {
 		t.Error("Text after code block missing")
 	}
@@ -47,7 +47,7 @@ func TestGlamourRendererMultipleCodeBlocks(t *testing.T) {
 	gr.Render(input)
 	result := gr.Flush()
 
-	// Glamour должен отрендерить оба блока
+	// Glamour should render both blocks
 	if !strings.Contains(result, "code1") {
 		t.Errorf("First code block missing, got: %q", result)
 	}
@@ -63,7 +63,7 @@ func TestGlamourRendererInlineCode(t *testing.T) {
 	gr.Render(input)
 	result := gr.Flush()
 
-	// Glamour должен отрендерить inline code
+	// Glamour should render inline code
 	if !strings.Contains(result, "fmt.Println") {
 		t.Errorf("Inline code content missing, got: %q", result)
 	}
@@ -99,19 +99,19 @@ func TestSpinnerStartStop(t *testing.T) {
 }
 
 func TestFormatContextBarColors(t *testing.T) {
-	// Зеленый (< 50%)
+	// Green (< 50%)
 	green := FormatContextBar(10, 100)
 	if !strings.Contains(green, appTheme.Success.ANSICode()) {
 		t.Error("Low usage should be green")
 	}
 
-	// Жёлтый (50-80%)
+	// Yellow (50-80%)
 	yellow := FormatContextBar(60, 100)
 	if !strings.Contains(yellow, appTheme.Warning.ANSICode()) {
 		t.Error("Medium usage should be yellow")
 	}
 
-	// Красный (> 80%)
+	// Red (> 80%)
 	red := FormatContextBar(90, 100)
 	if !strings.Contains(red, appTheme.Error.ANSICode()) {
 		t.Error("High usage should be red")

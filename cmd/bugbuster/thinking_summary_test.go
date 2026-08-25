@@ -9,7 +9,7 @@ func TestIsCodeLikeLine(t *testing.T) {
 		line     string
 		expected bool
 	}{
-		// Кодоподобные строки — должны быть true
+		// Code-like lines — should be true
 		{"};", true},
 		{");", true},
 		{"}", true},
@@ -43,7 +43,7 @@ func TestIsCodeLikeLine(t *testing.T) {
 		{"var x = 10;", true},
 		{"super.method()", true},
 
-		// Нормальные строки мышления — должны быть false
+		// Normal thinking lines — should be false
 		{"Мне нужно проанализировать структуру проекта", false},
 		{"Давайте посмотрим на файлы", false},
 		{"The user wants me to fix the bug", false},
@@ -56,7 +56,7 @@ func TestIsCodeLikeLine(t *testing.T) {
 		{"Let me examine the code structure", false}, // "let me" — английская фраза, не код
 		{"Анализирую ошибку в функции обработки", false},
 
-		// Короткие неинформативные строки — true
+		// Short uninformative lines — true
 		{"", true},
 		{"  ", true},
 		{"a", true},
@@ -65,7 +65,7 @@ func TestIsCodeLikeLine(t *testing.T) {
 		{"OK", true},  // слишком короткое (2 руны)
 		{"Да", true},   // слишком короткое (2 руны)
 
-		// Пограничные случаи — нормальные строки длиной > 3 рун
+		// Edge cases — normal lines longer than 3 runes
 		{"Хорошо, давайте проверим", false},
 	}
 

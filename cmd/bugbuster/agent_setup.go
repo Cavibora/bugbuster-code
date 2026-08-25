@@ -89,6 +89,9 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 		loop.SetIdleTimeout(time.Duration(cfg.Agent.IdleTimeout) * time.Second)
 	}
 
+	// Rate limit (HTTP 429) retry settings
+	loop.SetRateLimitConfig(cfg.Agent.RateLimit.MaxRetries, time.Duration(cfg.Agent.RateLimit.DelayMs)*time.Millisecond)
+
 	// Loop detection settings
 	if cfg.Agent.LoopDetection.RepeatThreshold > 0 {
 		loop.SetLoopRepeatThreshold(cfg.Agent.LoopDetection.RepeatThreshold)

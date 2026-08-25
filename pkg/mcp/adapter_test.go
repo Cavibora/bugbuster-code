@@ -10,7 +10,7 @@ import (
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 )
 
-// mockTool — тестовый инструмент
+// mockTool — test tool
 type mockTool struct {
 	name        string
 	description string
@@ -56,12 +56,12 @@ func TestToolAdapter_SchemaConversion(t *testing.T) {
 
 	serverTool := ToolAdapter(tool, "bugbuster_")
 
-	// Проверяем что RawInputSchema установлен
+	// Verify that RawInputSchema is set
 	if serverTool.Tool.RawInputSchema == nil {
 		t.Fatal("expected RawInputSchema to be set")
 	}
 
-	// Проверяем что это валидный JSON
+	// Verify that this is valid JSON
 	var schema map[string]any
 	if err := json.Unmarshal(serverTool.Tool.RawInputSchema, &schema); err != nil {
 		t.Fatalf("schema is not valid JSON: %v", err)
@@ -164,7 +164,7 @@ func TestToolAdapter_EmptyPrefix(t *testing.T) {
 func TestToolAdapter_NilSchema(t *testing.T) {
 	tool := &mockTool{name: "test", description: "Test", params: nil, result: tools.ToolResult{Output: "ok"}}
 	serverTool := ToolAdapter(tool, "bugbuster_")
-	// nil schema должен маршалиться в null, но NewToolWithRawSchema должен работать
+	// nil schema should marshal to null, but NewToolWithRawSchema should work
 	if serverTool.Tool.Name != "bugbuster_test" {
 		t.Errorf("expected 'bugbuster_test', got '%s'", serverTool.Tool.Name)
 	}

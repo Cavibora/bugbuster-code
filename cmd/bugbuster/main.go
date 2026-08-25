@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"bugbuster-code/pkg/config"
 	"bugbuster-code/pkg/i18n"
 
 	"github.com/fatih/color"
@@ -22,6 +23,10 @@ var (
 	langFlag     string
 	tuiMode      string // "auto", "inline", "" (no TUI)
 	clearCrash   bool
+
+	// currentTUICfg — reference to the active config, used by autoContinueCmd
+	// to read autopilot delay from config.
+	currentTUICfg *config.BugBusterConfig
 )
 
 func main() {

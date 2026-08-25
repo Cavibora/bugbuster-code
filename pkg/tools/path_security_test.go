@@ -11,13 +11,13 @@ func TestIsSecretPath(t *testing.T) {
 		path     string
 		expected bool
 	}{
-		// Точные совпадения
+		// Exact matches
 		{".env", true},
 		{"/home/user/project/.env", true},
 		{"/home/user/project/.env.local", true},
 		{"/home/user/.ssh/id_rsa", true},
 		{"credentials.json", true},
-		// Точные совпадения токенов
+		// Exact token matches
 		{"token", true},
 		{".token", true},
 		{"token.txt", true},
@@ -25,20 +25,20 @@ func TestIsSecretPath(t *testing.T) {
 		{"access_token.json", true},
 		{"api_token", true},
 		{"auth_token", true},
-		// Подстроки в имени файла
+		// Substrings in the file name
 		{"/project/config/secrets.yaml", true},
 		{"/project/my_password.txt", true},
 		{"/project/certificate.pem", true},
 		{"/project/private.key", true},
-		// Не секретные — "token" как подстрока НЕ должна блокировать
+		// Not secret — "token" as a substring should NOT block
 		{"/project/tokenizer.rs", false},
 		{"/project/tokenize.py", false},
 		{"/project/token_handler.go", false},
 		{"/project/my_tokenizer.ts", false},
-		// Пути
+		// Paths
 		{"/home/user/.aws/credentials", true},
 		{"/home/user/.kube/config", true},
-		// Не секретные
+		// Not secret
 		{"/home/user/project/main.go", false},
 		{"/home/user/project/README.md", false},
 		{"/home/user/project/environment.go", false},
@@ -64,7 +64,7 @@ func TestIsSystemPath(t *testing.T) {
 		{"/System/Library", true},
 		{"/root/.bashrc", true},
 		{"/boot/vmlinuz", true},
-		// Не системные
+		// Not system
 		{"/home/user/project/main.go", false},
 		{"/tmp/test.txt", false},
 		{"/Users/user/project", false},
@@ -82,7 +82,7 @@ func TestIsSystemPath(t *testing.T) {
 }
 
 func TestIsSystemPath_MacOSSymlinks(t *testing.T) {
-	// На macOS /etc — симлинк на /private/etc
+	// On macOS /etc is a symlink to /private/etc
 	result := IsSystemPath("/etc/passwd")
 	if !result {
 		t.Log("Note: /etc/passwd not detected as system path (may not exist on this OS)")
@@ -123,7 +123,7 @@ func TestIsPathAllowed(t *testing.T) {
 		{"/home/user/project/file.txt", []string{"/home/user/project"}, true},
 		{"/home/user/project/sub/file.txt", []string{"/home/user/project"}, true},
 		{"/home/other/file.txt", []string{"/home/user/project"}, false},
-		// Пустой AllowedDirs = всё разрешено
+		// Empty AllowedDirs = everything allowed
 		{"/any/path/file.txt", []string{}, true},
 	}
 
@@ -227,7 +227,7 @@ func TestSecretPathInfo(t *testing.T) {
 		{"/project/my_password.txt", true, "filename contains 'password'"},
 		{"/project/certificate.pem", true, "filename contains '.pem'"},
 		{"/home/user/.ssh/id_rsa", true, "secret path (.ssh)"},
-		// Не секретные
+		// Not secret
 		{"/project/tokenizer.rs", false, ""},
 		{"/project/main.go", false, ""},
 	}

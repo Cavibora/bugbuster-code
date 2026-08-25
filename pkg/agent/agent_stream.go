@@ -27,7 +27,9 @@ type streamResult struct {
 
 // streamRetryRequest receives streaming response from provider with retry and fallback.
 // If primary provider fails after maxRetries, switches to fallback provider.
-func (a *AgentLoop) streamRetryRequest(ctx context.Context) (<-chan provider.StreamEvent, error) {
+// Rate limit errors (HTTP 429) are retried with short delays and shown to user via eventCh.
+// Rate limit messages are NOT saved to context.
+func (a *AgentLoop) streamRetryRequest(ctx context.Context, eventCh chan<- provider.StreamEvent) (<-chan provider.StreamEvent, error) {
 	maxRetries := a.fallbackMaxRetries
 	if maxRetries <= 0 {
 		maxRetries = 2
@@ -37,19 +39,69 @@ func (a *AgentLoop) streamRetryRequest(ctx context.Context) (<-chan provider.Str
 		retryDelay = time.Second
 	}
 
+	// Rate limit (429) retries — configurable via agent.rate_limit
+	rateLimitMaxRetries := a.effectiveRateLimitMaxRetries()
+	rateLimitDelay := a.effectiveRateLimitDelay()
+
 	var stream <-chan provider.StreamEvent
 	var err error
 
-	// Try primary provider
-	for retry := 0; retry < maxRetries; retry++ {
+	// Try primary provider — first handle 429 rate limit retries, then regular errors
+	rateLimitAttempts := 0
+	regularAttempts := 0
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
 		stream, err = a.provider.StreamWithCtx(ctx, a.Context.Messages, a.buildToolDefs())
 		if err == nil {
 			return stream, nil
 		}
-		if a.verbose {
-			logger.Debug("stream_retry", "attempt", retry+1, "max", maxRetries, "provider", a.provider.Name(), "error", err)
+
+		// Rate limit error (429) — retry with short delay, show to user
+		if provider.IsRateLimitError(err) {
+			rateLimitAttempts++
+			if rateLimitAttempts > rateLimitMaxRetries {
+				if a.verbose {
+					logger.Debug("rate_limit_exhausted", "attempts", rateLimitAttempts, "provider", a.provider.Name())
+				}
+				break // give up on primary, try fallback
+			}
+			select {
+			case eventCh <- provider.StreamEvent{
+				Type: provider.EventRateLimit,
+				Text: "⏳ Rate limited (429). Retrying in " + rateLimitDelay.String() + "... (attempt " + fmt.Sprintf("%d/%d", rateLimitAttempts, rateLimitMaxRetries) + ")",
+			}:
+			default:
+			}
+			if a.verbose {
+				logger.Debug("rate_limit_retry", "attempt", rateLimitAttempts, "max", rateLimitMaxRetries, "provider", a.provider.Name(), "error", err)
+			}
+			select {
+			case <-time.After(rateLimitDelay):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+			continue
 		}
-		time.Sleep(retryDelay)
+
+		// Regular error — retry with backoff
+		regularAttempts++
+		if a.verbose {
+			logger.Debug("stream_retry", "attempt", regularAttempts, "max", maxRetries, "provider", a.provider.Name(), "error", err)
+		}
+		if regularAttempts > maxRetries {
+			break // give up on primary, try fallback
+		}
+		select {
+		case <-time.After(retryDelay):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 
 	// Primary failed — try fallback provider
@@ -57,15 +109,59 @@ func (a *AgentLoop) streamRetryRequest(ctx context.Context) (<-chan provider.Str
 		if a.verbose {
 			logger.Debug("fallback_switch", "from", a.provider.Name(), "to", a.fallbackProvider.Name())
 		}
-		for retry := 0; retry < maxRetries; retry++ {
+		rateLimitAttempts = 0
+		regularAttempts = 0
+
+		for {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			default:
+			}
+
 			stream, err = a.fallbackProvider.StreamWithCtx(ctx, a.Context.Messages, a.buildToolDefs())
 			if err == nil {
 				return stream, nil
 			}
-			if a.verbose {
-				logger.Debug("fallback_retry", "attempt", retry+1, "max", maxRetries, "provider", a.fallbackProvider.Name(), "error", err)
+
+			if provider.IsRateLimitError(err) {
+				rateLimitAttempts++
+				if rateLimitAttempts > rateLimitMaxRetries {
+					if a.verbose {
+						logger.Debug("rate_limit_exhausted_fallback", "attempts", rateLimitAttempts, "provider", a.fallbackProvider.Name())
+					}
+					break
+				}
+				select {
+				case eventCh <- provider.StreamEvent{
+					Type: provider.EventRateLimit,
+					Text: "\n⏳ Rate limited (429) on fallback. Retrying in " + rateLimitDelay.String() + "... (attempt " + fmt.Sprintf("%d/%d", rateLimitAttempts, rateLimitMaxRetries) + ")",
+				}:
+				default:
+				}
+				if a.verbose {
+					logger.Debug("rate_limit_retry_fallback", "attempt", rateLimitAttempts, "max", rateLimitMaxRetries, "provider", a.fallbackProvider.Name(), "error", err)
+				}
+				select {
+				case <-time.After(rateLimitDelay):
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
+				continue
 			}
-			time.Sleep(retryDelay)
+
+			regularAttempts++
+			if a.verbose {
+				logger.Debug("fallback_retry", "attempt", regularAttempts, "max", maxRetries, "provider", a.fallbackProvider.Name(), "error", err)
+			}
+			if regularAttempts > maxRetries {
+				break
+			}
+			select {
+			case <-time.After(retryDelay):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
 		}
 	}
 
@@ -218,10 +314,9 @@ streamLoop:
 				// Check thinking loop
 				if a.LoopDetector != nil && result.thinking.Len() > 0 {
 					if isLoop, msg := a.LoopDetector.RecordThinking(result.thinking.String()); isLoop {
+						// NOTE: Do NOT save loop hint to context — it pollutes context.
+						// Only show to user via eventCh.
 						eventCh <- provider.StreamEvent{Type: provider.EventTextDelta, Text: "\n" + msg + "\n"}
-						a.Context.Messages = append(a.Context.Messages, provider.UserMsg(
-							i18n.T("loop_detector.hint_thinking_loop"),
-						))
 						a.LoopDetector.Reset()
 						result.loopMsg = msg
 						result.loopType = "thinking"
@@ -254,10 +349,9 @@ streamLoop:
 				return result
 			}
 			// First idle timeout — warning, continue
+			// NOTE: Do NOT save idle timeout hint to context — it pollutes context
+			// with error messages and stack traces. Only show to user via eventCh.
 			eventCh <- provider.StreamEvent{Type: provider.EventTextDelta, Text: fmt.Sprintf("\n⚠️ %s (%d %s). %s\n", i18n.T("errors.stream_idle_timeout"), idleSec, i18n.T("time.seconds"), i18n.T("errors.stream_idle_hint"))}
-			a.Context.Messages = append(a.Context.Messages, provider.UserMsg(
-				i18n.T("errors.stream_idle_hint"),
-			))
 			// Reset timers and continue
 			idleTimer.Reset(idleTimeout)
 			thinkingTimer.Reset(thinkingTimeout)
@@ -304,10 +398,8 @@ streamLoop:
 	// Check thinking loop
 	if a.LoopDetector != nil && result.thinking.Len() > 0 {
 		if isLoop, msg := a.LoopDetector.RecordThinking(result.thinking.String()); isLoop {
+			// NOTE: Do NOT save loop hint to context — it pollutes context.
 			eventCh <- provider.StreamEvent{Type: provider.EventTextDelta, Text: "\n" + msg + "\n"}
-			a.Context.Messages = append(a.Context.Messages, provider.UserMsg(
-				i18n.T("loop_detector.hint_thinking_loop"),
-			))
 			a.LoopDetector.Reset()
 			result.loopMsg = msg
 			result.loopType = "thinking"
@@ -545,10 +637,8 @@ func (a *AgentLoop) handleStreamToolCalls(
 		// Check for loop
 		if a.LoopDetector != nil {
 			if isLoop, msg := a.LoopDetector.RecordToolCall(tc.ToolName, params, toolResult.Error == ""); isLoop {
+				// NOTE: Do NOT save loop hint to context — it pollutes context.
 				eventCh <- provider.StreamEvent{Type: provider.EventTextDelta, Text: "\n" + msg + "\n"}
-				a.Context.Messages = append(a.Context.Messages, provider.UserMsg(
-					i18n.T("loop_detector.strategy_hint"),
-				))
 				a.LoopDetector.Reset()
 				return true // loop detected — continue loop
 			}
@@ -580,10 +670,8 @@ func (a *AgentLoop) handleStreamFinalResponse(
 	// Check text response loop
 	if a.LoopDetector != nil {
 		if isLoop, msg := a.LoopDetector.RecordTextResponse(text); isLoop {
+			// NOTE: Do NOT save loop hint to context — it pollutes context.
 			eventCh <- provider.StreamEvent{Type: provider.EventTextDelta, Text: "\n" + msg + "\n"}
-			a.Context.Messages = append(a.Context.Messages, provider.UserMsg(
-				i18n.T("loop_detector.strategy_hint"),
-			))
 			a.LoopDetector.Reset()
 			return true, nil // loop detected — continue loop
 		}

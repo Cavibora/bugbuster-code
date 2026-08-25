@@ -28,6 +28,7 @@ const (
 	EventCompactionDone  = "compaction_done"  // context compaction completed
 	EventAutoContinue    = "auto_continue"    // auto-continue prompt (not shown to user)
 	EventThinkingTimeout = "thinking_timeout" // model thinking too long without tokens
+	EventRateLimit       = "rate_limit"       // HTTP 429 rate limit (display to user, retry after delay)
 )
 
 // StreamEvent — streaming event from provider
@@ -111,6 +112,7 @@ type ProviderConfig struct {
 	Temperature   float64          `yaml:"temperature"`     // sampling temperature (0.0-2.0), 0 = provider default
 	TopP          float64          `yaml:"top_p"`           // top-p sampling (0.0-1.0), 0 = provider default
 	TopK          int              `yaml:"top_k"`           // top-k sampling, 0 = provider default
+	Reasoning     *ReasoningConfig `yaml:"reasoning"`      // reasoning/thinking config (OpenRouter, OpenAI o-series)
 	Security      ProviderSecurity `yaml:"security"`        // settings security provider
 	SystemPrompt     string           `yaml:"system_prompt"`      // per-provider system prompt override (appended to default)
 	SystemPromptFile string           `yaml:"system_prompt_file"` // per-provider system prompt from file (appended after system_prompt)
@@ -131,6 +133,42 @@ type ProviderHubConfig struct {
 type ProviderSecurity struct {
 	AllowNetwork    bool     `yaml:"allow_network"`    // allow network requests
 	BlockedCommands []string `yaml:"blocked_commands"` // blocked commands
+}
+
+// ReasoningConfig — reasoning/thinking configuration for OpenRouter and OpenAI o-series.
+// Controls whether and how reasoning tokens are returned.
+// OpenRouter: { "reasoning": { "effort": "high" } } or { "reasoning": { "max_tokens": 2000 } }
+// OpenAI: { "reasoning": { "effort": "high" } }
+type ReasoningConfig struct {
+	Enabled  *bool  `yaml:"enabled"`   // explicitly enable/disable reasoning
+	Effort   string `yaml:"effort"`    // "max", "xhigh", "high", "medium", "low", "minimal", "none"
+	MaxTokens int    `yaml:"max_tokens"` // token budget for reasoning (Anthropic-style)
+	Exclude  bool   `yaml:"exclude"`   // exclude reasoning from response (model still uses it internally)
+}
+
+// ToMap converts ReasoningConfig to a map for JSON serialization in API requests.
+// Returns nil if reasoning is not configured.
+func (r *ReasoningConfig) ToMap() map[string]any {
+	if r == nil {
+		return nil
+	}
+	m := make(map[string]any)
+	if r.Enabled != nil {
+		m["enabled"] = *r.Enabled
+	}
+	if r.Effort != "" {
+		m["effort"] = r.Effort
+	}
+	if r.MaxTokens > 0 {
+		m["max_tokens"] = r.MaxTokens
+	}
+	if r.Exclude {
+		m["exclude"] = true
+	}
+	if len(m) == 0 {
+		return nil
+	}
+	return m
 }
 
 // DefaultBaseURL returns default URL for provider type

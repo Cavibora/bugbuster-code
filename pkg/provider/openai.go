@@ -21,6 +21,7 @@ type OpenAIProvider struct {
 	maxTokens   int     // max_tokens for API request (0 = do not send)
 	temperature float64 // sampling temperature (0 = not sent)
 	topP        float64 // top-p sampling (0 = not sent)
+	reasoning   *ReasoningConfig // reasoning/thinking config (OpenRouter, OpenAI o-series)
 	client      *http.Client
 	retryPolicy RetryPolicy
 }
@@ -46,6 +47,7 @@ func NewOpenAIProvider(name string, cfg ProviderConfig) (*OpenAIProvider, error)
 		maxTokens:   cfg.MaxTokens,
 		temperature: cfg.Temperature,
 		topP:        cfg.TopP,
+		reasoning:   cfg.Reasoning,
 		retryPolicy: DefaultRetryPolicy(),
 		client:      &http.Client{
 			// No timeout — for streaming use context with request_timeout
@@ -380,6 +382,15 @@ func (p *OpenAIProvider) buildRequest(messages []Message, tools []ToolDef, strea
 		}
 	}
 
+	// Reasoning/thinking configuration (OpenRouter, OpenAI o-series)
+	// Enables reasoning tokens in the response. Without this, some models
+	// (like GLM-5.2 via OpenRouter) may not return reasoning/thinking content.
+	if p.reasoning != nil {
+		if rMap := p.reasoning.ToMap(); rMap != nil {
+			req["reasoning"] = rMap
+		}
+	}
+
 	// Add tools (function calling)
 	if len(tools) > 0 {
 		var openaiTools []map[string]any
@@ -490,13 +501,23 @@ func (p *OpenAIProvider) convertMessage(msg Message) []map[string]any {
 }
 
 func (p *OpenAIProvider) parseResponse(body []byte) (*CompletionResult, error) {
+	// Use a flexible struct that captures reasoning from multiple formats:
+	// - reasoning_content (DeepSeek, some OpenAI-compatible)
+	// - reasoning (OpenRouter unified format)
+	// - reasoning_details (OpenRouter structured format, array of {type, text/summary})
 	var resp struct {
 		Choices []struct {
 			Message struct {
-				Role             string `json:"role"`
-				Content          string `json:"content"`
-				ReasoningContent string `json:"reasoning_content"`
-				ToolCalls        []struct {
+				Role             string          `json:"role"`
+				Content          string          `json:"content"`
+				ReasoningContent string          `json:"reasoning_content"`
+				Reasoning        string          `json:"reasoning"`
+				ReasoningDetails []struct {
+					Type    string `json:"type"`
+					Text    string `json:"text"`
+					Summary string `json:"summary"`
+				} `json:"reasoning_details"`
+				ToolCalls []struct {
 					ID       string `json:"id"`
 					Type     string `json:"type"`
 					Function struct {
@@ -526,10 +547,35 @@ func (p *OpenAIProvider) parseResponse(body []byte) (*CompletionResult, error) {
 
 	// Convert to Message
 	var content []ContentBlock
-	// Reasoning/thinking content (o1, o3 models)
+
+	// Reasoning/thinking content — check multiple formats:
+	// 1. reasoning_content (DeepSeek, some OpenAI-compatible)
+	// 2. reasoning (OpenRouter unified format)
+	// 3. reasoning_details (OpenRouter structured format)
+	thinkingText := ""
 	if msg.ReasoningContent != "" {
-		content = append(content, ContentBlock{Type: "thinking", Text: msg.ReasoningContent})
+		thinkingText = msg.ReasoningContent
+	} else if msg.Reasoning != "" {
+		thinkingText = msg.Reasoning
 	}
+	// Append reasoning_details text/summary entries
+	for _, rd := range msg.ReasoningDetails {
+		if rd.Text != "" {
+			if thinkingText != "" {
+				thinkingText += "\n"
+			}
+			thinkingText += rd.Text
+		} else if rd.Summary != "" {
+			if thinkingText != "" {
+				thinkingText += "\n"
+			}
+			thinkingText += rd.Summary
+		}
+	}
+	if thinkingText != "" {
+		content = append(content, ContentBlock{Type: "thinking", Text: thinkingText})
+	}
+
 	if msg.Content != "" {
 		content = append(content, ContentBlock{Type: "text", Text: msg.Content})
 	}
@@ -583,13 +629,23 @@ func (p *OpenAIProvider) parseStream(body io.Reader, ch chan<- StreamEvent) {
 	var toolInputBuf strings.Builder
 
 	_ = ExtractJSONFromSSE(body, func(jsonStr string) error {
+		// Flexible struct that captures reasoning from multiple formats:
+		// - reasoning_content (DeepSeek, some OpenAI-compatible)
+		// - reasoning (OpenRouter unified format)
+		// - reasoning_details (OpenRouter structured format, array of {type, text/summary})
 		var chunk struct {
 			Choices []struct {
 				Delta struct {
 					Role             string `json:"role"`
 					Content          string `json:"content"`
 					ReasoningContent string `json:"reasoning_content"`
-					ToolCalls        []struct {
+					Reasoning        string `json:"reasoning"`
+					ReasoningDetails []struct {
+						Type    string `json:"type"`
+						Text    string `json:"text"`
+						Summary string `json:"summary"`
+					} `json:"reasoning_details"`
+					ToolCalls []struct {
 						ID       string `json:"id"`
 						Index    int    `json:"index"`
 						Function struct {
@@ -625,9 +681,23 @@ func (p *OpenAIProvider) parseStream(body io.Reader, ch chan<- StreamEvent) {
 
 		delta := chunk.Choices[0].Delta
 
-		// Reasoning/thinking content (o1, o3, DeepSeek etc.)
+		// Reasoning/thinking content — check multiple formats:
+		// 1. reasoning_content (DeepSeek, some OpenAI-compatible)
+		// 2. reasoning (OpenRouter unified format)
 		if delta.ReasoningContent != "" {
 			ch <- StreamEvent{Type: EventThinking, Text: delta.ReasoningContent}
+		}
+		if delta.Reasoning != "" {
+			ch <- StreamEvent{Type: EventThinking, Text: delta.Reasoning}
+		}
+		// 3. reasoning_details (OpenRouter structured format)
+		for _, rd := range delta.ReasoningDetails {
+			if rd.Text != "" {
+				ch <- StreamEvent{Type: EventThinking, Text: rd.Text}
+			}
+			if rd.Summary != "" {
+				ch <- StreamEvent{Type: EventThinking, Text: rd.Summary}
+			}
 		}
 
 		// Text content

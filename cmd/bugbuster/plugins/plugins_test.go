@@ -53,7 +53,7 @@ func TestFilesystemPluginTools(t *testing.T) {
 		t.Errorf("expected 5 tools, got %d", len(tools))
 	}
 
-	// Проверяем имена инструментов
+	// Verify tool names
 	names := make(map[string]bool)
 	for _, tool := range tools {
 		names[tool.Name()] = true
@@ -189,11 +189,11 @@ func TestRegisterAll(t *testing.T) {
 	registry := plugin.NewRegistry()
 	RegisterAll(registry)
 
-	// Проверяем, что фабрики зарегистрированы
+	// Verify that factories are registered
 	_ = registry.GetAllTools()
-	// Без Init() инструменты не создаются, но фабрики должны быть зарегистрированы
+	// Without Init() tools are not created, but factories should be registered
 
-	// Загружаем плагин filesystem
+	// Load the filesystem plugin
 	p, err := registry.Load("filesystem", map[string]any{
 		"allowed_dirs": []any{"/tmp"},
 	})
@@ -204,7 +204,7 @@ func TestRegisterAll(t *testing.T) {
 		t.Errorf("expected name filesystem, got %s", p.Name())
 	}
 
-	// Загружаем плагин bash
+	// Load the bash plugin
 	p, err = registry.Load("bash", map[string]any{
 		"timeout": 30,
 	})
@@ -215,7 +215,7 @@ func TestRegisterAll(t *testing.T) {
 		t.Errorf("expected name bash, got %s", p.Name())
 	}
 
-	// Загружаем плагин web
+	// Load the web plugin
 	p, err = registry.Load("web", nil)
 	if err != nil {
 		t.Fatalf("Load web error: %v", err)

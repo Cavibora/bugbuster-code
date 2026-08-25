@@ -10,7 +10,7 @@ func TestLoopDetector_IdenticalToolCalls(t *testing.T) {
 
 	params := map[string]string{"path": "/tmp/test.go"}
 
-	// Первые два вызова — нормально
+	// First two calls — fine
 	isLoop, msg := d.RecordToolCall("read", params, true)
 	if isLoop {
 		t.Errorf("expected no loop on call 1, got: %s", msg)
@@ -21,7 +21,7 @@ func TestLoopDetector_IdenticalToolCalls(t *testing.T) {
 		t.Errorf("expected no loop on call 2, got: %s", msg)
 	}
 
-	// Третий вызов с теми же параметрами — зацикливание
+	// Third call with the same parameters — loop
 	isLoop, msg = d.RecordToolCall("read", params, true)
 	if !isLoop {
 		t.Error("expected loop on call 3")
@@ -35,9 +35,9 @@ func TestLoopDetector_IdenticalToolCalls(t *testing.T) {
 func TestLoopDetector_DifferentToolCalls(t *testing.T) {
 	d := NewLoopDetector()
 
-	// Вызовы разных инструментов с разными параметрами — не зацикливание
+	// Calls to different tools with different parameters — not a loop
 	for i := 0; i < 3; i++ {
-		// Каждый вызов уникальный (разные пути/паттерны)
+		// Each call is unique (different paths/patterns)
 		isLoop, _ := d.RecordToolCall("read", map[string]string{"path": "a" + string(rune('0'+i)) + ".go"}, true)
 		if isLoop {
 			t.Error("should not detect loop for different calls")
@@ -55,7 +55,7 @@ func TestLoopDetector_PingPong(t *testing.T) {
 	paramsA := map[string]string{"path": "main.go"}
 	paramsB := map[string]string{"pattern": "TODO"}
 
-	// A(p1) → B(p2) → A(p1) → B(p2) → A(p1) → B(p2) — пинг-понг с одинаковыми параметрами
+	// A(p1) → B(p2) → A(p1) → B(p2) → A(p1) → B(p2) — ping-pong with identical parameters
 	calls := []struct {
 		tool   string
 		params map[string]string
@@ -87,7 +87,7 @@ func TestLoopDetector_PingPongDifferentParams(t *testing.T) {
 	d := NewLoopDetector()
 
 	// read(a.go) → grep(TODO) → read(b.go) → grep(FIXME) → read(c.go) → grep(BUG)
-	// Разные параметры — это НЕ пинг-понг, модель работает с разными файлами
+	// Different parameters — this is NOT ping-pong, the model works with different files
 	calls := []struct {
 		tool   string
 		params map[string]string
@@ -114,7 +114,7 @@ func TestLoopDetector_RepeatedTextResponse(t *testing.T) {
 
 	text := "I cannot help with this request."
 
-	// Два раза — не зацикливание
+	// Two times — not a loop
 	isLoop, _ := d.RecordTextResponse(text)
 	if isLoop {
 		t.Error("should not detect loop on 2 identical texts")
@@ -125,7 +125,7 @@ func TestLoopDetector_RepeatedTextResponse(t *testing.T) {
 		t.Error("should not detect loop on 2 identical texts")
 	}
 
-	// Третий раз — зацикливание
+	// Third time — loop
 	isLoop, msg := d.RecordTextResponse(text)
 	if !isLoop {
 		t.Error("expected loop on 3 identical texts")
@@ -136,7 +136,7 @@ func TestLoopDetector_RepeatedTextResponse(t *testing.T) {
 func TestLoopDetector_DifferentTextResponses(t *testing.T) {
 	d := NewLoopDetector()
 
-	// Разные тексты с разным набором слов — не зацикливание
+	// Different texts with different word sets — not a loop
 	texts := []string{
 		"Сначала нужно прочитать файл конфигурации и понять структуру проекта.",
 		"Теперь реализуем функцию парсинга аргументов командной строки.",
@@ -160,7 +160,7 @@ func TestLoopDetector_DifferentTextResponses(t *testing.T) {
 func TestLoopDetector_ReadManyFiles(t *testing.T) {
 	d := NewLoopDetector()
 
-	// Модель читает 20 разных файлов подряд — это нормально
+	// The model reads 20 different files in a row — this is normal
 	for i := 0; i < 20; i++ {
 		isLoop, _ := d.RecordToolCall("read", map[string]string{
 			"path": "src/module" + string(rune('A'+i)) + "/main.go",
@@ -178,7 +178,7 @@ func TestLoopDetector_SameToolSameParams(t *testing.T) {
 
 	params := map[string]string{"command": "go test"}
 
-	// Один и тот же инструмент с одинаковыми параметрами — зацикливание (эвристика 2)
+	// Same tool with the same parameters — loop (heuristic 2)
 	for i := 0; i < 5; i++ {
 		isLoop, msg := d.RecordToolCall("bash", params, true)
 		if isLoop {
@@ -197,12 +197,12 @@ func TestLoopDetector_WindowSize(t *testing.T) {
 	d.SetWindowSize(5)
 	d.SetRepeatThreshold(3)
 
-	// Заполняем окно разными вызовами
+	// Fill the window with different calls
 	for i := 0; i < 5; i++ {
 		d.RecordToolCall("bash", map[string]string{"command": string(rune('0' + i))}, true)
 	}
 
-	// Теперь 3 одинаковых вызова — должно детектироваться
+	// Now 3 identical calls — should be detected
 	for i := 0; i < 3; i++ {
 		isLoop, msg := d.RecordToolCall("read", map[string]string{"path": "test.go"}, true)
 		if isLoop {
@@ -219,17 +219,17 @@ func TestLoopDetector_Reset(t *testing.T) {
 
 	params := map[string]string{"path": "test.go"}
 
-	// Два вызова — зацикливание
+	// Two calls — loop
 	d.RecordToolCall("read", params, true)
 	isLoop, _ := d.RecordToolCall("read", params, true)
 	if !isLoop {
 		t.Error("expected loop")
 	}
 
-	// Сброс
+	// Reset
 	d.Reset()
 
-	// После сброса — не должно быть зацикливания
+	// After reset — there should be no loop
 	isLoop, _ = d.RecordToolCall("read", params, true)
 	if isLoop {
 		t.Error("should not detect loop after reset")
@@ -260,7 +260,7 @@ func TestLoopDetector_FailedToolCalls(t *testing.T) {
 
 	params := map[string]string{"path": "/nonexistent.go"}
 
-	// Три вызова с ошибкой — тоже зацикливание (модель пытается снова и снова)
+	// Three error calls — also a loop (the model keeps retrying)
 	for i := 0; i < 3; i++ {
 		isLoop, msg := d.RecordToolCall("read", params, false)
 		if isLoop {
@@ -278,13 +278,13 @@ func TestLoopDetector_MixedToolAndText(t *testing.T) {
 	d := NewLoopDetector()
 	d.SetRepeatThreshold(3)
 
-	// Чередование tool и text — не должно быть ложного срабатывания
+	// Alternating tool and text — no false positive
 	for i := 0; i < 10; i++ {
 		d.RecordToolCall("read", map[string]string{"path": "file.go"}, true)
 		d.RecordTextResponse("Here is the file content")
 	}
 
-	// Окно 20, но разные типы (tool vs text) — зацикливание по one-tool-only
+	// Window 20, but different types (tool vs text) — loop by one-tool-only
 	total, _ := d.Stats()
 	t.Logf("After mixed calls: %d snapshots", total)
 }
@@ -326,7 +326,7 @@ func TestLoopDetector_TextSimilarityLoop(t *testing.T) {
 	d.SetTextSimilarityWindow(4)
 	d.SetTextSimilarityThreshold(0.65)
 
-	// Симулируем «мыслительный цикл» — модель перефразирует одну и ту же мысль
+	// Simulate a "thinking loop" — the model rephrases the same thought
 	texts := []string{
 		"MeshCfg имеет приватные поля. Нужно использовать MeshCfg::from_env(). Но для тестов это неудобно. Лучше создам обёртку, которая создаёт NeuroMesh с конфигурацией по умолчанию.",
 		"MeshCfg имеет приватные поля. Нужно использовать MeshCfg::from_env(). Но для тестов это неудобно. Лучше создам обёртку, которая создаёт NeuroMesh с конфигурацией по умолчанию",
@@ -354,7 +354,7 @@ func TestLoopDetector_TextSimilarityDifferentThoughts(t *testing.T) {
 	d.SetTextSimilarityWindow(4)
 	d.SetTextSimilarityThreshold(0.65)
 
-	// Разные мысли — не должно быть зацикливания
+	// Different thoughts — no loop should occur
 	texts := []string{
 		"Сначала нужно прочитать файл конфигурации и понять структуру проекта.",
 		"Теперь реализуем функцию парсинга аргументов командной строки.",
@@ -371,7 +371,7 @@ func TestLoopDetector_TextSimilarityDifferentThoughts(t *testing.T) {
 }
 
 func TestExtractWords(t *testing.T) {
-	// Проверяем что стоп-слова фильтруются
+	// Verify that stop-words are filtered
 	words := extractWords("The quick brown fox jumps over the lazy dog")
 	if _, ok := words["the"]; ok {
 		t.Error("stopword 'the' should be filtered")
@@ -385,7 +385,7 @@ func TestExtractWords(t *testing.T) {
 }
 
 func TestExtractWordsRussian(t *testing.T) {
-	// Проверяем русские стоп-слова
+	// Verify Russian stop-words
 	words := extractWords("Нужно использовать MeshCfg для создания конфигурации")
 	if _, ok := words["нужно"]; !ok {
 		t.Error("meaningful word 'нужно' should be kept")
@@ -404,8 +404,8 @@ func TestLoopDetector_ThinkingLoop(t *testing.T) {
 	d.thinkingSimilarityWindow = 3
 	d.thinkingSimilarityThreshold = 0.65
 
-	// Симулируем «мыслительный цикл» — модель повторяет одни и те же размышления
-	// (характерно для GLM-5.1 через z.ai)
+	// Simulate a "thinking loop" — the model repeats the same thoughts
+	// (characteristic of GLM-5.1 via z.ai)
 	thoughts := []string{
 		"Мне нужно прочитать файл main.go чтобы понять структуру проекта. Давайте откроем его.",
 		"Мне нужно прочитать файл main.go чтобы понять структуру проекта. Давайте откроем его",
@@ -432,7 +432,7 @@ func TestLoopDetector_ThinkingLoopDifferentThoughts(t *testing.T) {
 	d.thinkingSimilarityWindow = 3
 	d.thinkingSimilarityThreshold = 0.65
 
-	// Разные мысли — не должно быть зацикливания
+	// Different thoughts — no loop should occur
 	thoughts := []string{
 		"Сначала нужно прочитать файл конфигурации и понять структуру проекта.",
 		"Теперь реализуем функцию парсинга аргументов командной строки.",
@@ -454,14 +454,14 @@ func TestLoopDetector_ThinkingLoopReset(t *testing.T) {
 
 	thought := "Мне нужно прочитать файл main.go чтобы понять структуру проекта."
 
-	// Два thinking-блока — ещё не зацикливание (нужно 3)
+	// Two thinking blocks — not yet a loop (need 3)
 	d.RecordThinking(thought)
 	d.RecordThinking(thought)
 
-	// Сброс
+	// Reset
 	d.Reset()
 
-	// После сброса — не должно быть зацикливания
+	// After reset — there should be no loop
 	isLoop, _ := d.RecordThinking(thought)
 	if isLoop {
 		t.Error("should not detect loop after reset")
@@ -472,39 +472,39 @@ func TestLoopDetector_ThinkingAndToolMixed(t *testing.T) {
 	d := NewLoopDetector()
 	d.thinkingSimilarityWindow = 3
 
-	// Чередование thinking и tool calls — не должно быть ложного срабатывания
+	// Alternating thinking and tool calls — no false positive
 	for i := 0; i < 5; i++ {
 		d.RecordThinking("Размышляю о структуре файла " + string(rune('A'+i)))
 		d.RecordToolCall("read", map[string]string{"path": "file" + string(rune('A'+i)) + ".go"}, true)
 	}
 
-	// Не должно быть зацикливания — разные мысли и разные вызовы
+	// No loop — different thoughts and different calls
 	total, _ := d.Stats()
 	t.Logf("After mixed thinking+tool calls: %d snapshots", total)
 }
 
 func TestJaccardSimilarity(t *testing.T) {
-	// Идентичные множества
+	// Identical sets
 	a := map[string]struct{}{"hello": {}, "world": {}, "test": {}}
 	b := map[string]struct{}{"hello": {}, "world": {}, "test": {}}
 	if sim := jaccardSimilarity(a, b); sim != 1.0 {
 		t.Errorf("identical sets should have similarity 1.0, got %f", sim)
 	}
 
-	// Полностью разные множества
+	// Completely different sets
 	c := map[string]struct{}{"foo": {}, "bar": {}}
 	if sim := jaccardSimilarity(a, c); sim != 0.0 {
 		t.Errorf("disjoint sets should have similarity 0.0, got %f", sim)
 	}
 
-	// Частичное пересечение
+	// Partial overlap
 	d := map[string]struct{}{"hello": {}, "other": {}, "test": {}}
 	sim := jaccardSimilarity(a, d)
 	if sim < 0.4 || sim > 0.7 {
 		t.Errorf("partial overlap should be ~0.5, got %f", sim)
 	}
 
-	// Пустые множества
+	// Empty sets
 	empty := map[string]struct{}{}
 	if sim := jaccardSimilarity(empty, empty); sim != 1.0 {
 		t.Errorf("two empty sets should have similarity 1.0, got %f", sim)

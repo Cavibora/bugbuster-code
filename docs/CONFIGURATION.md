@@ -81,6 +81,16 @@ agent:
     text_similarity_threshold: 0.65  # 0.0-1.0, text similarity = loop
     text_similarity_window: 4     # how many text responses to check
 
+  # Rate limit (HTTP 429) retry settings
+  rate_limit:
+    max_retries: 50               # max 429 retries before giving up (default: 50)
+    delay_ms: 3000                # delay between 429 retries in ms (default: 3000)
+
+  # Autopilot settings
+  autopilot:
+    max_iterations: 5000          # max autopilot iterations (default: 5000)
+    delay_ms: 2000                # delay between autopilot iterations in ms (default: 2000)
+
 # ─── Tools ────────────────────────────────────────────────────────────────────
 
 tools:
@@ -255,12 +265,70 @@ BugBuster resolves these at load time. If a variable is not set, the value remai
 | `/diff` | Show all file changes |
 | `/lang <code>` | Switch interface language |
 | `/auto` | Toggle autopilot mode |
+| `/auto N` | Enable autopilot with N iteration limit |
+| `/rate` | Show current rate limit settings |
+| `/rate <max_retries> [delay_ms]` | Configure rate limit retries |
 | `/tui` | Switch to TUI mode |
 | `/cli` | Switch to CLI mode |
 | `/config` | Show current configuration |
 | `/skills` | List available skills |
 | `/skill <name>` | Activate a skill |
 | `/skill off` | Deactivate current skill |
+
+## Rate Limit (HTTP 429)
+
+When a provider returns HTTP 429 (rate limited), BugBuster automatically retries with a short delay instead of stopping. This is especially useful for free-tier models (e.g. `z-ai/glm-5.2:free` via OpenRouter) that intermittently rate-limit.
+
+### Behavior
+
+- On HTTP 429, the agent retries up to `rate_limit.max_retries` times (default 50) with `rate_limit.delay_ms` delay (default 3000ms).
+- The rate limit message is shown to the user but **not** saved to the context.
+- After exhausting all retries, the full error message is shown.
+- **Autopilot does not stop** on transient errors (429, 404, 500, 502, 503, 504) — it continues automatically.
+
+### Configuration
+
+```yaml
+agent:
+  rate_limit:
+    max_retries: 50    # max 429 retries (default: 50)
+    delay_ms: 3000     # delay between retries in ms (default: 3000)
+```
+
+### Interactive Commands
+
+| Command | Description |
+|---------|-------------|
+| `/rate` | Show current rate limit settings |
+| `/rate 100 2000` | Set max_retries=100, delay=2000ms |
+| `/rate 100` | Set max_retries=100, keep current delay |
+
+## Autopilot
+
+Autopilot automatically continues the agent's work after each response until the plan is complete, the iteration limit is reached, or the user interrupts with Ctrl+C.
+
+### Behavior
+
+- After each response, the agent checks if the plan is complete. If not, it sends a continuation prompt.
+- **Transient errors (429, 404, 500, 502, 503, 504) do not stop autopilot** — it continues after a short delay.
+- If a stream ends with an error, autopilot does **not** falsely report plan completion — it retries.
+
+### Configuration
+
+```yaml
+agent:
+  autopilot:
+    max_iterations: 5000         # max autopilot iterations (default: 5000)
+    delay_ms: 2000               # delay between iterations in ms (default: 2000)
+```
+
+### Interactive Commands
+
+| Command | Description |
+|---------|-------------|
+| `/auto` | Toggle autopilot mode (uses config `max_iterations`) |
+| `/auto N` | Enable autopilot with N iteration limit |
+| `/auto 100` | Enable autopilot with 100 iterations |
 
 ## Agent Instructions
 
@@ -374,6 +442,31 @@ context_window: 128000
 ```
 
 Supports extended thinking for `o1` and `o3` models.
+
+### Reasoning / Thinking (OpenRouter, OpenAI o-series)
+
+BugBuster parses reasoning/thinking content from multiple formats:
+- `reasoning_content` (DeepSeek, some OpenAI-compatible providers)
+- `reasoning` (OpenRouter unified format)
+- `reasoning_details` (OpenRouter structured format)
+
+To enable reasoning for models that support it (e.g. GLM-5.2 via OpenRouter), configure the `reasoning` block on the provider:
+
+```yaml
+providers:
+  grfn:
+    type: openai
+    api_key: ${OPENROUTER_API_KEY}
+    base_url: https://openrouter.ai/api/v1
+    model: z-ai/glm-5.2:free
+    reasoning:
+      enabled: true     # enable reasoning tokens in response
+      effort: high       # "max", "xhigh", "high", "medium", "low", "minimal", "none"
+      max_tokens: 2000   # token budget for reasoning
+      exclude: false     # exclude reasoning from response (model still uses it internally)
+```
+
+The `reasoning` block is sent as the `reasoning` parameter in API requests. Reasoning/thinking content is displayed to the user (dimmed) and used for loop detection.
 
 ### Anthropic
 

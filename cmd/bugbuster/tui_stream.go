@@ -109,7 +109,12 @@ func (m TUI) spinnerCmd() tea.Cmd {
 
 // autoContinueCmd returns command for autopilot continuation after delay
 func autoContinueCmd(input string) tea.Cmd {
-	return tea.Tick(autoDelayBetweenIterations, func(t time.Time) tea.Msg {
+	// Use configurable delay (default 2s)
+	delay := autoDelayBetweenIterations
+	if currentTUICfg != nil && currentTUICfg.Agent.Autopilot.DelayMs > 0 {
+		delay = time.Duration(currentTUICfg.Agent.Autopilot.DelayMs) * time.Millisecond
+	}
+	return tea.Tick(delay, func(t time.Time) tea.Msg {
 		return autoContinueMsg{input: input}
 	})
 }

@@ -129,6 +129,11 @@ type TUI struct {
 	autoMode  bool
 	autoState *AutoPilotState
 
+	// streamError tracks if the last stream ended with an error.
+	// When true, autopilot should NOT check isPlanCompleted —
+	// the stream was interrupted, not completed.
+	streamError bool
+
 	// Background process manager
 	bgTool *tools.BackgroundTool
 
@@ -308,6 +313,28 @@ func (m TUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Autopilot: if enabled, check plan completion and continue
 		if m.autoMode {
+			// If stream ended with error (e.g. 429 rate limit exhausted),
+			// do NOT check isPlanCompleted — the task was interrupted, not completed.
+			// Continue autopilot after a short delay.
+			if m.streamError {
+				m.streamError = false // reset for next stream
+				// Check iteration limit
+				if m.autoState != nil {
+					m.autoState.Iteration++
+					if m.autoState.Iteration >= m.autoState.MaxIterations {
+						maxIter := m.autoState.MaxIterations
+						m.autoMode = false
+						m.autoState = nil
+						m.output.WriteString(color.YellowString("🤖 %s", i18n.T("cli.auto_max_iterations", maxIter)) + "\n")
+						m.syncViewport()
+						return m, nil
+					}
+				}
+				// Continue after error — wait a bit before retrying
+				m.output.WriteString(color.YellowString("🤖 %s\n", i18n.T("cli.auto_continue_after_error")) + "\n")
+				m.syncViewport()
+				return m, autoContinueCmd(randomContinuePhrase())
+			}
 			// Check iteration limit
 			if m.autoState != nil {
 				m.autoState.Iteration++
@@ -359,6 +386,7 @@ func (m TUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.thinkingSummary = ""
 
 			m.streaming = true
+			m.streamError = false
 
 			// Create AskChannel for ask_user
 			askCh := &tools.AskChannel{
@@ -395,6 +423,7 @@ func (m TUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.thinkingSummary = ""
 
 			m.streaming = true
+			m.streamError = false
 
 			// Create AskChannel for ask_user
 			askCh := &tools.AskChannel{
@@ -480,6 +509,7 @@ func (m TUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.output.WriteString(separatorStyle.Render("  ──────────────────────────────────────────────────") + "\n")
 					m.syncViewport()
 					m.streaming = true
+			m.streamError = false
 					m.mdRenderer = NewGlamourRenderer()
 					m.totalInTokens = 0
 					m.totalOutTokens = 0
@@ -940,10 +970,19 @@ func (m TUI) handleSend() (retModel tea.Model, retCmd tea.Cmd) {
 		m.syncViewport()
 		m.textarea.Reset()
 		return m, nil
+	case "/rate":
+		// Show current rate limit config
+		m.output.WriteString(color.HiCyanString("  ⏳ Rate limit settings:\n"))
+		m.output.WriteString(fmt.Sprintf("  Max retries: %d\n", m.cfg.Agent.RateLimit.MaxRetries))
+		m.output.WriteString(fmt.Sprintf("  Delay: %dms\n", m.cfg.Agent.RateLimit.DelayMs))
+		m.output.WriteString(color.HiBlackString("  Usage: /rate <max_retries> [delay_ms]\n"))
+		m.syncViewport()
+		m.textarea.Reset()
+		return m, nil
 	case "/auto":
 		m.autoMode = !m.autoMode
 		if m.autoMode {
-			m.autoState = NewAutoPilotState(0)
+			m.autoState = NewAutoPilotStateFromConfig(m.cfg, 0)
 			m.output.WriteString(color.HiCyanString("🤖 %s", i18n.T("cli.auto_enabled")) + "\n")
 		} else {
 			m.autoState = nil
@@ -988,10 +1027,41 @@ func (m TUI) handleSend() (retModel tea.Model, retCmd tea.Cmd) {
 				}
 			}
 			m.autoMode = true
-			m.autoState = NewAutoPilotState(maxIter)
+			m.autoState = NewAutoPilotStateFromConfig(m.cfg, maxIter)
 			m.output.WriteString(color.HiCyanString("🤖 %s", i18n.T("cli.auto_enabled")) + "\n")
 			if m.autoState.MaxIterations != autoMaxIterations {
 				m.output.WriteString(color.HiCyanString("   Max iterations: %d", m.autoState.MaxIterations) + "\n")
+			}
+			m.syncViewport()
+			m.textarea.Reset()
+			return m, nil
+		}
+		// Check /rate <max_retries> [delay_ms] — configure rate limit retries
+		if strings.HasPrefix(input, "/rate ") {
+			parts := strings.Fields(input)
+			if len(parts) >= 2 {
+				maxRetries := 0
+				if _, err := fmt.Sscanf(parts[1], "%d", &maxRetries); err != nil {
+					maxRetries = 0
+				}
+				delayMs := 0
+				if len(parts) >= 3 {
+					if _, err := fmt.Sscanf(parts[2], "%d", &delayMs); err != nil {
+						delayMs = 0
+					}
+				}
+				if maxRetries > 0 {
+					m.cfg.Agent.RateLimit.MaxRetries = maxRetries
+					if delayMs > 0 {
+						m.cfg.Agent.RateLimit.DelayMs = delayMs
+					}
+					m.loop.SetRateLimitConfig(maxRetries, time.Duration(m.cfg.Agent.RateLimit.DelayMs)*time.Millisecond)
+					m.output.WriteString(color.GreenString("  ✓ Rate limit: max_retries=%d, delay=%dms\n", maxRetries, m.cfg.Agent.RateLimit.DelayMs))
+				} else {
+					m.output.WriteString(color.YellowString("  ⚠ Invalid max_retries: %s\n", parts[1]))
+				}
+			} else {
+				m.output.WriteString(color.YellowString("  ⚠ Usage: /rate <max_retries> [delay_ms]\n"))
 			}
 			m.syncViewport()
 			m.textarea.Reset()
@@ -1137,6 +1207,7 @@ func (m TUI) handleSend() (retModel tea.Model, retCmd tea.Cmd) {
 	m.output.WriteString(userMsgStyle.Render("  ❯ "+input) + "\n")
 	m.output.WriteString(separatorStyle.Render("  ──────────────────────────────────────────────────") + "\n")
 	m.streaming = true
+			m.streamError = false
 	m.syncViewport()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1389,13 +1460,23 @@ func (m TUI) handleStreamEvent(msg streamEventMsg) (tea.Model, tea.Cmd) {
 			m.ctxTokens = msg.event.InputTokens + msg.event.OutputTokens
 		}
 		m.showProgress = false
+		m.streamError = false // stream completed successfully
 		m.output.WriteString(m.mdRenderer.Flush())
 		m.output.WriteString("\n")
 		m.syncViewport()
 		// Incremental session save after each response
 		saveSessionTUI(m)
+	case provider.EventRateLimit:
+		// Rate limit (429) — show warning to user, don't save to context
+		m.output.WriteString(
+			lipgloss.NewStyle().
+				Foreground(lipgloss.Color("11")).
+				Render("  "+msg.event.Text) + "\n",
+		)
+		m.syncViewport()
 	case provider.EventError:
 		m.showProgress = false
+		m.streamError = true // stream ended with error — don't check isPlanCompleted
 		m.output.WriteString(errorStyle.Render(i18n.T("cli_error.stream", msg.event.Error)) + "\n")
 		m.syncViewport()
 	}
@@ -2039,7 +2120,7 @@ func normalizeInput(input string) string {
 		}
 	}
 
-	// Transliterate common patterns: z -> ж, zh -> ж, sh -> ш, ch -> ч, etc.
+	// Transliterate common patterns: zh -> ж, sh -> ш, ch -> ч, etc.
 	translit := map[string]string{
 		"zhit": "жить", "zh": "ж", "sh": "ш", "ch": "ч", "sch": "щ",
 		"ya": "я", "yu": "ю", "ts": "ц",

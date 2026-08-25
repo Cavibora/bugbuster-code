@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"strings"
 	"sync"
 
 	"bugbuster-code/pkg/provider"
@@ -408,4 +409,119 @@ func findRemovedMessages(before, after []provider.Message) []provider.Message {
 		}
 	}
 	return removed
+}
+
+// isAutoContinueMessage checks if a user message is an auto-continue prompt.
+// These are transient messages that should be cleaned up from context,
+// keeping only the most recent one.
+func isAutoContinueMessage(msg provider.Message) bool {
+	if msg.Role != "user" {
+		return false
+	}
+	text := strings.TrimSpace(msg.GetResponseText())
+	if text == "" {
+		return false
+	}
+	// "Continue." — max_tokens continuation
+	if text == "Continue." || text == "Continue" {
+		return true
+	}
+	// Auto-continue prompts
+	autoContinuePrefixes := []string{
+		"Continue working.",
+		"You responded with text only, but your task is not done yet.",
+	}
+	for _, prefix := range autoContinuePrefixes {
+		if strings.HasPrefix(text, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// isTransientErrorMessage checks if a user message is a transient error/hint
+// that should NOT be kept in context (idle timeout hints, loop detection hints).
+// These messages pollute context with stack traces and error details.
+func isTransientErrorMessage(msg provider.Message) bool {
+	if msg.Role != "user" {
+		return false
+	}
+	text := strings.TrimSpace(msg.GetResponseText())
+	if text == "" {
+		return false
+	}
+	// Idle timeout hints
+	if strings.Contains(text, "stream_idle") || strings.Contains(text, "idle_timeout") {
+		return true
+	}
+	// Loop detection hints
+	loopHints := []string{
+		"loop_detector.hint_thinking_loop",
+		"loop_detector.strategy_hint",
+	}
+	for _, hint := range loopHints {
+		if strings.Contains(text, hint) {
+			return true
+		}
+	}
+	return false
+}
+
+// CleanupTransients removes transient messages from context:
+// - Auto-continue prompts ("Continue.", "Continue working...", "You responded with text only...")
+//   kept only the most recent one (so the model knows what to continue).
+// - Transient error/hint messages (idle timeout, loop detection) removed entirely.
+// - "Continue." (max_tokens) messages — keep only the last one.
+// This prevents context pollution from repeated auto-continue and error messages.
+// Thread-safe: acquires write lock.
+func (c *ConversationContext) CleanupTransients() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.Messages = cleanupTransientsLocked(c.Messages)
+}
+
+// cleanupTransientsLocked performs the actual transient cleanup without locking.
+// Caller must hold the write lock.
+func cleanupTransientsLocked(messages []provider.Message) []provider.Message {
+	if len(messages) == 0 {
+		return messages
+	}
+
+	// Find indices of auto-continue messages and transient error messages
+	var lastAutoContinueIdx int = -1
+	var transientIndices []int
+
+	for i, msg := range messages {
+		if isAutoContinueMessage(msg) {
+			lastAutoContinueIdx = i // keep track of the last one
+		}
+		if isTransientErrorMessage(msg) {
+			transientIndices = append(transientIndices, i)
+		}
+	}
+
+	// Build set of indices to remove
+	removeSet := make(map[int]bool)
+	for _, idx := range transientIndices {
+		removeSet[idx] = true
+	}
+	// Remove all auto-continue messages except the last one
+	for i, msg := range messages {
+		if isAutoContinueMessage(msg) && i != lastAutoContinueIdx {
+			removeSet[i] = true
+		}
+	}
+
+	if len(removeSet) == 0 {
+		return messages
+	}
+
+	// Build filtered list
+	result := make([]provider.Message, 0, len(messages)-len(removeSet))
+	for i, msg := range messages {
+		if !removeSet[i] {
+			result = append(result, msg)
+		}
+	}
+	return result
 }

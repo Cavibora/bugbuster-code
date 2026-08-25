@@ -159,14 +159,14 @@ func TestResolveTheme(t *testing.T) {
 	if rt.WordWrap != 80 {
 		t.Errorf("ResolveTheme().WordWrap = %d, want 80", rt.WordWrap)
 	}
-	// Проверяем что Primary = cyan (из дефолтной тёмной темы)
+	// Verify that Primary = cyan (from the default dark theme)
 	if rt.Primary.Value != "cyan" {
 		t.Errorf("ResolveTheme().Primary.Value = %q, want \"cyan\"", rt.Primary.Value)
 	}
 	if rt.Primary.ANSI != 36 {
 		t.Errorf("ResolveTheme().Primary.ANSI = %d, want 36", rt.Primary.ANSI)
 	}
-	// Проверяем hex-цвет
+	// Verify hex color
 	if rt.UserMsg.Hex != "#04B575" {
 		t.Errorf("ResolveTheme().UserMsg.Hex = %q, want \"#04B575\"", rt.UserMsg.Hex)
 	}
@@ -188,7 +188,7 @@ func TestResolveThemeOverride(t *testing.T) {
 	if rt.Primary.Value != "blue" {
 		t.Errorf("ResolveTheme().Primary.Value = %q, want \"blue\"", rt.Primary.Value)
 	}
-	// Success не перекрыт — должен быть из дефолтной темы
+	// Success not overridden — should come from the default theme
 	if rt.Success.Value != "green" {
 		t.Errorf("ResolveTheme().Success.Value = %q, want \"green\" (default)", rt.Success.Value)
 	}

@@ -209,6 +209,37 @@ func summarizeThinking(thinkingText string) string {
 	return ""
 }
 
+// isTransientHTTPError checks if an error is a transient HTTP error
+// that should not stop autopilot (429, 404, 500, 502, 503, 504).
+// These are temporary provider-side issues that may resolve on retry.
+func isTransientHTTPError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	transientCodes := []string{"429", "404", "500", "502", "503", "504", "upstream_429", "rate limited", "rate_limit"}
+	for _, code := range transientCodes {
+		if strings.Contains(msg, code) {
+			return true
+		}
+	}
+	return false
+}
+
+// isAutopilotActive returns true if autopilot mode is currently active.
+// Used in streaming.go to decide whether to continue after transient errors.
+var isAutopilotActive = func() bool {
+	// This is set by the autopilot loop in SplitTerminal/TUI.
+	// Default: false (single request mode).
+	return false
+}
+
+// lastStreamError tracks whether the last stream ended with an error.
+// Set in streaming.go on EventError, reset on EventDone.
+// Used by the autopilot loop to avoid false plan-completion detection
+// after a transient error (429, 404, 500, etc.).
+var lastStreamError bool
+
 // runQueryWithLoop — request with existing loop (with streaming)
 func runQueryWithLoop(loop *agent.AgentLoop, query string, cfg *config.BugBusterConfig, providerName string, ctx context.Context, cancel context.CancelFunc, askCh *tools.AskChannel, session *agent.Session, sessionMgr *agent.SessionManager, rlClose func(), rlRecreate func()) {
 	ch, err := loop.StreamWithCancel(ctx, query)
@@ -593,8 +624,9 @@ streamLoop:
 				// updates spinner message to "Step N"
 				textReceived = false
 
-			case provider.EventDone:
-				spinner = stopActiveSpinner(spinner)
+		case provider.EventDone:
+			lastStreamError = false // stream completed successfully
+			spinner = stopActiveSpinner(spinner)
 				if thinkingActive {
 					thinkingText := thinkingBuf.String()
 					thinkingBuf.Reset()
@@ -630,10 +662,40 @@ streamLoop:
 					}
 				}
 
-			case provider.EventError:
-				spinner = stopActiveSpinner(spinner)
-				color.Red("%s", i18n.T("cli_error.stream", event.Error))
+		case provider.EventRateLimit:
+			// Rate limit (429) — show warning to user, don't save to context.
+			// Stop spinner, print message on its own line, restart spinner.
+			oldSpinner := spinner
+			spinner = stopActiveSpinner(spinner)
+			color.Yellow("  %s", strings.TrimSpace(event.Text))
+			// Restart spinner for the next retry
+			spinner = NewSpinner(i18n.T("cli.spinner_thinking"))
+			oldSpinner.CopyStatsTo(spinner)
+			spinner.UpdateProvider(providerDisplayName(providerName, provCfg), provCfg.Model)
+			spinner.Start()
+
+		case provider.EventError:
+			lastStreamError = true // stream ended with error
+			spinner = stopActiveSpinner(spinner)
+			color.Red("%s", i18n.T("cli_error.stream", event.Error))
+			// Transient errors (429, 404, 500, 502, 503, 504) should NOT stop autopilot.
+			// Only fatal errors (auth, bad request, etc.) should break the loop.
+			if isTransientHTTPError(event.Error) {
+				// Show retry message and continue autopilot
+				color.Yellow("  ↻ %s", i18n.T("cli.auto_continue_after_error"))
+				// Don't break — continue to next iteration if autopilot is active.
+				// If not autopilot, break the stream loop (single request).
+				if !isAutopilotActive() {
+					break streamLoop
+				}
+				// For autopilot: break this stream but continue the autopilot loop
+				// by NOT breaking streamLoop — the outer autopilot loop will retry.
+				// We need to signal the autopilot to continue. Since we're inside
+				// the stream loop, break it and let autopilot handle the retry.
 				break streamLoop
+			} else {
+				break streamLoop
+			}
 			}
 		}
 	}

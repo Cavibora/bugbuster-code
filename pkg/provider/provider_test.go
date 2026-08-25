@@ -105,13 +105,13 @@ func TestProviderConfigDefaultBaseURL(t *testing.T) {
 }
 
 func TestProviderConfigGetBaseURL(t *testing.T) {
-	// С явным URL
+	// With an explicit URL
 	cfg := ProviderConfig{Type: "openai", BaseURL: "https://custom.api.com/v1"}
 	if cfg.GetBaseURL() != "https://custom.api.com/v1" {
 		t.Errorf("Expected custom URL, got '%s'", cfg.GetBaseURL())
 	}
 
-	// Без URL — дефолтный
+	// Without URL — default
 	cfg = ProviderConfig{Type: "ollama"}
 	if cfg.GetBaseURL() != "http://localhost:11434" {
 		t.Errorf("Expected default Ollama URL, got '%s'", cfg.GetBaseURL())

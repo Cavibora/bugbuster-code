@@ -41,7 +41,7 @@ func isTerminal() bool {
 }
 
 // isYesAnswer checks if the answer is a "yes" in any supported language.
-// Supports: en (y/yes), ru (д/да), de (j/ja), es (s/sí), fr (o/oui), pt (s/sim), ja (はい/hai), zh (是/shi)
+// Supports: en (y/yes), ru (д/да), de (j/ja), es (s/si), fr (o/oui), pt (s/sim), ja (hai), zh (shi)
 func isYesAnswer(answer string) bool {
 	answer = strings.ToLower(answer)
 	switch answer {
@@ -62,6 +62,7 @@ func isYesAnswer(answer string) bool {
 // runInteractive — interactive mode (split-terminal)
 func runInteractive(cmd *cobra.Command, args []string) {
 	cfg := loadConfig()
+	currentTUICfg = cfg
 
 	// Initialize i18n
 	lang := langFlag

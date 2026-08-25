@@ -6,7 +6,7 @@
 //	i18n.Init("en")                    // Initialize with English
 //	fmt.Println(i18n.T("cli.goodbye")) // "Goodbye! 🐛→💥"
 //	i18n.SetLanguage("ru")              // Switch to Russian
-//	fmt.Println(i18n.T("cli.goodbye")) // "До встречи! 🐛→💥"
+//	fmt.Println(i18n.T("cli.goodbye")) // localized Russian string
 package i18n
 
 import (

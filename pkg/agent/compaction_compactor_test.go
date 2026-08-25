@@ -10,7 +10,7 @@ import (
 	"bugbuster-code/pkg/provider"
 )
 
-// mockCompactor — мок-компактор для тестов
+// mockCompactor — mock compactor for tests
 type mockCompactor struct {
 	summarizeResult string
 	summarizeCalled bool
@@ -25,7 +25,7 @@ func (m *mockCompactor) Summarize(messages []provider.Message, maxTokens int) st
 	return m.summarizeResult
 }
 
-// mockProviderForCompactor — мок-провайдер для LLMCompactor тестов
+// mockProviderForCompactor — mock provider for LLMCompactor tests
 type mockProviderForCompactor struct {
 	result *provider.CompletionResult
 	err    error
@@ -96,7 +96,7 @@ func (m *mockProviderForCompactor) GetMaxTokens() int { return 4096 }
 
 func (m *mockProviderForCompactor) GetSystemPrompt() string { return "" }
 
-// --- Тесты для CompactContextWithCompactor ---
+// --- Tests for CompactContextWithCompactor ---
 
 func TestCompactContextWithCompactor_NoCompactionNeeded(t *testing.T) {
 	i18n.Init("en")
@@ -128,15 +128,15 @@ func TestCompactContextWithCompactor_SummaryCalled(t *testing.T) {
 		messages = append(messages, provider.AssistantText("Response number which is also long enough to take up tokens in the context"))
 	}
 
-	// Маленький лимит — compactByPriority не справится, нужен LLM summary
+	// Small limit — compactByPriority will not cope, LLM summary needed
 	result := CompactContextWithCompactor(messages, 200, 4, mc, context.Background())
 
-	// Результат должен содержать system prompt
+	// The result should contain the system prompt
 	if len(result) == 0 || result[0].Role != "system" {
 		t.Error("System prompt should be preserved")
 	}
 
-	// Результат должен быть короче оригинала
+	// The result should be shorter than the original
 	if len(result) >= len(messages) {
 		t.Errorf("Expected compaction, got %d messages (original: %d)", len(result), len(messages))
 	}
@@ -153,11 +153,11 @@ func TestCompactContextWithCompactor_ContextCancellation(t *testing.T) {
 		messages = append(messages, provider.AssistantText("Long response to fill context window with tokens"))
 	}
 
-	// Отменяем контекст до вызова
+	// Cancel the context before the call
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	// Должен упасть в SimpleSummarize fallback
+	// Should fall back to SimpleSummarize
 	result := CompactContextWithCompactor(messages, 300, 4, mc, ctx)
 	if len(result) == 0 {
 		t.Error("Should return at least system messages")
@@ -197,7 +197,7 @@ func TestCompactContextWithCompactor_RecapsPreserved(t *testing.T) {
 
 	result := CompactContextWithCompactor(messages, 400, 4, mc, context.Background())
 
-	// Результат должен содержать recap
+	// The result should contain the recap
 	hasRecap := false
 	for _, m := range result {
 		text := m.GetText()
@@ -210,7 +210,7 @@ func TestCompactContextWithCompactor_RecapsPreserved(t *testing.T) {
 	}
 }
 
-// --- Тесты для LLMCompactor ---
+// --- Tests for LLMCompactor ---
 
 func TestNewLLMCompactor(t *testing.T) {
 	mp := &mockProviderForCompactor{
@@ -261,7 +261,7 @@ func TestLLMCompactor_Summarize_NilProvider(t *testing.T) {
 		provider.AssistantText("Hi"),
 	}
 
-	// С nil provider должен упасть в SimpleSummarize
+	// With nil provider should fall back to SimpleSummarize
 	summary := compactor.Summarize(messages, 500)
 	if summary == "" {
 		t.Error("Summarize with nil provider should fallback to SimpleSummarize")
@@ -309,12 +309,12 @@ func TestLLMCompactor_SummarizeWithCtx_Timeout(t *testing.T) {
 		provider.AssistantText("Hi"),
 	}
 
-	// Должен упасть в SimpleSummarize из-за таймаута
+	// Should fall back to SimpleSummarize due to timeout
 	summary := compactor.SummarizeWithCtx(messages, 500, context.Background())
 	if summary == "" {
 		t.Error("Should fallback to SimpleSummarize on timeout")
 	}
-	// SimpleSummarize содержит "User" или "Пользователь"
+	// SimpleSummarize contains "User" or "Пользователь"
 	if !strings.Contains(summary, "User") && !strings.Contains(summary, "Пользователь") {
 		t.Errorf("Expected SimpleSummarize fallback, got: %q", summary)
 	}
@@ -390,7 +390,7 @@ func TestLLMCompactor_SummarizeWithCtx_IncrementalSummary(t *testing.T) {
 	}
 	compactor := NewLLMCompactor(mp)
 
-	// Сообщения с предыдущим summary
+	// Messages with a previous summary
 	messages := []provider.Message{
 		provider.SystemMsg("Helper"),
 		{Role: "system", Content: []provider.ContentBlock{
@@ -424,12 +424,12 @@ func TestCompactContextWithCompactor_LLMCompactor(t *testing.T) {
 
 	result := CompactContextWithCompactor(messages, 300, 4, compactor, context.Background())
 
-	// Результат должен быть короче оригинала
+	// The result should be shorter than the original
 	if len(result) >= len(messages) {
 		t.Errorf("Expected compaction, got %d messages (original: %d)", len(result), len(messages))
 	}
 
-	// Системный промпт должен быть сохранён
+	// The system prompt should be preserved
 	if len(result) == 0 || result[0].Role != "system" {
 		t.Error("System prompt should be preserved")
 	}
@@ -439,7 +439,7 @@ func TestCompactContextWithCompactor_RecentMessagesFit(t *testing.T) {
 	i18n.Init("en")
 	mc := &mockCompactor{summarizeResult: "Summary"}
 
-	// Последние сообщения вписываются в лимит — компакция не нужна
+	// The last messages fit within the limit — no compaction needed
 	messages := []provider.Message{
 		provider.SystemMsg("Helper"),
 		provider.UserMsg("Hello"),
@@ -470,10 +470,10 @@ func TestCompactContextWithCompactor_ToolErrorsRemoved(t *testing.T) {
 		provider.AssistantText("Error!"),
 	}
 
-	// Большой лимит — компакция не нужна, но ошибки должны быть удалены
+	// Large limit — no compaction needed, but errors should be removed
 	result := CompactContextWithCompactor(messages, 10000, 2, mc, context.Background())
 
-	// Ошибочный tool_result должен быть удалён
+	// Error tool_result should be removed
 	for _, msg := range result {
 		for _, block := range msg.Content {
 			if block.Type == "tool_result" && block.IsError {
@@ -481,7 +481,7 @@ func TestCompactContextWithCompactor_ToolErrorsRemoved(t *testing.T) {
 			}
 		}
 	}
-	// Соответствующий tool_use тоже должен быть удалён
+	// The matching tool_use should also be removed
 	for _, msg := range result {
 		for _, block := range msg.Content {
 			if block.Type == "tool_use" && block.ToolUseID == "call_err" {
@@ -495,7 +495,7 @@ func TestCompactContextWithCompactor_DuplicatesRemoved(t *testing.T) {
 	i18n.Init("en")
 	mc := &mockCompactor{summarizeResult: "Summary"}
 
-	// 3+ одинаковых assistant-сообщений — семантическая дедупликация оставит 2
+	// 3+ identical assistant messages — semantic dedup will leave 2
 	messages := []provider.Message{
 		provider.SystemMsg("Helper"),
 		provider.AssistantText("Начну с анализа проблемы. Шаг 1: читаю файл."),
@@ -505,7 +505,7 @@ func TestCompactContextWithCompactor_DuplicatesRemoved(t *testing.T) {
 
 	result := CompactContextWithCompactor(messages, 10000, 2, mc, context.Background())
 
-	// Семантические дубликаты должны быть удалены (3+ с одинаковым префиксом → 2)
+	// Semantic duplicates should be removed (3+ with the same prefix → 2)
 	if len(result) > len(messages) {
 		t.Errorf("Expected duplicates to be removed, got %d messages (original: %d)", len(result), len(messages))
 	}

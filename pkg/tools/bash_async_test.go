@@ -12,7 +12,7 @@ func init() {
 	i18n.Init("en")
 }
 
-// TestExecuteAsync_ReturnsChannel проверяет что ExecuteAsync возвращает канал
+// TestExecuteAsync_ReturnsChannel verifies that ExecuteAsync returns a channel
 func TestExecuteAsync_ReturnsChannel(t *testing.T) {
 	tool := NewBashTool()
 	ch := tool.ExecuteAsync(map[string]string{"command": "echo hello"})
@@ -21,7 +21,7 @@ func TestExecuteAsync_ReturnsChannel(t *testing.T) {
 	}
 }
 
-// TestExecuteAsync_ReceivesResult проверяет что получаем финальное событие result
+// TestExecuteAsync_ReceivesResult verifies that we receive the final result event
 func TestExecuteAsync_ReceivesResult(t *testing.T) {
 	tool := NewBashTool()
 	ch := tool.ExecuteAsync(map[string]string{"command": "echo hello"})
@@ -52,7 +52,7 @@ func TestExecuteAsync_ReceivesResult(t *testing.T) {
 	}
 }
 
-// TestExecuteAsync_ReceivesProgress проверяет что длинная команда отправляет progress события
+// TestExecuteAsync_ReceivesProgress verifies that a long command sends progress events
 func TestExecuteAsync_ReceivesProgress(t *testing.T) {
 	tool := NewBashTool()
 	ch := tool.ExecuteAsync(map[string]string{
@@ -85,7 +85,7 @@ func TestExecuteAsync_ReceivesProgress(t *testing.T) {
 	}
 }
 
-// TestExecuteAsync_BlockedCommand проверяет что заблокированные команды возвращают ошибку
+// TestExecuteAsync_BlockedCommand verifies that blocked commands return an error
 func TestExecuteAsync_BlockedCommand(t *testing.T) {
 	tool := NewBashTool()
 	ch := tool.ExecuteAsync(map[string]string{"command": "rm -rf /"})
@@ -103,7 +103,7 @@ func TestExecuteAsync_BlockedCommand(t *testing.T) {
 	}
 }
 
-// TestExecuteAsync_DoesNotBlock проверяет что ExecuteAsync не блокирует вызывающий поток
+// TestExecuteAsync_DoesNotBlock verifies that ExecuteAsync does not block the calling goroutine
 func TestExecuteAsync_DoesNotBlock(t *testing.T) {
 	tool := NewBashTool()
 	ch := tool.ExecuteAsync(map[string]string{"command": "sleep 2 && echo done"})
@@ -135,7 +135,7 @@ func TestExecuteAsync_DoesNotBlock(t *testing.T) {
 	}
 }
 
-// TestExecuteAsync_TimeoutMovesToBackground проверяет что таймаут переносит процесс в фон
+// TestExecuteAsync_TimeoutMovesToBackground verifies that timeout moves the process to background
 func TestExecuteAsync_TimeoutMovesToBackground(t *testing.T) {
 	tool := NewBashTool()
 	tool.Timeout = 100 * time.Millisecond
@@ -183,7 +183,7 @@ func TestExecuteAsync_TimeoutMovesToBackground(t *testing.T) {
 	bgTool.WaitAll()
 }
 
-// TestExecuteAsync_StderrProgress проверяет что stderr тоже отправляется как progress
+// TestExecuteAsync_StderrProgress verifies that stderr is also sent as progress
 func TestExecuteAsync_StderrProgress(t *testing.T) {
 	tool := NewBashTool()
 	ch := tool.ExecuteAsync(map[string]string{"command": "echo out && echo err >&2"})

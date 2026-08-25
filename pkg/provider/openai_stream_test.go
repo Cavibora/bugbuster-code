@@ -10,7 +10,7 @@ import (
 )
 
 // =============================================================================
-// OpenAI Stream + StreamWithCtx тесты с httptest
+// OpenAI Stream + StreamWithCtx tests with httptest
 // =============================================================================
 
 func writeSSE(w http.ResponseWriter, flusher http.Flusher, events []string) {

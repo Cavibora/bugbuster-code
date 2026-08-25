@@ -34,12 +34,12 @@ func TestLSPTool_Parameters(t *testing.T) {
 
 func TestLSPTool_Execute_MissingParams(t *testing.T) {
 	tool := NewLSPTool()
-	// Без operation
+	// Without operation
 	result := tool.Execute(map[string]string{"file_path": "/tmp/test.go"})
 	if result.Error == "" {
 		t.Error("expected error for missing operation")
 	}
-	// Без file_path
+	// Without file_path
 	result = tool.Execute(map[string]string{"operation": "hover"})
 	if result.Error == "" {
 		t.Error("expected error for missing file_path")
@@ -187,7 +187,7 @@ func TestUriToPath(t *testing.T) {
 }
 
 func TestLSPClientContentLength(t *testing.T) {
-	// Тест форматирования Content-Length заголовка
+	// Test of Content-Length header formatting
 	msg := map[string]any{"jsonrpc": "2.0", "method": "initialize", "id": 1}
 	data, err := json.Marshal(msg)
 	if err != nil {

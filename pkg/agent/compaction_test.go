@@ -34,14 +34,14 @@ func TestEstimateTokens(t *testing.T) {
 }
 
 func TestEstimateTokens_Cyrillic(t *testing.T) {
-	// Кириллический текст должен давать больше токенов (меньше символов/токен)
+	// Cyrillic text should yield more tokens (fewer chars/token)
 	ruText := "Привет, как дела? Это тестовое сообщение на русском языке."
 	enText := "Hello, how are you? This is a test message in English language."
 
 	ruTokens := EstimateTokens(ruText)
 	enTokens := EstimateTokens(enText)
 
-	// Кириллический текст должен давать больше токенов при той же длине
+	// Cyrillic text should yield more tokens at the same length
 	if ruTokens <= enTokens/2 {
 		t.Errorf("Cyrillic text should have more tokens, got ru=%d en=%d", ruTokens, enTokens)
 	}
@@ -59,7 +59,7 @@ func TestEstimateMessagesTokens(t *testing.T) {
 		t.Error("EstimateMessagesTokens should return positive number")
 	}
 
-	// Системный промпт + 2 сообщения = минимум несколько токенов
+	// System prompt + 2 messages = at least a few tokens
 	if tokens < 5 {
 		t.Errorf("Expected at least 5 tokens, got %d", tokens)
 	}
@@ -72,7 +72,7 @@ func TestCompactContext_NoCompactionNeeded(t *testing.T) {
 		provider.AssistantText("Здравствуй!"),
 	}
 
-	// Большой лимит — компакция не нужна
+	// Large limit — no compaction needed
 	result := CompactContext(messages, 10000, 2)
 	if len(result) != len(messages) {
 		t.Errorf("Expected %d messages, got %d", len(messages), len(result))
@@ -83,21 +83,21 @@ func TestCompactContext_CompactionNeeded(t *testing.T) {
 	var messages []provider.Message
 	messages = append(messages, provider.SystemMsg("Ты помощник"))
 
-	// Добавляем 20 сообщений
+	// Add 20 messages
 	for i := 0; i < 20; i++ {
 		messages = append(messages, provider.UserMsg("Сообщение номер которое достаточно длинное чтобы занять токены"))
 		messages = append(messages, provider.AssistantText("Ответ на сообщение который тоже занимает некоторое количество токенов в контексте"))
 	}
 
-	// Лимит 200 токенов — должна быть компакция
+	// Limit of 200 tokens — compaction should happen
 	result := CompactContext(messages, 200, 4)
 
-	// Результат должен быть короче оригинала
+	// The result should be shorter than the original
 	if len(result) >= len(messages) {
 		t.Errorf("Expected compaction, got %d messages (original: %d)", len(result), len(messages))
 	}
 
-	// Системный промпт должен быть сохранён
+	// The system prompt should be preserved
 	if result[0].Role != "system" {
 		t.Error("System prompt should be preserved")
 	}
@@ -112,10 +112,10 @@ func TestCompactContext_SystemPromptPreserved(t *testing.T) {
 		provider.AssistantText("Ответ 2"),
 	}
 
-	// Очень маленький лимит
+	// Very small limit
 	result := CompactContext(messages, 10, 2)
 
-	// Системный промпт должен быть первым
+	// The system prompt should be first
 	if len(result) == 0 || result[0].Role != "system" {
 		t.Error("System prompt should be preserved")
 	}
@@ -129,20 +129,20 @@ func TestCompactContext_KeepRecent(t *testing.T) {
 		messages = append(messages, provider.UserMsg("Длинное сообщение для заполнения контекста номер который занимает много токенов"))
 	}
 
-	// Компакция с keepRecent=3
+	// Compaction with keepRecent=3
 	result := CompactContext(messages, 200, 3)
 
-	// Системный промпт должен быть сохранён
+	// The system prompt should be preserved
 	if len(result) == 0 || result[0].Role != "system" {
 		t.Error("System prompt should be preserved")
 	}
 
-	// Результат должен быть короче оригинала
+	// The result should be shorter than the original
 	if len(result) >= len(messages) {
 		t.Errorf("Expected compaction, got %d messages (original: %d)", len(result), len(messages))
 	}
 
-	// Последние keepRecent сообщений должны быть в результате
+	// The last keepRecent messages should be in the result
 	lastOriginal := messages[len(messages)-3:]
 	for _, msg := range lastOriginal {
 		found := false
@@ -204,18 +204,18 @@ func TestConversationContext_TokenBasedTrim(t *testing.T) {
 	ctx := NewConversationContextWithTokens(100, 2)
 	ctx.Add(provider.SystemMsg("Ты помощник"))
 
-	// Добавляем много сообщений
+	// Add many messages
 	for i := 0; i < 20; i++ {
 		ctx.Add(provider.UserMsg("Длинное сообщение для заполнения контекста"))
 		ctx.Add(provider.AssistantText("Длинный ответ для заполнения контекста"))
 	}
 
-	// Контекст должен быть обрезан
+	// Context should be trimmed
 	if len(ctx.Messages) >= 41 {
 		t.Errorf("Expected compaction, got %d messages", len(ctx.Messages))
 	}
 
-	// Системный промпт должен быть сохранён
+	// The system prompt should be preserved
 	if ctx.Messages[0].Role != "system" {
 		t.Error("System prompt should be preserved")
 	}
@@ -287,7 +287,7 @@ func TestExtractRecaps_RecapWithMultiline(t *testing.T) {
 	if len(recaps) != 1 {
 		t.Errorf("Expected 1 recap, got %d", len(recaps))
 	}
-	// Recap должен содержать только текст до \n
+	// Recap should contain only the text up to \n
 	if recaps[0] != "Fixed bug" {
 		t.Errorf("Expected 'Fixed bug', got: %q", recaps[0])
 	}
@@ -315,7 +315,7 @@ func TestCompactContext_PreservesRecaps(t *testing.T) {
 	var messages []provider.Message
 	messages = append(messages, provider.SystemMsg("You are a helper"))
 
-	// Добавляем 20 сообщений, некоторые с рекапами
+	// Add 20 messages, some with recaps
 	for i := 0; i < 10; i++ {
 		messages = append(messages, provider.UserMsg("Сообщение номер которое достаточно длинное чтобы занять токены"))
 		if i == 3 {
@@ -327,10 +327,10 @@ func TestCompactContext_PreservesRecaps(t *testing.T) {
 		}
 	}
 
-	// Компакция с лимитом, достаточным для summary + recent + recap
+	// Compaction with a limit sufficient for summary + recent + recap
 	result := CompactContext(messages, 600, 4)
 
-	// Проверяем что рекапы сохранены
+	// Verify that recaps are preserved
 	hasRecap := false
 	for _, m := range result {
 		text := m.GetText()
@@ -342,7 +342,7 @@ func TestCompactContext_PreservesRecaps(t *testing.T) {
 		t.Error("Expected recaps to be preserved after compaction")
 	}
 
-	// Системный промпт должен быть сохранён
+	// The system prompt should be preserved
 	if result[0].Role != "system" {
 		t.Error("System prompt should be preserved")
 	}
@@ -367,8 +367,8 @@ func TestBuildRecapMessage(t *testing.T) {
 }
 
 func TestCompactContext_SystemMsgsExceedMaxTokens(t *testing.T) {
-	// Если системные сообщения сами по себе превышают лимит,
-	// должны вернуться только системные сообщения без panic
+	// If system messages themselves exceed the limit,
+	// only system messages should be returned without panic
 	longSystem := provider.SystemMsg(strings.Repeat("very important system instruction ", 100))
 	messages := []provider.Message{
 		longSystem,
@@ -376,10 +376,10 @@ func TestCompactContext_SystemMsgsExceedMaxTokens(t *testing.T) {
 		provider.AssistantText("Hi"),
 	}
 
-	// Лимит очень маленький — системное сообщение точно больше
+	// Very small limit — the system message is definitely larger
 	result := CompactContext(messages, 10, 2)
 
-	// Должны остаться только системные сообщения
+	// Only system messages should remain
 	if len(result) == 0 {
 		t.Fatal("Expected at least system messages")
 	}
@@ -393,7 +393,7 @@ func TestCompactContext_SystemMsgsExceedMaxTokens(t *testing.T) {
 func TestCompactContext_NoDuplicateSystemMsgs(t *testing.T) {
 	i18n.Init("en")
 
-	// Создаём сообщения с рекапом в assistant-сообщении
+	// Create messages with a recap in the assistant message
 	messages := []provider.Message{
 		provider.SystemMsg("You are a helper"),
 		provider.UserMsg("Do something"),
@@ -402,18 +402,18 @@ func TestCompactContext_NoDuplicateSystemMsgs(t *testing.T) {
 		provider.AssistantText("Done too"),
 	}
 
-	// Компакция с keepRecent=2, лимит позволяет вместить summary + recap
+	// Compaction with keepRecent=2, the limit allows fitting summary + recap
 	result := CompactContext(messages, 500, 2)
 
-	// Считаем системные сообщения
+	// Count system messages
 	systemCount := 0
 	for _, m := range result {
 		if m.Role == "system" {
 			systemCount++
 		}
 	}
-	// Ожидаем: оригинальный system prompt + summary + recap = 3 системных сообщения максимум
-	// Но точно не 4+ (что было бы при дублировании)
+	// Expect: original system prompt + summary + recap = 3 system messages maximum
+	// But definitely not 4+ (which would indicate duplication)
 	if systemCount > 3 {
 		t.Errorf("Expected at most 3 system messages, got %d (possible duplication)", systemCount)
 	}
@@ -422,7 +422,7 @@ func TestCompactContext_NoDuplicateSystemMsgs(t *testing.T) {
 func TestCompactContext_RecapRespectsTokenLimit(t *testing.T) {
 	i18n.Init("en")
 
-	// Создаём очень длинный рекап
+	// Create a very long recap
 	longRecap := strings.Repeat("a", 1000)
 	messages := []provider.Message{
 		provider.SystemMsg("Helper"),
@@ -432,17 +432,17 @@ func TestCompactContext_RecapRespectsTokenLimit(t *testing.T) {
 		provider.AssistantText("Done"),
 	}
 
-	// Маленький лимит — рекап точно не поместится
+	// Small limit — the recap definitely will not fit
 	result := CompactContext(messages, 50, 2)
 
-	// Проверяем что рекап НЕ добавлен (иначе бы превысил лимит)
+	// Verify that the recap is NOT added (otherwise it would exceed the limit)
 	totalTokens := EstimateMessagesTokens(result)
 	if totalTokens > 100 { // generous upper bound
 		t.Errorf("Expected compact result to respect token limit, got %d tokens", totalTokens)
 	}
 }
 
-// --- Тесты для новых функций приоритетной компакции ---
+// --- Tests for new priority compaction functions ---
 
 func TestStripToolResults(t *testing.T) {
 	msg := provider.Message{
@@ -456,12 +456,12 @@ func TestStripToolResults(t *testing.T) {
 
 	stripped := stripToolResults(msg)
 
-	// Должно быть 3 блока (tool_result заменён на короткий)
+	// Should be 3 blocks (tool_result replaced with a short one)
 	if len(stripped.Content) != 3 {
 		t.Errorf("Expected 3 blocks, got %d", len(stripped.Content))
 	}
 
-	// tool_result должен быть заменён на "[output truncated]"
+	// tool_result should be replaced with "[output truncated]"
 	for _, block := range stripped.Content {
 		if block.Type == "tool_result" {
 			if block.Output != "[output truncated]" {
@@ -470,7 +470,7 @@ func TestStripToolResults(t *testing.T) {
 		}
 	}
 
-	// Текстовые блоки не должны измениться
+	// Text blocks should not change
 	if stripped.Content[0].Text != "Результат: " {
 		t.Errorf("Expected first text block preserved, got %q", stripped.Content[0].Text)
 	}
@@ -510,7 +510,7 @@ func TestStripToolCallsFromMessage(t *testing.T) {
 
 	stripped := stripToolCalls(msg)
 
-	// Должно остаться только thinking и text
+	// Only thinking and text should remain
 	if len(stripped.Content) != 3 {
 		t.Errorf("Expected 3 blocks (thinking + 2 text), got %d", len(stripped.Content))
 	}
@@ -523,7 +523,7 @@ func TestStripToolCallsFromMessage(t *testing.T) {
 }
 
 func TestStripToolCallsFromMessage_AllToolBlocks(t *testing.T) {
-	// Сообщение только с tool блоками — должно стать пустым
+	// Message with only tool blocks — should become empty
 	msg := provider.Message{
 		Role: "assistant",
 		Content: []provider.ContentBlock{
@@ -607,7 +607,7 @@ func TestIsEmptyMessage(t *testing.T) {
 }
 
 func TestCompactByPriority_Phase1(t *testing.T) {
-	// Фаза 1: усечение tool_result должно уменьшить токены
+	// Phase 1: tool_result truncation should reduce tokens
 	messages := []provider.Message{
 		provider.SystemMsg("Ты помощник"),
 		provider.UserMsg("Запусти команду"),
@@ -623,28 +623,28 @@ func TestCompactByPriority_Phase1(t *testing.T) {
 
 	originalTokens := EstimateMessagesTokens(messages)
 	result := compactByPriority(messages, originalTokens+100)
-	// Без компакции — должно вернуться как есть
+	// Without compaction — should return as-is
 	if len(result) != len(messages) {
 		t.Errorf("Expected no compaction when tokens fit, got %d messages", len(result))
 	}
 
-	// С маленьким лимитом — tool_result должен быть усечён
+	// With a small limit — tool_result should be truncated
 	result = compactByPriority(messages, 100)
-	// Результат должен быть короче по токенам
+	// The result should be shorter in tokens
 	resultTokens := EstimateMessagesTokens(result)
 	if resultTokens >= originalTokens {
 		t.Errorf("Expected fewer tokens after compaction, got %d (original: %d)", resultTokens, originalTokens)
 	}
 
-	// Системный промпт должен быть сохранён
+	// The system prompt should be preserved
 	if len(result) == 0 || result[0].Role != "system" {
 		t.Error("System prompt should be preserved")
 	}
 }
 
 func TestCompactByPriority_Phase2(t *testing.T) {
-	// Фаза 2: удаление tool_use и tool_result, сохранение thinking/text
-	// Создаём много уникальных сообщений, чтобы фаза 1 (усечение tool_result) не помогла
+	// Phase 2: remove tool_use and tool_result, keep thinking/text
+	// Create many unique messages so phase 1 (tool_result truncation) does not help
 	messages := []provider.Message{
 		provider.SystemMsg("Ты помощник"),
 	}
@@ -661,11 +661,11 @@ func TestCompactByPriority_Phase2(t *testing.T) {
 		})
 	}
 
-	// Лимит, при котором фаза 1 (усечение tool_result) не помогает —
-	// даже с усечёнными tool_result, текст + tool_use не влезают
+	// A limit where phase 1 (tool_result truncation) does not help —
+	// even with truncated tool_result, text + tool_use do not fit
 	result := compactByPriority(messages, 150)
 
-	// Не должно быть tool_use и tool_result в результате
+	// There should be no tool_use or tool_result in the result
 	for _, msg := range result {
 		for _, block := range msg.Content {
 			if block.Type == "tool_use" || block.Type == "tool_result" {
@@ -674,42 +674,42 @@ func TestCompactByPriority_Phase2(t *testing.T) {
 		}
 	}
 
-	// Системный промпт должен быть сохранён
+	// The system prompt should be preserved
 	if len(result) == 0 || result[0].Role != "system" {
 		t.Error("System prompt should be preserved")
 	}
 }
 
 func TestCompactByPriority_Phase3(t *testing.T) {
-	// Фаза 3: удаление старых сообщений
+	// Phase 3: remove old messages
 	var messages []provider.Message
 	messages = append(messages, provider.SystemMsg("Ты помощник"))
 	for i := 0; i < 20; i++ {
 		messages = append(messages, provider.UserMsg("Длинное сообщение номер которое занимает много токенов в контексте"))
 	}
 
-	// Очень маленький лимит — должны остаться только последние сообщения
+	// Very small limit — only the last messages should remain
 	result := compactByPriority(messages, 100)
 
-	// Системный промпт должен быть сохранён
+	// The system prompt should be preserved
 	if len(result) == 0 || result[0].Role != "system" {
 		t.Error("System prompt should be preserved")
 	}
 
-	// Результат должен быть короче оригинала
+	// The result should be shorter than the original
 	if len(result) >= len(messages) {
 		t.Errorf("Expected compaction, got %d messages (original: %d)", len(result), len(messages))
 	}
 }
 
 func TestCompactByPriority_Phase4(t *testing.T) {
-	// Фаза 4: только системный промпт
+	// Phase 4: only the system prompt
 	messages := []provider.Message{
 		provider.SystemMsg("Ты помощник"),
 		provider.UserMsg(strings.Repeat("очень длинное сообщение ", 100)),
 	}
 
-	// Лимит 10 токенов — только системный промпт
+	// Limit of 10 tokens — only the system prompt
 	result := compactByPriority(messages, 10)
 
 	if len(result) != 1 || result[0].Role != "system" {
@@ -731,7 +731,7 @@ func TestCompactByPriority_NoCompactionNeeded(t *testing.T) {
 }
 
 func TestCompactContext_PriorityOrder(t *testing.T) {
-	// Проверяем что tool_result компактируется раньше чем text
+	// Verify that tool_result is compacted before text
 	messages := []provider.Message{
 		provider.SystemMsg("Ты помощник"),
 		provider.UserMsg("Запусти ls"),
@@ -754,15 +754,15 @@ func TestCompactContext_PriorityOrder(t *testing.T) {
 		},
 	}
 
-	// Средний лимит — tool_result должен быть усечён, но текст сохранён
+	// Medium limit — tool_result should be truncated, but text preserved
 	result := CompactContext(messages, 200, 2)
 
-	// Системный промпт должен быть сохранён
+	// The system prompt should be preserved
 	if len(result) == 0 || result[0].Role != "system" {
 		t.Error("System prompt should be preserved")
 	}
 
-	// Текстовые блоки должны быть сохранены
+	// Text blocks should be preserved
 	hasText := false
 	for _, msg := range result {
 		for _, block := range msg.Content {
@@ -777,7 +777,7 @@ func TestCompactContext_PriorityOrder(t *testing.T) {
 }
 
 func TestRemoveToolErrors(t *testing.T) {
-	// Ошибочный tool_result и соответствующий tool_use должны быть удалены
+	// Error tool_result and the matching tool_use should be removed
 	messages := []provider.Message{
 		provider.SystemMsg("Ты помощник"),
 		provider.UserMsg("Запусти команду"),
@@ -799,7 +799,7 @@ func TestRemoveToolErrors(t *testing.T) {
 
 	result := RemoveToolErrors(messages)
 
-	// Ошибочный tool_result должен быть удалён
+	// Error tool_result should be removed
 	for _, msg := range result {
 		for _, block := range msg.Content {
 			if block.Type == "tool_result" && block.IsError {
@@ -808,7 +808,7 @@ func TestRemoveToolErrors(t *testing.T) {
 		}
 	}
 
-	// Соответствующий tool_use тоже должен быть удалён
+	// The matching tool_use should also be removed
 	for _, msg := range result {
 		for _, block := range msg.Content {
 			if block.Type == "tool_use" && block.ToolUseID == "call_123" {
@@ -817,7 +817,7 @@ func TestRemoveToolErrors(t *testing.T) {
 		}
 	}
 
-	// Текстовые сообщения должны быть сохранены
+	// Text messages should be preserved
 	hasText := false
 	for _, msg := range result {
 		if msg.Role == "assistant" {
@@ -834,7 +834,7 @@ func TestRemoveToolErrors(t *testing.T) {
 }
 
 func TestRemoveToolErrors_NoErrors(t *testing.T) {
-	// Если нет ошибок — ничего не удаляется
+	// If there are no errors — nothing is removed
 	messages := []provider.Message{
 		provider.SystemMsg("Ты помощник"),
 		provider.UserMsg("Привет"),
@@ -848,7 +848,7 @@ func TestRemoveToolErrors_NoErrors(t *testing.T) {
 }
 
 func TestRemoveToolErrors_MixedErrors(t *testing.T) {
-	// Ошибочный и успешный tool_result — удаляется только ошибочный
+	// Error and success tool_result — only the error one is removed
 	messages := []provider.Message{
 		provider.SystemMsg("Ты помощник"),
 		{
@@ -879,7 +879,7 @@ func TestRemoveToolErrors_MixedErrors(t *testing.T) {
 
 	result := RemoveToolErrors(messages)
 
-	// Успешный tool_result должен быть сохранён
+	// Successful tool_result should be preserved
 	hasSuccessResult := false
 	for _, msg := range result {
 		for _, block := range msg.Content {
@@ -892,7 +892,7 @@ func TestRemoveToolErrors_MixedErrors(t *testing.T) {
 		t.Error("Successful tool_result should be preserved")
 	}
 
-	// Ошибочный tool_result должен быть удалён
+	// Error tool_result should be removed
 	for _, msg := range result {
 		for _, block := range msg.Content {
 			if block.Type == "tool_result" && block.IsError {
@@ -903,8 +903,8 @@ func TestRemoveToolErrors_MixedErrors(t *testing.T) {
 }
 
 func TestRemoveDuplicates(t *testing.T) {
-	// Дублирующиеся assistant сообщения должны быть удалены, сохраняется последнее
-	// Пользовательские сообщения НЕ удаляются даже если дубликаты
+	// Duplicate assistant messages should be removed, the last one is kept
+	// User messages are NOT removed even if duplicates
 	messages := []provider.Message{
 		provider.SystemMsg("Ты помощник"),
 		provider.UserMsg("Привет"),
@@ -916,8 +916,8 @@ func TestRemoveDuplicates(t *testing.T) {
 
 	result := RemoveDuplicates(messages)
 
-	// Должно остаться 5 сообщений: system + Привет + Здравствуй! + Привет + Как дела?
-	// (дубликат assistant "Здравствуй!" удалён, но user "Привет" сохранён)
+	// Should remain 5 messages: system + Привет + Здравствуй! + Привет + Как дела?
+	// (duplicate assistant "Здравствуй!" removed, but user "Привет" kept)
 	userCount := 0
 	for _, m := range result {
 		if m.Role == "user" {
@@ -928,7 +928,7 @@ func TestRemoveDuplicates(t *testing.T) {
 		t.Errorf("Expected 3 user messages (Привет + Привет + Как дела?), got %d", userCount)
 	}
 
-	// Assistant дубликаты должны быть удалены (остаётся 1)
+	// Assistant duplicates should be removed (1 remains)
 	assistantCount := 0
 	for _, m := range result {
 		if m.Role == "assistant" {
@@ -941,8 +941,8 @@ func TestRemoveDuplicates(t *testing.T) {
 }
 
 func TestRemoveDuplicates_EmptyMessages(t *testing.T) {
-	// Пустые system и assistant сообщения должны быть удалены
-	// Пустые user сообщения НЕ удаляются (могут содержать tool_result)
+	// Empty system and assistant messages should be removed
+	// Empty user messages are NOT removed (may contain tool_result)
 	messages := []provider.Message{
 		provider.SystemMsg("Ты помощник"),
 		provider.UserMsg(""),
@@ -952,8 +952,8 @@ func TestRemoveDuplicates_EmptyMessages(t *testing.T) {
 
 	result := RemoveDuplicates(messages)
 
-	// Пустые system и assistant сообщения должны быть удалены
-	// Пустые user сообщения сохраняются (могут содержать tool_result)
+	// Empty system and assistant messages should be removed
+	// Empty user messages are kept (may contain tool_result)
 	for _, m := range result {
 		if m.Role == "assistant" && m.GetResponseText() == "" {
 			t.Errorf("Empty assistant message should be removed")
@@ -962,7 +962,7 @@ func TestRemoveDuplicates_EmptyMessages(t *testing.T) {
 }
 
 func TestRemoveDuplicates_NoDuplicates(t *testing.T) {
-	// Если нет дубликатов — ничего не удаляется
+	// If there are no duplicates — nothing is removed
 	messages := []provider.Message{
 		provider.SystemMsg("Ты помощник"),
 		provider.UserMsg("Вопрос 1"),
@@ -977,7 +977,7 @@ func TestRemoveDuplicates_NoDuplicates(t *testing.T) {
 }
 
 func TestCompactByPriority_RemovesErrorsAndDuplicates(t *testing.T) {
-	// Проверяем что фаза 0a и 0b работают в compactByPriority
+	// Verify that phases 0a and 0b work in compactByPriority
 	messages := []provider.Message{
 		provider.SystemMsg("Ты помощник"),
 		provider.UserMsg("Привет"),
@@ -998,10 +998,10 @@ func TestCompactByPriority_RemovesErrorsAndDuplicates(t *testing.T) {
 		provider.AssistantText("Ошибка!"), // дубликат
 	}
 
-	// Большой лимит — компакция не нужна, но ошибки и дубликаты должны быть удалены
+	// Large limit — no compaction needed, but errors and duplicates should be removed
 	result := compactByPriority(messages, 10000)
 
-	// Ошибочный tool_result должен быть удалён
+	// Error tool_result should be removed
 	for _, msg := range result {
 		for _, block := range msg.Content {
 			if block.Type == "tool_result" && block.IsError {
@@ -1010,7 +1010,7 @@ func TestCompactByPriority_RemovesErrorsAndDuplicates(t *testing.T) {
 		}
 	}
 
-	// Соответствующий tool_use тоже должен быть удалён
+	// The matching tool_use should also be removed
 	for _, msg := range result {
 		for _, block := range msg.Content {
 			if block.Type == "tool_use" && block.ToolUseID == "call_err" {
@@ -1019,7 +1019,7 @@ func TestCompactByPriority_RemovesErrorsAndDuplicates(t *testing.T) {
 		}
 	}
 
-	// Дубликаты assistant должны быть удалены, user дубликаты сохраняются
+	// Assistant duplicates should be removed, user duplicates are kept
 	userMsgs := 0
 	for _, msg := range result {
 		if msg.Role == "user" && msg.GetResponseText() == "Привет" {
@@ -1031,17 +1031,17 @@ func TestCompactByPriority_RemovesErrorsAndDuplicates(t *testing.T) {
 	}
 }
 
-// --- Тесты для новых функций компакции ---
+// --- Tests for new compaction functions ---
 
 func TestTruncateStringLines(t *testing.T) {
-	// Короткий текст — без усечения
+	// Short text — without truncation
 	short := "line1\nline2\nline3"
 	result := truncateStringLines(short, 5, 5)
 	if result != short {
 		t.Errorf("Short text should not be truncated, got: %q", result)
 	}
 
-	// Длинный текст — с усечением
+	// Long text — with truncation
 	lines := make([]string, 20)
 	for i := range lines {
 		lines[i] = fmt.Sprintf("line%d", i)
@@ -1277,68 +1277,68 @@ func TestExtractExistingSummary_NoSummary(t *testing.T) {
 }
 
 func TestAntiThrashing_SkipsAutoCompact(t *testing.T) {
-	// Auto-compact (через trim/compact) должен пропускать при lowSaveCount >= 2
+	// Auto-compact (via trim/compact) should skip when lowSaveCount >= 2
 	ctx := NewConversationContextWithTokens(100, 2)
 	ctx.Add(provider.SystemMsg("system"))
 	ctx.Add(provider.UserMsg("hello"))
 
-	// Имитируем 2 неэффективные компакции
+	// Simulate 2 ineffective compactions
 	ctx.lowSaveCount = 2
 
 	tokensBefore := ctx.TokenCount()
 	ctx.compact() // внутренний метод — auto-compact
-	// Компакция должна быть пропущена
+	// Compaction should be skipped
 	if ctx.TokenCount() != tokensBefore {
 		t.Error("Auto-compact should be skipped when lowSaveCount >= 2 and tokens <= 1.5*MaxTokens")
 	}
 }
 
 func TestManualCompactBypassesAntiThrashing(t *testing.T) {
-	// Ручная компакция (Compact) должна обходить anti-thrashing
+	// Manual compaction (Compact) should bypass anti-thrashing
 	ctx := NewConversationContextWithTokens(100, 2)
 	ctx.AutoCompact = false // отключаем авто-компакцию при Add()
 	ctx.Add(provider.SystemMsg("system"))
 
-	// Добавляем много сообщений чтобы превысить лимит
+	// Add many messages to exceed the limit
 	for i := 0; i < 50; i++ {
 		ctx.Add(provider.UserMsg(fmt.Sprintf("message %d with some content to make it longer than usual", i)))
 		ctx.Add(provider.AssistantText(fmt.Sprintf("response %d with some content to make it longer", i)))
 	}
 
-	// Имитируем 2 неэффективные компакции — anti-thrashing должен блокировать auto-compact
+	// Simulate 2 ineffective compactions — anti-thrashing should block auto-compact
 	ctx.lowSaveCount = 2
 
 	tokensBefore := ctx.TokenCount()
-	// Compact() (ручная компакция) должна сбросить lowSaveCount и выполнить компакцию
+	// Compact() (manual compaction) should reset lowSaveCount and perform compaction
 	ctx.Compact()
 	tokensAfter := ctx.TokenCount()
 
-	// Компакция должна была выполниться и уменьшить токены
+	// Compaction should have run and reduced tokens
 	if tokensAfter >= tokensBefore {
 		t.Errorf("Manual Compact() should bypass anti-thrashing and reduce tokens: before=%d after=%d", tokensBefore, tokensAfter)
 	}
 }
 
 func TestAntiThrashing_ResetsOnEffectiveCompaction(t *testing.T) {
-	// lowSaveCount сбрасывается внутри compact() когда компакция эффективна (>10% экономии)
-	// а НЕ при Add() — это позволяет anti-thrashing работать корректно
+	// lowSaveCount is reset inside compact() when compaction is effective (>10% savings)
+	// and NOT at Add() — this allows anti-thrashing to work correctly
 	ctx := NewConversationContextWithTokens(100, 2)
 	ctx.Add(provider.SystemMsg("system"))
 
-	// Добавляем много сообщений чтобы превысить лимит
+	// Add many messages to exceed the limit
 	for i := 0; i < 20; i++ {
 		ctx.Add(provider.UserMsg(fmt.Sprintf("message %d with some content to make it longer", i)))
 		ctx.Add(provider.AssistantText(fmt.Sprintf("response %d with some content", i)))
 	}
 
-	// lowSaveCount должен быть 0 после эффективной компакции
+	// lowSaveCount should be 0 after an effective compaction
 	if ctx.lowSaveCount != 0 {
 		t.Errorf("Expected lowSaveCount=0 after effective compaction, got %d", ctx.lowSaveCount)
 	}
 }
 
 func TestTruncateAssistantText(t *testing.T) {
-	// Короткое сообщение — не усекается
+	// Short message — not truncated
 	msg := provider.Message{
 		Role: "assistant",
 		Content: []provider.ContentBlock{
@@ -1350,7 +1350,7 @@ func TestTruncateAssistantText(t *testing.T) {
 		t.Errorf("Short message should not be truncated, got: %s", result.Content[0].Text)
 	}
 
-	// Длинное сообщение — усекается
+	// Long message — truncated
 	longText := strings.Repeat("a", 5000)
 	msg = provider.Message{
 		Role: "assistant",
@@ -1366,7 +1366,7 @@ func TestTruncateAssistantText(t *testing.T) {
 	if !strings.Contains(resultText, "chars truncated") {
 		t.Errorf("Truncated message should contain truncation marker, got: %s", resultText[:100])
 	}
-	// Должно содержать начало и конец оригинала
+	// Should contain the beginning and end of the original
 	if !strings.HasPrefix(resultText, strings.Repeat("a", 500)) {
 		t.Error("Truncated message should start with original head")
 	}
@@ -1374,7 +1374,7 @@ func TestTruncateAssistantText(t *testing.T) {
 		t.Error("Truncated message should end with original tail")
 	}
 
-	// User-сообщение — не усекается
+	// User message — not truncated
 	msg = provider.Message{
 		Role: "user",
 		Content: []provider.ContentBlock{
@@ -1388,7 +1388,7 @@ func TestTruncateAssistantText(t *testing.T) {
 }
 
 func TestTruncateAssistantText_MultipleBlocks(t *testing.T) {
-	// Сообщение с несколькими блоками — усекается только text
+	// Message with multiple blocks — only text is truncated
 	longText := strings.Repeat("x", 3000)
 	msg := provider.Message{
 		Role: "assistant",
@@ -1398,18 +1398,18 @@ func TestTruncateAssistantText_MultipleBlocks(t *testing.T) {
 		},
 	}
 	result := truncateAssistantText(msg)
-	// thinking не должен быть усечён (это делает truncateThinking)
+	// thinking should not be truncated (truncateThinking does that)
 	if result.Content[0].Text != "short thinking" {
 		t.Error("Thinking block should not be truncated by truncateAssistantText")
 	}
-	// text должен быть усечён
+	// text should be truncated
 	if len(result.Content[1].Text) >= len(longText) {
 		t.Error("Text block should be truncated")
 	}
 }
 
 func TestRemoveDuplicates_SemanticDedup(t *testing.T) {
-	// 5 сообщений с одинаковым началом — должно остаться 2
+	// 5 messages with the same start — 2 should remain
 	messages := []provider.Message{
 		{Role: "assistant", Content: []provider.ContentBlock{{Type: "text", Text: "Все задачи выполнены! Вот итоговая сводка:\n\n1. Сделано А\n2. Сделано Б"}}},
 		{Role: "assistant", Content: []provider.ContentBlock{{Type: "text", Text: "Все задачи выполнены! Вот итоговая сводка:\n\n1. Сделано В\n2. Сделано Г"}}},
@@ -1419,7 +1419,7 @@ func TestRemoveDuplicates_SemanticDedup(t *testing.T) {
 	}
 
 	result := RemoveDuplicates(messages)
-	// Должно остаться 2 сообщения (последние 2 с одинаковым префиксом)
+	// Should remain 2 messages (the last 2 with the same prefix)
 	if len(result) > 2 {
 		t.Errorf("Expected at most 2 messages with same prefix, got %d", len(result))
 	}
@@ -1429,7 +1429,7 @@ func TestRemoveDuplicates_SemanticDedup(t *testing.T) {
 }
 
 func TestRemoveDuplicates_TwoSimilar(t *testing.T) {
-	// 2 сообщения с одинаковым началом — оба должны остаться
+	// 2 messages with the same start — both should remain
 	messages := []provider.Message{
 		{Role: "assistant", Content: []provider.ContentBlock{{Type: "text", Text: "Начну с анализа проблемы. Шаг 1: читаю файл."}}},
 		{Role: "assistant", Content: []provider.ContentBlock{{Type: "text", Text: "Начну с анализа проблемы. Шаг 2: исправляю код."}}},
@@ -1442,7 +1442,7 @@ func TestRemoveDuplicates_TwoSimilar(t *testing.T) {
 }
 
 func TestCompactByPriority_Phase1c(t *testing.T) {
-	// Тест: фаза 1c усекает длинные assistant-сообщения
+	// Test: phase 1c truncates long assistant messages
 	longText := strings.Repeat("This is a long assistant message. ", 200) // ~8800 chars
 	messages := []provider.Message{
 		{Role: "system", Content: []provider.ContentBlock{{Type: "text", Text: "system prompt"}}},
@@ -1450,25 +1450,25 @@ func TestCompactByPriority_Phase1c(t *testing.T) {
 		{Role: "assistant", Content: []provider.ContentBlock{{Type: "text", Text: longText}}},
 	}
 
-	// MaxTokens маленький, чтобы триггерить компакцию
+	// Small MaxTokens to trigger compaction
 	result := compactByPriority(messages, 500)
 	resultTokens := EstimateMessagesTokens(result)
 
-	// Результат должен быть меньше оригинала
+	// The result should be smaller than the original
 	originalTokens := EstimateMessagesTokens(messages)
 	if resultTokens >= originalTokens {
 		t.Errorf("Expected compaction to reduce tokens: %d -> %d", originalTokens, resultTokens)
 	}
 
-	// Результат должен содержать assistant-сообщение (усечённое)
+	// The result should contain the assistant message (truncated)
 	hasAssistant := false
 	for _, msg := range result {
 		if msg.Role == "assistant" {
 			hasAssistant = true
-			// Проверяем что текст усечён
+			// Verify that the text is truncated
 			for _, block := range msg.Content {
 				if block.Type == "text" && strings.Contains(block.Text, "chars truncated") {
-					// OK — текст усечён
+					// OK — text truncated
 				}
 			}
 		}
@@ -1479,7 +1479,7 @@ func TestCompactByPriority_Phase1c(t *testing.T) {
 }
 
 func TestDynamicKeepRecent(t *testing.T) {
-	// Тест: динамический keepRecent уменьшается если последние сообщения слишком большие
+	// Test: dynamic keepRecent shrinks if the last messages are too large
 	longText := strings.Repeat("This is a very long message. ", 500) // ~22000 chars
 	messages := []provider.Message{
 		{Role: "system", Content: []provider.ContentBlock{{Type: "text", Text: "system"}}},
@@ -1491,10 +1491,10 @@ func TestDynamicKeepRecent(t *testing.T) {
 		{Role: "assistant", Content: []provider.ContentBlock{{Type: "text", Text: "short2"}}},
 	}
 
-	// CompactContext с keepRecent=6, но maxTokens маленький
+	// CompactContext with keepRecent=6, but small maxTokens
 	result := CompactContext(messages, 500, 6)
 
-	// Результат должен быть компактным
+	// The result should be compact
 	resultTokens := EstimateMessagesTokens(result)
 	if resultTokens > 600 { // небольшой запас
 		t.Errorf("Expected compact result, got %d tokens", resultTokens)
@@ -1502,7 +1502,7 @@ func TestDynamicKeepRecent(t *testing.T) {
 }
 
 func TestTruncateMessageToFit(t *testing.T) {
-	// Сообщение с длинным tool_result — усекается
+	// Message with long tool_result — truncated
 	longOutput := strings.Repeat("line\n", 100)
 	msg := provider.Message{
 		Role: "user",
@@ -1516,7 +1516,7 @@ func TestTruncateMessageToFit(t *testing.T) {
 		t.Errorf("Expected < 250 tokens after truncation, got %d", resultTokens)
 	}
 
-	// Сообщение с длинным assistant text — усекается
+	// Message with long assistant text — truncated
 	longText := strings.Repeat("word ", 5000)
 	msg = provider.AssistantText(longText)
 	result = truncateMessageToFit(msg, 200)
@@ -1525,7 +1525,7 @@ func TestTruncateMessageToFit(t *testing.T) {
 		t.Errorf("Expected < 250 tokens after truncation, got %d", resultTokens)
 	}
 
-	// Короткое сообщение — не усекается
+	// Short message — not truncated
 	msg = provider.UserMsg("hello")
 	result = truncateMessageToFit(msg, 500)
 	if result.Content[0].Text != "hello" {
@@ -1534,8 +1534,8 @@ func TestTruncateMessageToFit(t *testing.T) {
 }
 
 func TestCompactContext_FallbackTruncatesLargeMessage(t *testing.T) {
-	// Когда одно сообщение больше maxTokens, компакция должна усечь его
-	// вместо того чтобы вернуть только system messages
+	// When a single message exceeds maxTokens, compaction should truncate it
+	// instead of returning only system messages
 	longText := strings.Repeat("This is a very long message that should be truncated. ", 500)
 	messages := []provider.Message{
 		provider.SystemMsg("system prompt"),
@@ -1544,21 +1544,21 @@ func TestCompactContext_FallbackTruncatesLargeMessage(t *testing.T) {
 		provider.UserMsg("another question"),
 	}
 
-	// maxTokens = 500 — очень маленький лимит
+	// maxTokens = 500 — very small limit
 	result := CompactContext(messages, 500, 2)
 
-	// Результат должен содержать больше чем только system prompt
+	// The result should contain more than just the system prompt
 	resultTokens := EstimateMessagesTokens(result)
 	if resultTokens == 0 {
 		t.Error("CompactContext should not return empty result")
 	}
 
-	// Результат должен вписываться в лимит (с небольшим запасом)
+	// The result should fit within the limit (with a small margin)
 	if resultTokens > 700 {
 		t.Errorf("Expected result to fit in ~500 tokens, got %d", resultTokens)
 	}
 
-	// Результат должен содержать system prompt
+	// The result should contain the system prompt
 	hasSystem := false
 	for _, m := range result {
 		if m.Role == "system" {

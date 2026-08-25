@@ -246,7 +246,7 @@ All communication uses a unified event stream:
 type StreamEvent struct {
     Type           string  // "text_delta", "tool_call_start", "tool_call_end",
                            // "tool_progress", "thinking", "done", "error",
-                           // "iteration_end", "compaction"
+                           // "iteration_end", "compaction", "rate_limit"
     Text           string
     ToolName       string
     ToolInput      map[string]any
@@ -257,6 +257,24 @@ type StreamEvent struct {
     Error          error
 }
 ```
+
+### Rate Limit (HTTP 429) Handling
+
+When a provider returns HTTP 429, the agent loop (`streamRetryRequest` in `agent_stream.go`) retries with a configurable delay instead of stopping:
+
+- **`RateLimitError`** — a dedicated error type returned by providers on HTTP 429. The full provider error body is preserved (not truncated).
+- **`EventRateLimit`** — a stream event shown to the user (rate limit message) but **not** saved to context.
+- **Configurable retries** — `agent.rate_limit.max_retries` (default 50) and `agent.rate_limit.delay_ms` (default 3000) control retry behavior. Also configurable at runtime via the `/rate` interactive command.
+- **Autopilot resilience** — transient errors (429, 404, 500, 502, 503, 504) do not stop autopilot; it continues after a short delay.
+
+### Reasoning / Thinking Parsing
+
+The OpenAI provider parses reasoning/thinking content from multiple formats:
+- `reasoning_content` (DeepSeek, some OpenAI-compatible)
+- `reasoning` (OpenRouter unified format)
+- `reasoning_details` (OpenRouter structured format)
+
+The `reasoning` provider config block (`enabled`, `effort`, `max_tokens`, `exclude`) enables reasoning tokens in API requests.
 
 ### Tool Interface
 

@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"time"
@@ -16,13 +17,16 @@ type RetryPolicy struct {
 	RetryableErrors []int         `yaml:"retryable_errors"` // HTTP statuses to retry on
 }
 
-// DefaultRetryPolicy returns default retry policy
+// DefaultRetryPolicy returns default retry policy.
+// Note: 429 is NOT in RetryableErrors — rate limit errors are handled
+// by the agent loop (streamRetryRequest) with RateLimitError, which shows
+// them to the user and retries with short delays. This prevents double retry.
 func DefaultRetryPolicy() RetryPolicy {
 	return RetryPolicy{
-		MaxRetries:      3,
-		InitialBackoff:  1 * time.Second,
-		MaxBackoff:      30 * time.Second,
-		RetryableErrors: []int{429, 500, 502, 503, 504},
+		MaxRetries:      5,
+		InitialBackoff:  2 * time.Second,
+		MaxBackoff:      60 * time.Second,
+		RetryableErrors: []int{500, 502, 503, 504},
 	}
 }
 
@@ -73,4 +77,46 @@ type RetryableError struct {
 
 func (e *RetryableError) Error() string {
 	return fmt.Sprintf(i18n.T("errors_provider.retry"), e.StatusCode, e.Attempt, e.MaxRetries, e.Body)
+}
+
+// RateLimitError — HTTP 429 rate limit error.
+// This error is retryable and should NOT be saved to context.
+// The agent loop should display it to the user but retry after a delay.
+type RateLimitError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *RateLimitError) Error() string {
+	return fmt.Sprintf("HTTP %d: %s", e.StatusCode, e.Body)
+}
+
+// IsRateLimitError checks if an error is a RateLimitError.
+func IsRateLimitError(err error) bool {
+	var rle *RateLimitError
+	return errors.As(err, &rle)
+}
+
+// IsRetryableError checks if an error is a RetryableError.
+func IsRetryableError(err error) bool {
+	var re *RetryableError
+	return errors.As(err, &re)
+}
+
+// FormatHTTPErrorWithRateLimit formats HTTP error and returns RateLimitError for 429.
+// For other status codes returns a regular error.
+// For 429, the full error body is preserved (not truncated) so the user
+// can see the complete error message from the provider.
+func FormatHTTPErrorWithRateLimit(statusCode int, body []byte) error {
+	bodyStr := string(body)
+	if statusCode == 429 {
+		return &RateLimitError{
+			StatusCode: statusCode,
+			Body:       bodyStr,
+		}
+	}
+	if len(bodyStr) > 500 {
+		bodyStr = bodyStr[:500] + "..."
+	}
+	return fmt.Errorf("HTTP %d: %s", statusCode, bodyStr)
 }

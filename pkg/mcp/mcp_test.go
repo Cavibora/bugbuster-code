@@ -66,7 +66,7 @@ func TestMCPClientConnect_SSE_InvalidURL(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for invalid SSE URL")
 	}
-	// Должен содержать "failed to create SSE MCP client"
+	// Should contain "failed to create SSE MCP client"
 	if err.Error()[:30] != "failed to create SSE MCP clien" {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestMCPClientConnect_SSE_Unreachable(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for unreachable SSE server")
 	}
-	// Должен содержать "failed to initialize"
+	// Should contain "failed to initialize"
 	if err.Error()[:20] != "failed to initialize" {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -144,9 +144,9 @@ func TestMCPClientConnect_AlreadyConnected(t *testing.T) {
 	}
 	client := NewMCPClient(cfg)
 
-	// Первое подключение может пройти или нет (зависит от echo),
-	// но если подключились — повторный вызов должен вернуть nil
-	// Мы используем хитрость: вручную ставим connected=true
+	// The first connection may or may not succeed (depends on echo),
+	// but if connected — a repeated call should return nil
+	// We use a trick: manually set connected=true
 	client.mu.Lock()
 	client.connected = true
 	client.mu.Unlock()
@@ -266,7 +266,7 @@ func TestManagerConnectAll_Mixed(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for unknown type")
 	}
-	// disabled не пытается подключаться, ошибка только от bad-type
+	// disabled does not try to connect, error only from bad-type
 	if err.Error()[:20] != "MCP connection error" {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -308,12 +308,12 @@ func TestClientConfigWithHeaders(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	// Подключение не удастся (нет сервера), но проверяем что конфигурация принята
+	// Connection will fail (no server), but verify the configuration is accepted
 	err := client.Connect(ctx)
 	if err == nil {
 		t.Fatal("expected error for unreachable server")
 	}
-	// Проверяем что это ошибка инициализации, а не "not yet implemented"
+	// Verify this is an initialization error, not "not yet implemented"
 	if err.Error()[:20] != "failed to initialize" {
 		t.Errorf("expected init failure (not 'not implemented'), got: %v", err)
 	}
