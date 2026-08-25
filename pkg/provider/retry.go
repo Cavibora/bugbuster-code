@@ -23,9 +23,9 @@ type RetryPolicy struct {
 // them to the user and retries with short delays. This prevents double retry.
 func DefaultRetryPolicy() RetryPolicy {
 	return RetryPolicy{
-		MaxRetries:      5,
-		InitialBackoff:  2 * time.Second,
-		MaxBackoff:      60 * time.Second,
+		MaxRetries:      3,
+		InitialBackoff:  1 * time.Second,
+		MaxBackoff:      30 * time.Second,
 		RetryableErrors: []int{500, 502, 503, 504},
 	}
 }
