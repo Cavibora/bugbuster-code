@@ -57,11 +57,6 @@ type Spinner struct {
 	// so long messages don't multiply on each tick.
 	lastLines int
 
-	// noTruncate — when true, the message is not truncated to fit the width.
-	// Used for bash/write/edit commands where the user must see the full
-	// command for security. The message is wrapped instead of truncated.
-	noTruncate bool
-
 	// Buffered output: accumulated while spinner is active.
 	// Printed atomically when spinner stops.
 	pendingLines []string
@@ -154,19 +149,10 @@ func (s *Spinner) Start() {
 				elapsed := time.Since(s.startTime)
 				tokensIn := s.tokensIn
 				tokensOut := s.tokensOut
-				noTruncate := s.noTruncate
 				s.mu.Unlock()
 
 				width := terminalWidth()
-				if !noTruncate {
-					msg = truncateMessage(msg, width)
-				} else {
-					// For bash/write/edit — wrap long commands to multiple lines
-					// so the full command stays visible (no truncation).
-					if utf8.RuneCountInString(msg) > width-10 {
-						msg = wrapText(msg, 2, width-4)
-					}
-				}
+				msg = truncateMessage(msg, width)
 
 				parts := []string{msg}
 				parts = append(parts, FormatDuration(elapsed))
@@ -299,16 +285,6 @@ func (s *Spinner) Printf(format string, args ...any) {
 func (s *Spinner) UpdateMessage(msg string) {
 	s.mu.Lock()
 	s.message = msg
-	s.mu.Unlock()
-}
-
-// SetNoTruncate enables/disables truncation of the message.
-// When enabled, long messages are wrapped to multiple lines instead of
-// being truncated. Used for bash/write/edit commands where the user must
-// see the full command for security.
-func (s *Spinner) SetNoTruncate(noTruncate bool) {
-	s.mu.Lock()
-	s.noTruncate = noTruncate
 	s.mu.Unlock()
 }
 
@@ -1285,22 +1261,23 @@ func formatToolSummary(toolName string, params map[string]string) string {
 	var parts []string
 	displayKeys := []string{"path", "command", "pattern", "query", "prompt", "url", "file", "dir", "lines", "task"}
 	shown := make(map[string]bool)
-	// bash, write, edit — show parameters in full, no truncation
+	// bash, write, edit — show a compact summary in the spinner.
+	// The full command is shown in FormatToolCallStart/FormatToolCallEnd after
+	// the tool completes. Showing the full multi-line command in the spinner
+	// (which redraws every tick) creates a wall of repeated text.
 	noTruncate := toolName == "bash" || toolName == "write" || toolName == "edit" || toolName == "delegate_task"
 	for _, key := range displayKeys {
 		if v, ok := params[key]; ok {
 			display := v
 			if noTruncate {
-				// Show the full command/path/code without truncation.
-				// Multi-line values — replace \n with ⏎ for single-line display.
-				// Long single-line values — wrap to multiple lines so they don't
-				// get truncated or create extra lines on each spinner tick.
+				// Compact single-line summary for the spinner.
+				// Replace newlines with ⏎ and truncate to a reasonable width.
 				display = strings.ReplaceAll(display, "\n", " ⏎ ")
 				display = strings.ReplaceAll(display, "\r", "")
-				// Wrap very long commands to multiple lines so the full command
-				// stays visible (no truncation, no single-line overflow).
-				if utf8.RuneCountInString(display) > 120 {
-					display = wrapText(display, 4, terminalWidth())
+				maxLen := 100
+				if utf8.RuneCountInString(display) > maxLen {
+					runes := []rune(display)
+					display = string(runes[:maxLen-3]) + "..."
 				}
 			} else if key == "task" {
 				// Tasks can be very long — truncate aggressively

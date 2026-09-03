@@ -464,10 +464,10 @@ streamLoop:
 				spinner = NewSpinner(fmt.Sprintf("⏺ %s", event.ToolName))
 				oldSpinner.CopyStatsTo(spinner)
 				spinner.UpdateProvider(providerDisplayName(providerName, provCfg), provCfg.Model)
-				// bash/write/edit — show full command without truncation (wrapped)
-				if event.ToolName == "bash" || event.ToolName == "write" || event.ToolName == "edit" || event.ToolName == "delegate_task" {
-					spinner.SetNoTruncate(true)
-				}
+				// bash/write/edit — show a compact summary in the spinner.
+				// The full command is shown in FormatToolCallStart/FormatToolCallEnd
+				// after the tool completes. No-truncate mode would redraw the full
+				// multi-line command every tick, creating a wall of repeated text.
 				spinner.Start()
 
 			case provider.EventToolCallDelta:
@@ -489,18 +489,16 @@ streamLoop:
 					params := parsePartialToolInput(toolInputBuf.String())
 					if len(params) > 0 {
 						summary := formatToolSummary(currentToolName, params)
-						// Don't truncate bash/write/edit commands — user must see full command for security
-						noTruncate := currentToolName == "bash" || currentToolName == "write" || currentToolName == "edit" || currentToolName == "delegate_task"
-						if !noTruncate {
-							width := terminalWidth()
-							maxLen := width - 10
-							if maxLen < 40 {
-								maxLen = 40
-							}
-							runes := []rune(summary)
-							if len(runes) > maxLen {
-								summary = string(runes[:maxLen-3]) + "..."
-							}
+						// Truncate to fit the terminal width (formatToolSummary already
+						// produces a compact single-line summary for bash/write/edit).
+						width := terminalWidth()
+						maxLen := width - 10
+						if maxLen < 40 {
+							maxLen = 40
+						}
+						runes := []rune(summary)
+						if len(runes) > maxLen {
+							summary = string(runes[:maxLen-3]) + "..."
 						}
 						spinner.UpdateMessage(fmt.Sprintf("⏺ %s", summary))
 					}
@@ -664,15 +662,13 @@ streamLoop:
 
 		case provider.EventRateLimit:
 			// Rate limit (429) — show warning to user, don't save to context.
-			// Stop spinner, print message on its own line, restart spinner.
-			oldSpinner := spinner
-			spinner = stopActiveSpinner(spinner)
-			color.Yellow("  %s", strings.TrimSpace(event.Text))
-			// Restart spinner for the next retry
-			spinner = NewSpinner(i18n.T("cli.spinner_thinking"))
-			oldSpinner.CopyStatsTo(spinner)
-			spinner.UpdateProvider(providerDisplayName(providerName, provCfg), provCfg.Model)
-			spinner.Start()
+			// Update the spinner message in place instead of printing a new
+			// line for each retry (avoids a wall of 50 identical messages).
+			if spinner != nil && spinner.IsActive() {
+				spinner.UpdateMessage(strings.TrimSpace(event.Text))
+			} else {
+				color.Yellow("  %s", strings.TrimSpace(event.Text))
+			}
 
 		case provider.EventError:
 			lastStreamError = true // stream ended with error
