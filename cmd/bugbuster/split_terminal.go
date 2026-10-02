@@ -229,6 +229,7 @@ func (st *SplitTerminal) Run() bool {
 	st.session = currentSession
 	st.sessionMgr = sessionMgr
 	st.loop.Context.SessionID = currentSession.ID
+	st.loop.SetSessionIDForProvider(currentSession.ID)
 
 	// Recreate readline with the correct session history file.
 	// The initial readline was created BEFORE the session was selected,

@@ -22,6 +22,7 @@ type OpenAIProvider struct {
 	temperature float64 // sampling temperature (0 = not sent)
 	topP        float64 // top-p sampling (0 = not sent)
 	reasoning   *ReasoningConfig // reasoning/thinking config (OpenRouter, OpenAI o-series)
+	sessionID   string  // stable session ID for x-opencode-session header (OpenCode Go)
 	client      *http.Client
 	retryPolicy RetryPolicy
 }
@@ -58,6 +59,12 @@ func NewOpenAIProvider(name string, cfg ProviderConfig) (*OpenAIProvider, error)
 // SetRetryPolicy sets retry policy
 func (p *OpenAIProvider) SetRetryPolicy(policy RetryPolicy) {
 	p.retryPolicy = policy
+}
+
+// SetSessionID sets the stable session ID sent in the x-opencode-session header.
+// Used by OpenCode Go for routing optimization and prompt caching.
+func (p *OpenAIProvider) SetSessionID(id string) {
+	p.sessionID = id
 }
 
 func (p *OpenAIProvider) Name() string { return p.name }
@@ -337,6 +344,10 @@ func (p *OpenAIProvider) setHeaders(req *http.Request) {
 	req.Header.Set("User-Agent", UserAgent)
 	if p.apiKey != "" {
 		req.Header.Set("Authorization", "Bearer "+p.apiKey)
+	}
+	// OpenCode Go requires a stable session ID for routing and prompt caching.
+	if p.sessionID != "" {
+		req.Header.Set("x-opencode-session", p.sessionID)
 	}
 }
 

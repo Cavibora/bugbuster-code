@@ -180,6 +180,20 @@ func (a *AgentLoop) SetProvider(p provider.Provider) {
 	a.provider = p
 }
 
+// SetSessionIDForProvider propagates the stable session ID to the provider
+// if it supports it (e.g. OpenCode Go sends it in the x-opencode-session
+// header for routing optimization and prompt caching).
+func (a *AgentLoop) SetSessionIDForProvider(id string) {
+	if s, ok := a.provider.(interface{ SetSessionID(string) }); ok {
+		s.SetSessionID(id)
+	}
+	if a.fallbackProvider != nil {
+		if s, ok := a.fallbackProvider.(interface{ SetSessionID(string) }); ok {
+			s.SetSessionID(id)
+		}
+	}
+}
+
 // SetFallbackProvider sets the fallback provider (used when primary fails)
 func (a *AgentLoop) SetFallbackProvider(p provider.Provider) {
 	a.fallbackProvider = p
@@ -433,6 +447,10 @@ func (a *AgentLoop) runLoop() (string, error) {
 			}
 			return lastText, nil
 		}
+
+		// Cleanup transient messages (auto-continue prompts, error hints)
+		// to prevent context pollution. Keeps only the last auto-continue.
+		a.Context.CleanupTransients()
 
 		// Debug mode: log request
 		if a.debug {
@@ -1162,6 +1180,9 @@ func (a *AgentLoop) maybeCompact(eventCh chan<- provider.StreamEvent, ctx contex
 	// Inject original task reminder after compaction so the model
 	// doesn't lose track of what it was doing
 	if a.Context.OriginalTask != "" {
+		// Remove old compaction reminders — keep only the latest one
+		// so they don't accumulate and pollute the context
+		a.Context.Messages = RemoveCompactionReminders(a.Context.Messages)
 		taskReminder := fmt.Sprintf(
 			"[Context was compacted to save space. Your original task: %s\n"+
 				"Continue working on this task. Do NOT stop or say you are done unless the task is truly complete.]",
@@ -1376,6 +1397,9 @@ func (a *AgentLoop) injectSpeedMirror(iteration int, iterDuration time.Duration)
 		sb.WriteString(staleMsg)
 	}
 
+	// Remove old performance mirrors — keep only the latest one
+	// so they don't accumulate and pollute the context
+	a.Context.Messages = RemovePerformanceMirrors(a.Context.Messages)
 	a.Context.Add(provider.SystemMsg(sb.String()))
 }
 

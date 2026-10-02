@@ -67,6 +67,22 @@ providers:
     security:
       allow_network: true
 
+  # OpenCode Go (Zen Go) — opencode.ai/zen/go/v1, OpenAI-compatible
+  # Docs: https://opencode.ai/docs/go/
+  # Model ID format: opencode-go/<model-id>
+  #   e.g. opencode-go/kimi-k3, opencode-go/glm-5.3-flash, opencode-go/deepseek-v4.1-flash
+  # base_url is optional — defaults to https://opencode.ai/zen/go/v1
+  # The x-opencode-session header (stable session ID) is sent automatically
+  # so OpenCode Go can route requests and cache prompts efficiently.
+  opencode:
+    type: opencode
+    api_key: ${OPENCODE_API_KEY}
+    model: opencode-go/kimi-k3
+    max_tokens: 16384
+    context_window: 128000
+    security:
+      allow_network: true
+
   # Ollama (local models)
   ollama:
     type: ollama

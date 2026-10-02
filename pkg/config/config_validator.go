@@ -45,19 +45,21 @@ func (ve *ValidationErrors) String() string {
 
 // Known provider types
 var knownProviderTypes = map[string]bool{
-	"openai":           true,
-	"anthropic":        true,
-	"ollama":           true,
-	"cavibora":         true,
+	"openai":            true,
+	"anthropic":         true,
+	"ollama":            true,
+	"cavibora":          true,
 	"openai_compatible": true,
+	"opencode":          true,
 }
 
 // Providers that require an API key
 var providersRequiringAPIKey = map[string]bool{
-	"openai":           true,
-	"anthropic":        true,
-	"cavibora":         true,
+	"openai":            true,
+	"anthropic":         true,
+	"cavibora":          true,
 	"openai_compatible": true,
+	"opencode":          true,
 }
 
 // ValidateConfig validates the BugBuster configuration and returns errors and warnings.

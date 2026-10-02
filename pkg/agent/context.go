@@ -472,7 +472,10 @@ func isTransientErrorMessage(msg provider.Message) bool {
 //   kept only the most recent one (so the model knows what to continue).
 // - Transient error/hint messages (idle timeout, loop detection) removed entirely.
 // - "Continue." (max_tokens) messages — keep only the last one.
-// This prevents context pollution from repeated auto-continue and error messages.
+// - Compaction reminders ("[Context was compacted...]", "[Auto-compacted]") — keep only the last one.
+// - Performance mirror system messages — keep only the last one.
+// This prevents context pollution from repeated auto-continue, error, compaction,
+// and performance mirror messages.
 // Thread-safe: acquires write lock.
 func (c *ConversationContext) CleanupTransients() {
 	c.mu.Lock()
@@ -512,11 +515,125 @@ func cleanupTransientsLocked(messages []provider.Message) []provider.Message {
 		}
 	}
 
+	// Remove all compaction reminders except the last one
+	lastCompactionIdx := -1
+	for i, msg := range messages {
+		if isCompactionReminder(msg) {
+			lastCompactionIdx = i
+		}
+	}
+	for i, msg := range messages {
+		if isCompactionReminder(msg) && i != lastCompactionIdx {
+			removeSet[i] = true
+		}
+	}
+
+	// Remove all performance mirrors except the last one
+	lastMirrorIdx := -1
+	for i, msg := range messages {
+		if isPerformanceMirror(msg) {
+			lastMirrorIdx = i
+		}
+	}
+	for i, msg := range messages {
+		if isPerformanceMirror(msg) && i != lastMirrorIdx {
+			removeSet[i] = true
+		}
+	}
+
 	if len(removeSet) == 0 {
 		return messages
 	}
 
 	// Build filtered list
+	result := make([]provider.Message, 0, len(messages)-len(removeSet))
+	for i, msg := range messages {
+		if !removeSet[i] {
+			result = append(result, msg)
+		}
+	}
+	return result
+}
+
+// isCompactionReminder checks if a user message is a "[Context was compacted...]"
+// or "[Auto-compacted]" reminder injected after compaction.
+// These accumulate over time and pollute context — only the latest should be kept.
+func isCompactionReminder(msg provider.Message) bool {
+	if msg.Role != "user" {
+		return false
+	}
+	text := strings.TrimSpace(msg.GetResponseText())
+	if text == "" {
+		return false
+	}
+	return strings.Contains(text, "[Context was compacted") ||
+		strings.Contains(text, "[Auto-compacted]")
+}
+
+// isPerformanceMirror checks if a message is a "[Performance mirror]" system message.
+// These are injected every 5 iterations and accumulate — only the latest should be kept.
+func isPerformanceMirror(msg provider.Message) bool {
+	if msg.Role != "system" {
+		return false
+	}
+	text := strings.TrimSpace(msg.GetResponseText())
+	if text == "" {
+		return false
+	}
+	return strings.HasPrefix(text, "[Performance mirror]")
+}
+
+// RemoveCompactionReminders removes all compaction reminder messages
+// except the most recent one. Returns a new slice.
+func RemoveCompactionReminders(messages []provider.Message) []provider.Message {
+	lastIdx := -1
+	for i, msg := range messages {
+		if isCompactionReminder(msg) {
+			lastIdx = i
+		}
+	}
+	if lastIdx == -1 {
+		return messages
+	}
+	removeSet := make(map[int]bool)
+	for i, msg := range messages {
+		if isCompactionReminder(msg) && i != lastIdx {
+			removeSet[i] = true
+		}
+	}
+	if len(removeSet) == 0 {
+		return messages
+	}
+	result := make([]provider.Message, 0, len(messages)-len(removeSet))
+	for i, msg := range messages {
+		if !removeSet[i] {
+			result = append(result, msg)
+		}
+	}
+	return result
+}
+
+// RemovePerformanceMirrors removes all performance mirror system messages
+// except the most recent one. Returns a new slice.
+func RemovePerformanceMirrors(messages []provider.Message) []provider.Message {
+	lastIdx := -1
+	for i, msg := range messages {
+		if isPerformanceMirror(msg) {
+			lastIdx = i
+		}
+	}
+	if lastIdx == -1 {
+		return messages
+	}
+	removeSet := make(map[int]bool)
+	for i, msg := range messages {
+		if isPerformanceMirror(msg) && i != lastIdx {
+			removeSet[i] = true
+		}
+	}
+	if len(removeSet) == 0 {
+		return messages
+	}
 	result := make([]provider.Message, 0, len(messages)-len(removeSet))
 	for i, msg := range messages {
 		if !removeSet[i] {

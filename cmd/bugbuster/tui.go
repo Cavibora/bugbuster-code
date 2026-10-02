@@ -1725,6 +1725,7 @@ func runTUI(cfg *config.BugBusterConfig, loop *agent.AgentLoop, ct *ChangeTracke
 	m.session = currentSession
 	m.sessionMgr = sessionMgr
 	loop.Context.SessionID = currentSession.ID
+	loop.SetSessionIDForProvider(currentSession.ID)
 
 	// Restore provider from session if available
 	if currentSession.ProviderName != "" {

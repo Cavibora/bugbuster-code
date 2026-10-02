@@ -17,6 +17,8 @@ func NewFromConfig(name string, cfg ProviderConfig) (Provider, error) {
 		return NewCaviboraProvider(name, cfg)
 	case "openai_compat":
 		return NewOpenAICompatProvider(name, cfg)
+	case "opencode":
+		return NewOpenCodeProvider(name, cfg)
 	default:
 		return nil, i18n.E("errors_provider.unknown_type", cfg.Type)
 	}

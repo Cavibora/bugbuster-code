@@ -221,3 +221,23 @@ func TestMessageToPlainText(t *testing.T) {
 		t.Errorf("Expected 'Hello\\nWorld', got '%s'", text)
 	}
 }
+
+func TestNewFromConfig_OpenCode(t *testing.T) {
+	cfg := ProviderConfig{
+		Type:  "opencode",
+		Model: "opencode-go/kimi-k3",
+	}
+	p, err := NewFromConfig("opencode", cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p == nil {
+		t.Fatal("nil provider")
+	}
+	if p.Name() != "opencode" {
+		t.Errorf("name = %q, want opencode", p.Name())
+	}
+	if p.Model() != "opencode-go/kimi-k3" {
+		t.Errorf("model = %q, want opencode-go/kimi-k3", p.Model())
+	}
+}

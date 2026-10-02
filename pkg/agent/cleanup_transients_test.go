@@ -208,3 +208,258 @@ func TestIsTransientErrorMessage(t *testing.T) {
 		})
 	}
 }
+
+func TestIsCompactionReminder(t *testing.T) {
+	tests := []struct {
+		name string
+		msg  provider.Message
+		want bool
+	}{
+		{
+			name: "Context was compacted",
+			msg:  provider.UserMsg("[Context was compacted to save space. Your original task: fix the bug]"),
+			want: true,
+		},
+		{
+			name: "Auto-compacted",
+			msg:  provider.UserMsg("[Auto-compacted] Context was critically slow"),
+			want: true,
+		},
+		{
+			name: "Normal user message",
+			msg:  provider.UserMsg("Please fix the bug"),
+			want: false,
+		},
+		{
+			name: "Assistant message",
+			msg:  assistantMsg("[Context was compacted]"),
+			want: false,
+		},
+		{
+			name: "System message",
+			msg:  provider.SystemMsg("[Context was compacted]"),
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isCompactionReminder(tt.msg)
+			if got != tt.want {
+				t.Errorf("isCompactionReminder() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsPerformanceMirror(t *testing.T) {
+	tests := []struct {
+		name string
+		msg  provider.Message
+		want bool
+	}{
+		{
+			name: "Performance mirror",
+			msg:  provider.SystemMsg("[Performance mirror] Iteration 5. Avg iteration time: 4.7s."),
+			want: true,
+		},
+		{
+			name: "Normal system message",
+			msg:  provider.SystemMsg("Ты — BugBuster Code"),
+			want: false,
+		},
+		{
+			name: "User message",
+			msg:  provider.UserMsg("[Performance mirror] Iteration 5."),
+			want: false,
+		},
+		{
+			name: "Assistant message",
+			msg:  assistantMsg("[Performance mirror] Iteration 5."),
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isPerformanceMirror(tt.msg)
+			if got != tt.want {
+				t.Errorf("isPerformanceMirror() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRemoveCompactionReminders_KeepsOnlyLast(t *testing.T) {
+	msgs := []provider.Message{
+		provider.SystemMsg("system"),
+		provider.UserMsg("Do the task"),
+		assistantMsg("Working..."),
+		provider.UserMsg("[Context was compacted to save space. Your original task: task1]"),
+		assistantMsg("Continuing..."),
+		provider.UserMsg("[Context was compacted to save space. Your original task: task2]"),
+		assistantMsg("More work..."),
+		provider.UserMsg("[Auto-compacted] Context was slow"),
+		assistantMsg("Final answer"),
+	}
+
+	result := RemoveCompactionReminders(msgs)
+
+	// Count remaining compaction reminders — should be exactly 1 (the last one)
+	count := 0
+	for _, m := range result {
+		if isCompactionReminder(m) {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("Expected 1 compaction reminder after removal, got %d", count)
+	}
+
+	// The remaining one should be the last "[Auto-compacted]" message
+	for _, m := range result {
+		if isCompactionReminder(m) {
+			if !strings.Contains(m.GetResponseText(), "[Auto-compacted]") {
+				t.Errorf("Expected the last compaction reminder to remain, got: %s", m.GetResponseText())
+			}
+		}
+	}
+
+	// Normal messages should be preserved
+	if len(result) != 7 {
+		t.Errorf("Expected 7 messages (9 original - 2 removed reminders), got %d", len(result))
+	}
+}
+
+func TestRemoveCompactionReminders_NoReminders(t *testing.T) {
+	msgs := []provider.Message{
+		provider.SystemMsg("system"),
+		provider.UserMsg("Do the task"),
+		assistantMsg("Working..."),
+	}
+
+	result := RemoveCompactionReminders(msgs)
+	if len(result) != len(msgs) {
+		t.Errorf("Should not modify messages without reminders: before=%d, after=%d", len(msgs), len(result))
+	}
+}
+
+func TestRemovePerformanceMirrors_KeepsOnlyLast(t *testing.T) {
+	msgs := []provider.Message{
+		provider.SystemMsg("system"),
+		provider.UserMsg("Do the task"),
+		provider.SystemMsg("[Performance mirror] Iteration 5. Avg iteration time: 4.7s."),
+		assistantMsg("Working..."),
+		provider.SystemMsg("[Performance mirror] Iteration 10. Avg iteration time: 4.5s."),
+		assistantMsg("More work..."),
+		provider.SystemMsg("[Performance mirror] Iteration 15. Avg iteration time: 3.9s."),
+		assistantMsg("Final answer"),
+	}
+
+	result := RemovePerformanceMirrors(msgs)
+
+	// Count remaining mirrors — should be exactly 1 (the last one)
+	count := 0
+	for _, m := range result {
+		if isPerformanceMirror(m) {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("Expected 1 performance mirror after removal, got %d", count)
+	}
+
+	// The remaining one should be Iteration 15
+	for _, m := range result {
+		if isPerformanceMirror(m) {
+			if !strings.Contains(m.GetResponseText(), "Iteration 15") {
+				t.Errorf("Expected the last mirror (Iteration 15) to remain, got: %s", m.GetResponseText())
+			}
+		}
+	}
+
+	// Normal messages should be preserved
+	if len(result) != 6 {
+		t.Errorf("Expected 6 messages (2 system + 2 user + 2 assistant), got %d", len(result))
+	}
+}
+
+func TestRemovePerformanceMirrors_NoMirrors(t *testing.T) {
+	msgs := []provider.Message{
+		provider.SystemMsg("system"),
+		provider.UserMsg("Do the task"),
+		assistantMsg("Working..."),
+	}
+
+	result := RemovePerformanceMirrors(msgs)
+	if len(result) != len(msgs) {
+		t.Errorf("Should not modify messages without mirrors: before=%d, after=%d", len(msgs), len(result))
+	}
+}
+
+func TestCleanupTransients_RemovesOldCompactionReminders(t *testing.T) {
+	ctx := NewConversationContextWithTokens(8000, 20)
+	ctx.Add(provider.SystemMsg("system"))
+	ctx.Add(provider.UserMsg("Do the task"))
+	ctx.Add(assistantMsg("Working..."))
+	// Old compaction reminders — should be removed
+	ctx.Add(provider.UserMsg("[Context was compacted to save space. Your original task: task1]"))
+	ctx.Add(assistantMsg("Continuing..."))
+	ctx.Add(provider.UserMsg("[Context was compacted to save space. Your original task: task2]"))
+	ctx.Add(assistantMsg("More work..."))
+	// Latest compaction reminder — should be kept
+	ctx.Add(provider.UserMsg("[Auto-compacted] Context was slow"))
+	ctx.Add(assistantMsg("Final answer"))
+
+	before := len(ctx.Messages)
+	ctx.CleanupTransients()
+	after := len(ctx.Messages)
+
+	if after >= before {
+		t.Errorf("CleanupTransients should reduce message count: before=%d, after=%d", before, after)
+	}
+
+	// Only the last compaction reminder should remain
+	count := 0
+	for _, m := range ctx.Messages {
+		if isCompactionReminder(m) {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("Expected 1 compaction reminder after cleanup, got %d", count)
+	}
+}
+
+func TestCleanupTransients_RemovesOldPerformanceMirrors(t *testing.T) {
+	ctx := NewConversationContextWithTokens(8000, 20)
+	ctx.Add(provider.SystemMsg("system"))
+	ctx.Add(provider.UserMsg("Do the task"))
+	// Old performance mirrors — should be removed
+	ctx.Add(provider.SystemMsg("[Performance mirror] Iteration 5. Avg iteration time: 4.7s."))
+	ctx.Add(assistantMsg("Working..."))
+	ctx.Add(provider.SystemMsg("[Performance mirror] Iteration 10. Avg iteration time: 4.5s."))
+	ctx.Add(assistantMsg("More work..."))
+	// Latest performance mirror — should be kept
+	ctx.Add(provider.SystemMsg("[Performance mirror] Iteration 15. Avg iteration time: 3.9s."))
+	ctx.Add(assistantMsg("Final answer"))
+
+	before := len(ctx.Messages)
+	ctx.CleanupTransients()
+	after := len(ctx.Messages)
+
+	if after >= before {
+		t.Errorf("CleanupTransients should reduce message count: before=%d, after=%d", before, after)
+	}
+
+	// Only the last performance mirror should remain
+	count := 0
+	for _, m := range ctx.Messages {
+		if isPerformanceMirror(m) {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("Expected 1 performance mirror after cleanup, got %d", count)
+	}
+}
