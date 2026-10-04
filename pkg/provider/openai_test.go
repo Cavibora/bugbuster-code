@@ -191,9 +191,11 @@ func TestOpenAIBuildRequest_WithTools(t *testing.T) {
 	}
 }
 
-// TestOpenAIBuildRequest_SystemFirst verifies that all system messages are
-// reordered to the beginning of the request. llama.cpp requires the system
-// message to be first; BugBuster may inject system messages mid-conversation
+// TestOpenAIBuildRequest_SystemFirst verifies that ALL system messages are
+// MERGED into a single system message at position 0. llama.cpp's Qwen3.5
+// chat template requires exactly ONE system message at the beginning; a
+// second system message triggers "System message must be at the beginning"
+// (Jinja line 106). BugBuster may inject system messages mid-conversation
 // (performance mirror, memory facts, compaction notices).
 func TestOpenAIBuildRequest_SystemFirst(t *testing.T) {
 	p := newOpenAIProvider(t)
@@ -209,23 +211,48 @@ func TestOpenAIBuildRequest_SystemFirst(t *testing.T) {
 	if !ok {
 		t.Fatalf("messages = %T, want []map[string]any", req["messages"])
 	}
-	if len(msgsArr) != 5 {
-		t.Fatalf("messages len = %d, want 5", len(msgsArr))
+	// 2 system + 3 others merged into 1 system + 3 others = 4 messages
+	if len(msgsArr) != 4 {
+		t.Fatalf("messages len = %d, want 4 (systems merged)", len(msgsArr))
 	}
-	// First two must be system
+	// First must be the single merged system
 	if msgsArr[0]["role"] != "system" {
 		t.Errorf("messages[0].role = %v, want 'system'", msgsArr[0]["role"])
 	}
-	if msgsArr[1]["role"] != "system" {
-		t.Errorf("messages[1].role = %v, want 'system'", msgsArr[1]["role"])
+	merged, _ := msgsArr[0]["content"].(string)
+	if !strings.Contains(merged, "performance mirror") || !strings.Contains(merged, "memory facts") {
+		t.Errorf("merged system content = %q, want both system texts", merged)
+	}
+	// No second system message anywhere
+	for i, m := range msgsArr[1:] {
+		if m["role"] == "system" {
+			t.Errorf("messages[%d].role = system, want only one system at position 0", i+1)
+		}
 	}
 	// Remaining preserve original order: user, user, assistant
 	expected := []string{"user", "user", "assistant"}
 	for i, want := range expected {
-		got := msgsArr[i+2]["role"]
+		got := msgsArr[i+1]["role"]
 		if got != want {
-			t.Errorf("messages[%d].role = %v, want %q", i+2, got, want)
+			t.Errorf("messages[%d].role = %v, want %q", i+1, got, want)
 		}
+	}
+}
+
+// TestOpenAIBuildRequest_NoSystem verifies no system message when none provided.
+func TestOpenAIBuildRequest_NoSystem(t *testing.T) {
+	p := newOpenAIProvider(t)
+	msgs := []Message{UserMsg("hi")}
+	req := p.buildRequest(msgs, nil, false)
+	msgsArr, ok := req["messages"].([]map[string]any)
+	if !ok {
+		t.Fatalf("messages = %T, want []map[string]any", req["messages"])
+	}
+	if len(msgsArr) != 1 {
+		t.Fatalf("messages len = %d, want 1", len(msgsArr))
+	}
+	if msgsArr[0]["role"] != "user" {
+		t.Errorf("messages[0].role = %v, want 'user'", msgsArr[0]["role"])
 	}
 }
 

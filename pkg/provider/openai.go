@@ -353,21 +353,35 @@ func (p *OpenAIProvider) setHeaders(req *http.Request) {
 
 func (p *OpenAIProvider) buildRequest(messages []Message, tools []ToolDef, stream bool) map[string]any {
 	// Convert messages to OpenAI format.
-	// llama.cpp (and some OpenAI-compatible servers) require that the system
-	// message be the FIRST message. BugBuster may inject system messages
-	// mid-conversation (performance mirror, memory facts, compaction notices),
-	// so we reorder: all system messages first, then the rest in original order.
-	var systemMsgs []map[string]any
+	//
+	// llama.cpp's Qwen3.5 chat template (and some other OpenAI-compatible
+	// servers) require EXACTLY ONE system message, and it must be the FIRST
+	// message. BugBuster may inject several system messages mid-conversation
+	// (performance mirror, memory facts, compaction notices), so we MERGE all
+	// system messages into a single one at position 0.
+	//
+	// NOTE: reordering alone is NOT enough — a second system message triggers
+	// "System message must be at the beginning" in the Jinja template (line 106).
+	var systemTexts []string
 	var otherMsgs []map[string]any
 	for _, msg := range messages {
-		om := p.convertMessage(msg)
 		if msg.Role == "system" {
-			systemMsgs = append(systemMsgs, om...)
-		} else {
-			otherMsgs = append(otherMsgs, om...)
+			if txt := msg.GetText(); txt != "" {
+				systemTexts = append(systemTexts, txt)
+			}
+			continue
 		}
+		otherMsgs = append(otherMsgs, p.convertMessage(msg)...)
 	}
-	openaiMsgs := append(systemMsgs, otherMsgs...)
+
+	var openaiMsgs []map[string]any
+	if len(systemTexts) > 0 {
+		openaiMsgs = append(openaiMsgs, map[string]any{
+			"role":    "system",
+			"content": strings.Join(systemTexts, "\n\n"),
+		})
+	}
+	openaiMsgs = append(openaiMsgs, otherMsgs...)
 
 	req := map[string]any{
 		"model":    p.model,
