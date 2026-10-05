@@ -310,6 +310,9 @@ func CompactContext(messages []provider.Message, maxTokens int, keepRecent int) 
 			compactedRecent2 = append(compactedRecent2, stripped)
 		}
 	}
+	// stripToolCalls keeps tool_result in user messages but removes tool_use,
+	// creating orphans. Fix them so OpenAI format stays valid.
+	compactedRecent2 = EnsureToolPairIntegrity(compactedRecent2)
 	if EstimateMessagesTokens(compactedRecent2)+systemTokens <= maxTokens {
 		result := make([]provider.Message, 0, len(systemMsgs)+len(compactedRecent2))
 		result = append(result, systemMsgs...)
@@ -542,6 +545,9 @@ func CompactContextWithCompactor(messages []provider.Message, maxTokens int, kee
 			compactedRecent2 = append(compactedRecent2, stripped)
 		}
 	}
+	// stripToolCalls keeps tool_result in user messages but removes tool_use,
+	// creating orphans. Fix them so OpenAI format stays valid.
+	compactedRecent2 = EnsureToolPairIntegrity(compactedRecent2)
 	if EstimateMessagesTokens(compactedRecent2)+systemTokens <= maxTokens {
 		result := make([]provider.Message, 0, len(systemMsgs)+len(compactedRecent2))
 		result = append(result, systemMsgs...)

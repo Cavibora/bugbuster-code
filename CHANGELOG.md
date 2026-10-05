@@ -5,6 +5,12 @@ All notable changes to BugBuster Code will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **HTTP 400 "Messages with role 'tool' must be a response to a preceding message with 'tool_calls'"** — OpenAI-compatible providers (OpenAI, Ollama, OpenCode, Cavibora) now sanitize the message list before sending: orphan `tool` messages (e.g. left by compaction that kept `tool_result` but stripped `tool_use`) are converted to user text, and unanswered assistant `tool_calls` are stripped. Also fixed at the source: compaction now calls `EnsureToolPairIntegrity` after `stripToolCalls` in `CompactForce`, `CompactContext`, and `CompactContextWithCompactor`.
+- **Compaction reminders and performance mirrors accumulate** — `[Context was compacted...]` and `[Performance mirror]` messages accumulated over a long session and polluted the context. `CleanupTransients` now keeps only the latest of each; `maybeCompact` and `injectSpeedMirror` remove old ones before adding new. Sync mode (`runLoop`) now also runs `CleanupTransients` every iteration.
+
 ## [1.3.0] - 2026-08-24
 
 ### Added

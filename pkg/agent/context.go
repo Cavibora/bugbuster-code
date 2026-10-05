@@ -309,6 +309,10 @@ func (c *ConversationContext) CompactForce() {
 			cleaned = append(cleaned, stripped)
 		}
 	}
+	// stripToolCalls removes tool_use but keeps tool_result in user messages,
+	// creating orphans. Convert them to text blocks so the OpenAI format
+	// doesn't produce invalid "role: tool" messages.
+	cleaned = EnsureToolPairIntegrity(cleaned)
 
 	// 4. Keep last 8 messages (4 exchanges) — enough to maintain working context
 	// Too few (4) causes model to lose track and re-analyze, triggering repeated compaction

@@ -339,6 +339,113 @@ func (p *OpenAIProvider) Stream(messages []Message, tools []ToolDef) (<-chan Str
 	return nil, lastErr
 }
 
+// sanitizeToolMessages ensures the message list is valid for OpenAI-compatible
+// APIs (including llama.cpp), which enforce strict tool-call pairing:
+//
+//  1. Every "tool" message must be a response to a preceding assistant message
+//     with a matching tool_call. Otherwise:
+//     HTTP 400: Messages with role 'tool' must be a response to a preceding
+//     message with 'tool_calls'
+//
+//  2. Every assistant message with tool_calls should be followed by tool
+//     messages answering each tool_call_id. Unanswered tool_calls are stripped.
+//
+// Orphan tool messages can appear after compaction that strips tool_use blocks
+// but keeps tool_result blocks (see stripToolCalls), or after an interrupted
+// tool execution. Orphan tool messages are converted to user text messages so
+// their output is preserved as context.
+func sanitizeToolMessages(msgs []map[string]any) []map[string]any {
+	if len(msgs) == 0 {
+		return msgs
+	}
+
+	result := make([]map[string]any, 0, len(msgs))
+	// pending holds the tool_call IDs of the most recent assistant message
+	// that have not been answered yet. Tool messages must immediately follow
+	// their assistant message, so any other message clears the set.
+	pending := make(map[string]bool)
+	lastAssistantIdx := -1
+
+	// flushPending strips unanswered tool_calls from the last assistant message.
+	flushPending := func() {
+		if len(pending) == 0 || lastAssistantIdx < 0 || lastAssistantIdx >= len(result) {
+			return
+		}
+		stripToolCallsByID(result[lastAssistantIdx], pending)
+		pending = make(map[string]bool)
+	}
+
+	for _, m := range msgs {
+		role, _ := m["role"].(string)
+		switch role {
+		case "assistant":
+			flushPending() // previous assistant's unanswered tool_calls
+			pending = make(map[string]bool)
+			if tcs, ok := m["tool_calls"].([]map[string]any); ok {
+				for _, tc := range tcs {
+					if id, ok := tc["id"].(string); ok && id != "" {
+						pending[id] = true
+					}
+				}
+			}
+			result = append(result, m)
+			lastAssistantIdx = len(result) - 1
+
+		case "tool":
+			id, _ := m["tool_call_id"].(string)
+			if id != "" && pending[id] {
+				delete(pending, id)
+				result = append(result, m)
+				continue
+			}
+			// Orphan tool message — convert to user text to keep the output
+			// as context without violating the API contract.
+			content, _ := m["content"].(string)
+			if strings.TrimSpace(content) == "" {
+				continue // nothing useful to keep
+			}
+			result = append(result, map[string]any{
+				"role":    "user",
+				"content": "[Tool output]\n" + content,
+			})
+
+		default:
+			// Any non-tool, non-assistant message breaks the immediate
+			// assistant→tool sequence — tool results may no longer follow.
+			flushPending()
+			result = append(result, m)
+		}
+	}
+	flushPending()
+
+	return result
+}
+
+// stripToolCallsByID removes tool_calls with the given IDs from an assistant
+// message. If no tool_calls remain, the key is deleted and an empty content is
+// set so the message stays valid.
+func stripToolCallsByID(m map[string]any, ids map[string]bool) {
+	tcs, ok := m["tool_calls"].([]map[string]any)
+	if !ok {
+		return
+	}
+	kept := make([]map[string]any, 0, len(tcs))
+	for _, tc := range tcs {
+		if id, _ := tc["id"].(string); ids[id] {
+			continue
+		}
+		kept = append(kept, tc)
+	}
+	if len(kept) == 0 {
+		delete(m, "tool_calls")
+		if _, hasContent := m["content"]; !hasContent {
+			m["content"] = ""
+		}
+	} else {
+		m["tool_calls"] = kept
+	}
+}
+
 func (p *OpenAIProvider) setHeaders(req *http.Request) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", UserAgent)
@@ -382,6 +489,13 @@ func (p *OpenAIProvider) buildRequest(messages []Message, tools []ToolDef, strea
 		})
 	}
 	openaiMsgs = append(openaiMsgs, otherMsgs...)
+
+	// Safety net: ensure every "tool" message is a response to a preceding
+	// assistant message with matching tool_calls. Orphan tool messages (e.g.
+	// produced by compaction that kept tool_result but stripped tool_use)
+	// cause HTTP 400: "Messages with role 'tool' must be a response to a
+	// preceding message with 'tool_calls'". Convert orphans to user text.
+	openaiMsgs = sanitizeToolMessages(openaiMsgs)
 
 	req := map[string]any{
 		"model":    p.model,
