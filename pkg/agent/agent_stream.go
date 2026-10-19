@@ -704,7 +704,8 @@ func (a *AgentLoop) handleStreamFinalResponse(
 		if a.Context.Messages[i].Role == "user" {
 			msgText := a.Context.Messages[i].GetText()
 			if strings.Contains(msgText, "[Context was compacted") ||
-				strings.Contains(msgText, "[Auto-compacted]") {
+				strings.Contains(msgText, "[Auto-compacted]") ||
+				strings.Contains(msgText, "[Compacted. Original task:") {
 				lastUserMsgIsCompact = true
 			}
 			break
@@ -726,13 +727,10 @@ func (a *AgentLoop) handleStreamFinalResponse(
 			// Model responded with text only, no tool calls
 			// Add a hint to continue with tools
 			a.autoContinueCount++
-			continueHint := "Continue working. Use tools to read files, run commands, or search code. Do not just describe what to do — actually do it using tools."
+			continueHint := "Continue. Use tools."
 			if a.Context.OriginalTask != "" {
 				continueHint = fmt.Sprintf(
-					"You responded with text only, but your task is not done yet.\n"+
-						"Original task: %s\n\n"+
-						"Continue working — use tools (read, bash, grep, edit, etc.) to make progress. "+
-						"Do NOT just describe what needs to be done. Actually DO it.",
+					"Text-only reply, task not done. Original task: %s. Continue using tools.",
 					a.Context.OriginalTask,
 				)
 			}

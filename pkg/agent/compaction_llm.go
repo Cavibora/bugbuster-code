@@ -35,16 +35,33 @@ func (c *LLMCompactor) Summarize(messages []provider.Message, maxTokens int) str
 	return c.SummarizeWithCtx(messages, maxTokens, ctx)
 }
 
-// extractExistingSummary finds a previous summary in system messages
+// extractExistingSummary finds a previous summary in system messages.
+// Recognizes both the current short header ("[Summary]") and legacy long
+// headers ("[Previous context summary]", "[Сводка предыдущего контекста]")
+// so older sessions keep working after the header was shortened.
 func extractExistingSummary(messages []provider.Message) string {
 	header := i18n.T("compaction.summary_header")
+	legacyHeaders := []string{
+		"[Previous context summary]",
+		"[Сводка предыдущего контекста]",
+		"[Key recaps from previous context]",
+		"[Ключевые итоги из предыдущего контекста]",
+		"[Resumen del contexto anterior]",
+		"[Résumé du contexte précédent]",
+		"[Zusammenfassung des vorherigen Kontexts]",
+		"[以前のコンテキストの要約]",
+		"[之前上下文的摘要]",
+		"[Resumo do contexto anterior]",
+	}
 	for _, msg := range messages {
 		if msg.Role != "system" {
 			continue
 		}
 		text := msg.GetText()
-		if strings.HasPrefix(text, header) {
-			return strings.TrimPrefix(text, header)
+		for _, h := range append([]string{header}, legacyHeaders...) {
+			if strings.HasPrefix(text, h) {
+				return strings.TrimPrefix(text, h)
+			}
 		}
 	}
 	return ""
@@ -69,10 +86,14 @@ func (c *LLMCompactor) SummarizeWithCtx(messages []provider.Message, maxTokens i
 	previousSummary := extractExistingSummary(messages)
 
 	// Collect text from old messages (without tool_result — they are the most voluminous)
+	// Skip transient noise (reminders, mirrors, auto-continue) and system notices.
 	var sb strings.Builder
 	sb.WriteString("Previous conversation:\n\n")
 	for _, msg := range messages {
-		text := msg.GetText()
+		if isTransientNoise(msg) {
+			continue
+		}
+		text := stripToolResultNoise(msg)
 		if text == "" {
 			continue
 		}
@@ -145,13 +166,49 @@ func (c *LLMCompactor) SummarizeWithCtx(messages []provider.Message, maxTokens i
 	}
 }
 
+// isTransientNoise reports whether a message is a transient system/user
+// notification that should never appear inside a compaction summary:
+// compaction reminders, performance mirrors, auto-continue hints,
+// max_tokens "Continue." prompts.
+func isTransientNoise(msg provider.Message) bool {
+	if isCompactionReminder(msg) || isPerformanceMirror(msg) || isAutoContinueMessage(msg) {
+		return true
+	}
+	if msg.Role == "system" {
+		return true // system notices (hub, autopilot) — not conversation content
+	}
+	return false
+}
+
+// stripToolResultNoise returns text of a message without tool_result blocks —
+// tool outputs are the noisiest, least useful part of a summary
+// ("Пользователь: [Tool output] ..." pollution).
+func stripToolResultNoise(msg provider.Message) string {
+	if len(msg.Content) == 0 {
+		return msg.Text
+	}
+	var parts []string
+	for _, block := range msg.Content {
+		switch block.Type {
+		case "text", "thinking":
+			parts = append(parts, block.Text)
+		case "image":
+			parts = append(parts, "[Image]")
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
 // SimpleSummarize is simple truncation without LLM (fallback)
 func SimpleSummarize(messages []provider.Message, maxTokens int) string {
 	var sb strings.Builder
 	sb.WriteString(i18n.T("compaction.summary_header"))
 
 	for _, msg := range messages {
-		text := msg.GetText()
+		if isTransientNoise(msg) {
+			continue
+		}
+		text := stripToolResultNoise(msg)
 		if text == "" {
 			continue
 		}

@@ -82,6 +82,7 @@ func EstimateMessagesTokens(messages []provider.Message) int {
 // extractRecaps extracts ※ Recap: blocks from assistant messages
 func extractRecaps(messages []provider.Message) []string {
 	var recaps []string
+	seen := make(map[string]bool)
 	for _, msg := range messages {
 		if msg.Role != "assistant" {
 			continue
@@ -102,7 +103,8 @@ func extractRecaps(messages []provider.Message) []string {
 				recapText = after[:end]
 			}
 			recapText = strings.TrimSpace(recapText)
-			if recapText != "" {
+			if recapText != "" && !seen[recapText] {
+				seen[recapText] = true
 				recaps = append(recaps, recapText)
 			}
 			if end >= 0 {
@@ -111,6 +113,11 @@ func extractRecaps(messages []provider.Message) []string {
 				break
 			}
 		}
+	}
+	// Keep only the last 5 recaps — older ones lose relevance
+	// and only waste tokens in the recap message.
+	if len(recaps) > 5 {
+		recaps = recaps[len(recaps)-5:]
 	}
 	return recaps
 }

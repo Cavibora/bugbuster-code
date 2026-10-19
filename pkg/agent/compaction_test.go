@@ -171,10 +171,10 @@ func TestSummarizeMessages(t *testing.T) {
 	if summary == "" {
 		t.Error("SummarizeMessages should return non-empty string")
 	}
-	if !compactionContains(summary, "User") && !compactionContains(summary, "Пользователь") {
+	if !compactionContains(summary, "U: ") && !compactionContains(summary, "П: ") {
 		t.Error("Summary should contain user label")
 	}
-	if !compactionContains(summary, "Assistant") && !compactionContains(summary, "Ассистент") {
+	if !compactionContains(summary, "A: ") && !compactionContains(summary, "А: ") {
 		t.Error("Summary should contain assistant label")
 	}
 }

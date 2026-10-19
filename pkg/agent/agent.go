@@ -588,7 +588,8 @@ func (a *AgentLoop) runLoop() (string, error) {
 					if a.Context.Messages[i].Role == "user" {
 						msgText := a.Context.Messages[i].GetText()
 						if strings.Contains(msgText, "[Context was compacted") ||
-							strings.Contains(msgText, "[Auto-compacted]") {
+							strings.Contains(msgText, "[Auto-compacted]") ||
+							strings.Contains(msgText, "[Compacted. Original task:") {
 							lastUserMsgIsCompact = true
 						}
 						break
@@ -606,13 +607,10 @@ func (a *AgentLoop) runLoop() (string, error) {
 				}
 				if a.autoContinue && a.autoContinueCount < 3 && a.Context != nil && !completionDetected && !lastUserMsgIsCompact {
 					a.autoContinueCount++
-					continueHint := "Continue working. Use tools to read files, run commands, or search code. Do not just describe what to do — actually do it using tools."
+					continueHint := "Continue. Use tools."
 					if a.Context.OriginalTask != "" {
 						continueHint = fmt.Sprintf(
-							"You responded with text only, but your task is not done yet.\n"+
-								"Original task: %s\n\n"+
-								"Continue working — use tools (read, bash, grep, edit, etc.) to make progress. "+
-								"Do NOT just describe what needs to be done. Actually DO it.",
+							"Text-only reply, task not done. Original task: %s. Continue using tools.",
 							a.Context.OriginalTask,
 						)
 					}
@@ -1184,8 +1182,7 @@ func (a *AgentLoop) maybeCompact(eventCh chan<- provider.StreamEvent, ctx contex
 		// so they don't accumulate and pollute the context
 		a.Context.Messages = RemoveCompactionReminders(a.Context.Messages)
 		taskReminder := fmt.Sprintf(
-			"[Context was compacted to save space. Your original task: %s\n"+
-				"Continue working on this task. Do NOT stop or say you are done unless the task is truly complete.]",
+			"[Compacted. Original task: %s. Continue.]",
 			a.Context.OriginalTask,
 		)
 		a.Context.Add(provider.UserMsg(taskReminder))
@@ -1377,17 +1374,14 @@ func (a *AgentLoop) injectSpeedMirror(iteration int, iterDuration time.Duration)
 
 	var sb strings.Builder
 	sb.WriteString("[Performance mirror] ")
-	sb.WriteString(fmt.Sprintf("Iteration %d. ", iteration))
-	sb.WriteString(fmt.Sprintf("Avg iteration time: %s. ", avg.Truncate(time.Millisecond)))
-	sb.WriteString(fmt.Sprintf("Context: %d/%d tokens (%d%%). ", tokenCount, maxTokens, contextUsage))
+	sb.WriteString(fmt.Sprintf("Iter %d. ", iteration))
+	sb.WriteString(fmt.Sprintf("Avg %s/iter. ", avg.Truncate(time.Millisecond)))
+	sb.WriteString(fmt.Sprintf("Ctx %d/%d tok (%d%%). ", tokenCount, maxTokens, contextUsage))
 
 	if slowdownRatio > 1.5 {
-		sb.WriteString(fmt.Sprintf("⚠ SLOWDOWN detected: %.1fx slower than initial. ", slowdownRatio))
-		sb.WriteString("Consider using compact_force tool to reduce context and speed up responses.")
+		sb.WriteString(fmt.Sprintf("⚠ SLOWDOWN %.1fx. Use compact_force.", slowdownRatio))
 	} else if contextUsage > 70 {
-		sb.WriteString("Context is getting large. Consider using compact_force tool to reduce context.")
-	} else {
-		sb.WriteString("Performance is stable.")
+		sb.WriteString("Ctx large. Use compact_force.")
 	}
 
 	// Report stale background processes

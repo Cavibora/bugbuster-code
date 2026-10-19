@@ -266,7 +266,7 @@ func TestLLMCompactor_Summarize_NilProvider(t *testing.T) {
 	if summary == "" {
 		t.Error("Summarize with nil provider should fallback to SimpleSummarize")
 	}
-	if !strings.Contains(summary, "User") && !strings.Contains(summary, "Пользователь") {
+	if !strings.Contains(summary, "U: ") && !strings.Contains(summary, "П: ") {
 		t.Errorf("Expected SimpleSummarize fallback, got: %q", summary)
 	}
 }
@@ -314,8 +314,8 @@ func TestLLMCompactor_SummarizeWithCtx_Timeout(t *testing.T) {
 	if summary == "" {
 		t.Error("Should fallback to SimpleSummarize on timeout")
 	}
-	// SimpleSummarize contains "User" or "Пользователь"
-	if !strings.Contains(summary, "User") && !strings.Contains(summary, "Пользователь") {
+	// SimpleSummarize contains "U: " or "П: "
+	if !strings.Contains(summary, "U: ") && !strings.Contains(summary, "П: ") {
 		t.Errorf("Expected SimpleSummarize fallback, got: %q", summary)
 	}
 }

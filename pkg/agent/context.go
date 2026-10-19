@@ -435,7 +435,9 @@ func isAutoContinueMessage(msg provider.Message) bool {
 	}
 	// Auto-continue prompts
 	autoContinuePrefixes := []string{
+		"Continue. Use tools.",
 		"Continue working.",
+		"Text-only reply, task not done.",
 		"You responded with text only, but your task is not done yet.",
 	}
 	for _, prefix := range autoContinuePrefixes {
@@ -567,7 +569,8 @@ func isCompactionReminder(msg provider.Message) bool {
 	switch msg.Role {
 	case "user":
 		return strings.Contains(text, "[Context was compacted") ||
-			strings.Contains(text, "[Auto-compacted]")
+			strings.Contains(text, "[Auto-compacted]") ||
+			strings.Contains(text, "[Compacted. Original task:")
 	case "system":
 		// System-role auto-compaction notices start with the marker.
 		// Use HasPrefix to avoid false positives on summaries that merely
