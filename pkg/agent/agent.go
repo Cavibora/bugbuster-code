@@ -1361,9 +1361,8 @@ func (a *AgentLoop) injectSpeedMirror(iteration int, iterDuration time.Duration)
 				compactedUsage = compactedTokens * 100 / maxTokens
 			}
 			a.Context.Add(provider.SystemMsg(fmt.Sprintf(
-				"[Auto-compacted] Context was critically slow (%.1fx degradation, %d%% usage). "+
-					"Compacted from %d%% to %d%%. Continue working on your task.",
-				slowdownRatio, contextUsage, contextUsage, compactedUsage,
+				"[Auto-compacted] %d%%→%d%%. Continue your task.",
+				contextUsage, compactedUsage,
 			)))
 			// Reset speed tracking after compaction, keep last 3 for baseline
 			if len(a.iterDurations) > 3 {

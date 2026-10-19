@@ -287,6 +287,9 @@ func (c *ConversationContext) CompactForce() {
 	msgs = RemoveDuplicates(msgs)
 	msgs = DeduplicateRepeats(msgs)
 	msgs = EnsureToolPairIntegrity(msgs)
+	// Remove stale compaction reminders (system "[Auto-compacted]" notices
+	// and user "[Context was compacted...]") except the latest one.
+	msgs = RemoveCompactionReminders(msgs)
 
 	// 2. Split system / other
 	var systemMsgs []provider.Message
@@ -519,18 +522,9 @@ func cleanupTransientsLocked(messages []provider.Message) []provider.Message {
 		}
 	}
 
-	// Remove all compaction reminders except the last one
-	lastCompactionIdx := -1
-	for i, msg := range messages {
-		if isCompactionReminder(msg) {
-			lastCompactionIdx = i
-		}
-	}
-	for i, msg := range messages {
-		if isCompactionReminder(msg) && i != lastCompactionIdx {
-			removeSet[i] = true
-		}
-	}
+	// Remove all compaction reminders except the latest of each role
+	// (user reminders carry the task; system notices carry auto-compact stats)
+	messages = RemoveCompactionReminders(messages)
 
 	// Remove all performance mirrors except the last one
 	lastMirrorIdx := -1
@@ -559,19 +553,29 @@ func cleanupTransientsLocked(messages []provider.Message) []provider.Message {
 	return result
 }
 
-// isCompactionReminder checks if a user message is a "[Context was compacted...]"
+// isCompactionReminder checks if a message is a "[Context was compacted...]"
 // or "[Auto-compacted]" reminder injected after compaction.
-// These accumulate over time and pollute context — only the latest should be kept.
+// User-role reminders are injected after auto/manual compaction;
+// system-role "[Auto-compacted]" messages are injected after speed-triggered
+// auto-compact (injectSpeedMirror). These accumulate over time and pollute
+// context — only the latest should be kept.
 func isCompactionReminder(msg provider.Message) bool {
-	if msg.Role != "user" {
-		return false
-	}
 	text := strings.TrimSpace(msg.GetResponseText())
 	if text == "" {
 		return false
 	}
-	return strings.Contains(text, "[Context was compacted") ||
-		strings.Contains(text, "[Auto-compacted]")
+	switch msg.Role {
+	case "user":
+		return strings.Contains(text, "[Context was compacted") ||
+			strings.Contains(text, "[Auto-compacted]")
+	case "system":
+		// System-role auto-compaction notices start with the marker.
+		// Use HasPrefix to avoid false positives on summaries that merely
+		// mention the marker in the middle of the text.
+		return strings.HasPrefix(text, "[Auto-compacted]")
+	default:
+		return false
+	}
 }
 
 // isPerformanceMirror checks if a message is a "[Performance mirror]" system message.
@@ -588,20 +592,31 @@ func isPerformanceMirror(msg provider.Message) bool {
 }
 
 // RemoveCompactionReminders removes all compaction reminder messages
-// except the most recent one. Returns a new slice.
+// except the most recent one of each role (user and system).
+// User-role reminders carry the original task; system-role notices carry
+// auto-compaction stats — both are kept, but only in their latest form.
 func RemoveCompactionReminders(messages []provider.Message) []provider.Message {
-	lastIdx := -1
+	lastUserIdx, lastSystemIdx := -1, -1
 	for i, msg := range messages {
-		if isCompactionReminder(msg) {
-			lastIdx = i
+		if !isCompactionReminder(msg) {
+			continue
+		}
+		if msg.Role == "user" {
+			lastUserIdx = i
+		} else {
+			lastSystemIdx = i
 		}
 	}
-	if lastIdx == -1 {
+	if lastUserIdx == -1 && lastSystemIdx == -1 {
 		return messages
 	}
 	removeSet := make(map[int]bool)
 	for i, msg := range messages {
-		if isCompactionReminder(msg) && i != lastIdx {
+		if !isCompactionReminder(msg) {
+			continue
+		}
+		if (msg.Role == "user" && i != lastUserIdx) ||
+			(msg.Role != "user" && i != lastSystemIdx) {
 			removeSet[i] = true
 		}
 	}

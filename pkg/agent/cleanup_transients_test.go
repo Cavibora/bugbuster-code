@@ -463,3 +463,115 @@ func TestCleanupTransients_RemovesOldPerformanceMirrors(t *testing.T) {
 		t.Errorf("Expected 1 performance mirror after cleanup, got %d", count)
 	}
 }
+
+func TestCleanupTransients_SystemAutoCompactedNotices(t *testing.T) {
+	ctx := NewConversationContextWithTokens(8000, 20)
+	ctx.Add(provider.SystemMsg("system prompt"))
+	ctx.Add(provider.UserMsg("Do the task"))
+	// Old system [Auto-compacted] notices with different percentages — should be removed
+	ctx.Add(provider.SystemMsg("[Auto-compacted] Context was critically slow (4.0x degradation, 78% usage). Compacted from 78% to 17%. Continue working on your task."))
+	ctx.Add(assistantMsg("Working..."))
+	ctx.Add(provider.SystemMsg("[Auto-compacted] Context was critically slow (3.5x degradation, 65% usage). Compacted from 65% to 20%. Continue working on your task."))
+	ctx.Add(assistantMsg("More work..."))
+	// Latest system notice — should be kept
+	ctx.Add(provider.SystemMsg("[Auto-compacted] 60%→15%. Continue your task."))
+	ctx.Add(assistantMsg("Final answer"))
+
+	before := len(ctx.Messages)
+	ctx.CleanupTransients()
+	after := len(ctx.Messages)
+
+	if after >= before {
+		t.Errorf("CleanupTransients should reduce message count: before=%d, after=%d", before, after)
+	}
+
+	// Only the latest system notice should remain
+	count := 0
+	for _, m := range ctx.Messages {
+		if isCompactionReminder(m) && m.Role == "system" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("Expected 1 system compaction notice after cleanup, got %d", count)
+	}
+	// The latest one must be the short one
+	last := ctx.Messages[len(ctx.Messages)-2]
+	if last.Role != "system" || !strings.Contains(last.GetText(), "60%→15%") {
+		t.Errorf("Latest system notice should be kept, got: %v", last)
+	}
+}
+
+func TestCleanupTransients_KeepsLatestUserAndSystemReminders(t *testing.T) {
+	ctx := NewConversationContextWithTokens(8000, 20)
+	ctx.Add(provider.SystemMsg("system prompt"))
+	ctx.Add(provider.UserMsg("Do the task"))
+	ctx.Add(provider.UserMsg("[Context was compacted to save space. Your original task: task1]"))
+	ctx.Add(provider.SystemMsg("[Auto-compacted] 78%→17%. Continue your task."))
+	ctx.Add(assistantMsg("Working..."))
+	ctx.Add(provider.UserMsg("[Context was compacted to save space. Your original task: task2]"))
+	ctx.Add(provider.SystemMsg("[Auto-compacted] 60%→15%. Continue your task."))
+	ctx.Add(assistantMsg("Final answer"))
+
+	ctx.CleanupTransients()
+
+	// One user reminder (latest) AND one system notice (latest) should remain
+	userCount, sysCount := 0, 0
+	for _, m := range ctx.Messages {
+		if !isCompactionReminder(m) {
+			continue
+		}
+		if m.Role == "user" {
+			userCount++
+		} else if m.Role == "system" {
+			sysCount++
+		}
+	}
+	if userCount != 1 {
+		t.Errorf("Expected 1 user compaction reminder, got %d", userCount)
+	}
+	if sysCount != 1 {
+		t.Errorf("Expected 1 system compaction notice, got %d", sysCount)
+	}
+}
+
+func TestRemoveCompactionReminders_SystemNoticesOnly(t *testing.T) {
+	msgs := []provider.Message{
+		provider.SystemMsg("system prompt"),
+		provider.SystemMsg("[Auto-compacted] 78%→17%. Continue your task."),
+		provider.SystemMsg("[Auto-compacted] 65%→20%. Continue your task."),
+		provider.SystemMsg("[Auto-compacted] 60%→15%. Continue your task."),
+	}
+
+	result := RemoveCompactionReminders(msgs)
+
+	if len(result) != 2 {
+		t.Errorf("Expected 2 messages (system prompt + latest notice), got %d", len(result))
+	}
+	if len(result) > 0 && !strings.Contains(result[len(result)-1].GetText(), "60%→15%") {
+		t.Errorf("Latest notice should be kept, got: %s", result[len(result)-1].GetText())
+	}
+}
+
+func TestCompactContext_RemovesSystemAutoCompactedNotices(t *testing.T) {
+	msgs := []provider.Message{
+		provider.SystemMsg("system prompt"),
+		provider.UserMsg("task"),
+		provider.SystemMsg("[Auto-compacted] Context was critically slow (4.0x degradation, 78% usage). Compacted from 78% to 17%."),
+		provider.SystemMsg("[Auto-compacted] Context was critically slow (3.5x degradation, 65% usage). Compacted from 65% to 20%."),
+		assistantMsg("work"),
+	}
+
+	result := CompactContext(msgs, 100000, 20)
+
+	// Only the latest system notice may remain — no accumulation
+	sysNoticeCount := 0
+	for _, m := range result {
+		if m.Role == "system" && strings.HasPrefix(m.GetText(), "[Auto-compacted]") {
+			sysNoticeCount++
+		}
+	}
+	if sysNoticeCount > 1 {
+		t.Errorf("CompactContext should keep at most 1 system [Auto-compacted] notice, got %d", sysNoticeCount)
+	}
+}

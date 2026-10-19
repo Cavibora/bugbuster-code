@@ -142,6 +142,10 @@ func CompactContext(messages []provider.Message, maxTokens int, keepRecent int) 
 	messages = RemoveDuplicates(messages)
 	messages = DeduplicateRepeats(messages)
 	messages = EnsureToolPairIntegrity(messages)
+	// Remove stale compaction reminders (system "[Auto-compacted]" notices
+	// and user "[Context was compacted...]") except the latest one —
+	// they accumulate with different percentages and pollute context.
+	messages = RemoveCompactionReminders(messages)
 
 	currentTokens := EstimateMessagesTokens(messages)
 	if currentTokens <= maxTokens {
@@ -365,6 +369,8 @@ func CompactContextWithCompactor(messages []provider.Message, maxTokens int, kee
 	messages = RemoveDuplicates(messages)
 	messages = DeduplicateRepeats(messages)
 	messages = EnsureToolPairIntegrity(messages)
+	// Remove stale compaction reminders except the latest one.
+	messages = RemoveCompactionReminders(messages)
 
 	currentTokens := EstimateMessagesTokens(messages)
 	if currentTokens <= maxTokens {
