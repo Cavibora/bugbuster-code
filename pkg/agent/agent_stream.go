@@ -97,26 +97,31 @@ func (a *AgentLoop) streamRetryRequest(ctx context.Context, eventCh chan<- provi
 			continue
 		}
 
-		// Disguised upstream failure (server_error wrapped in a 4xx) — retry
-		// like a rate limit with short delays, show progress to user, do NOT
-		// save to context. Only give up after the generous attempt budget.
+		// Disguised upstream failure (server_error wrapped in a 4xx) — OpenCode
+		// Zen keys routing and prompt caching on x-opencode-session, so a
+		// persistent "not valid JSON" usually means the cached upstream response
+		// for THIS session is poisoned. Retrying the same session just re-reads
+		// the poisoned cache (this is why a client restart used to fix it), so we
+		// rotate the session ID on every attempt — an automatic restart.
 		if provider.IsUpstreamError(err) {
 			upstreamAttempts++
 			if upstreamAttempts > upstreamMaxRetries {
 				if a.verbose {
 					logger.Debug("upstream_exhausted", "attempts", upstreamAttempts, "provider", a.provider.Name())
 				}
-				break // give up on primary, try fallback
+				a.rotateProviderSession() // fresh route for fallback / next iteration
+				break                    // give up on primary, try fallback
 			}
+			newID := a.rotateProviderSession()
 			select {
 			case eventCh <- provider.StreamEvent{
 				Type: provider.EventRateLimit,
-				Text: "⚠️ Upstream error (" + err.Error() + "). Retrying in " + upstreamDelay.String() + "... (attempt " + fmt.Sprintf("%d/%d", upstreamAttempts, upstreamMaxRetries) + ")",
+				Text: "⚠️ Upstream error (attempt " + fmt.Sprintf("%d/%d", upstreamAttempts, upstreamMaxRetries) + "). Rotating session " + shortSessionID(newID) + ", retrying in " + upstreamDelay.String() + "...",
 			}:
 			default:
 			}
 			if a.verbose {
-				logger.Debug("upstream_retry", "attempt", upstreamAttempts, "max", upstreamMaxRetries, "provider", a.provider.Name(), "error", err)
+				logger.Debug("upstream_retry", "attempt", upstreamAttempts, "max", upstreamMaxRetries, "provider", a.provider.Name(), "new_session", newID, "error", err)
 			}
 			select {
 			case <-time.After(upstreamDelay):
@@ -188,24 +193,27 @@ func (a *AgentLoop) streamRetryRequest(ctx context.Context, eventCh chan<- provi
 				continue
 			}
 
-			// Disguised upstream failure on fallback — retry like a rate limit.
+			// Disguised upstream failure on fallback — rotate the session too
+			// (same poisoned-cache reasoning as the primary path).
 			if provider.IsUpstreamError(err) {
 				upstreamAttempts++
 				if upstreamAttempts > upstreamMaxRetries {
 					if a.verbose {
 						logger.Debug("upstream_exhausted_fallback", "attempts", upstreamAttempts, "provider", a.fallbackProvider.Name())
 					}
+					a.rotateProviderSession()
 					break
 				}
+				newID := a.rotateProviderSession()
 				select {
 				case eventCh <- provider.StreamEvent{
 					Type: provider.EventRateLimit,
-					Text: "\n⚠️ Upstream error on fallback (" + err.Error() + "). Retrying in " + upstreamDelay.String() + "... (attempt " + fmt.Sprintf("%d/%d", upstreamAttempts, upstreamMaxRetries) + ")",
+					Text: "\n⚠️ Upstream error on fallback (attempt " + fmt.Sprintf("%d/%d", upstreamAttempts, upstreamMaxRetries) + "). Rotating session " + shortSessionID(newID) + ", retrying in " + upstreamDelay.String() + "...",
 				}:
 				default:
 				}
 				if a.verbose {
-					logger.Debug("upstream_retry_fallback", "attempt", upstreamAttempts, "max", upstreamMaxRetries, "provider", a.fallbackProvider.Name(), "error", err)
+					logger.Debug("upstream_retry_fallback", "attempt", upstreamAttempts, "max", upstreamMaxRetries, "provider", a.fallbackProvider.Name(), "new_session", newID, "error", err)
 				}
 				select {
 				case <-time.After(upstreamDelay):
@@ -852,4 +860,19 @@ func getToolCallHint(toolName string) string {
 		return hint
 	}
 	return fmt.Sprintf(`<tool name="%s"><param1>value1</param1></tool>`, toolName)
+}
+
+// shortSessionID returns a compact suffix of a session ID for user-facing
+// messages (e.g. "sess_20261030_125454_a1b2c3d4" -> "a1b2c3d4").
+func shortSessionID(id string) string {
+	if id == "" {
+		return "(new)"
+	}
+	if idx := strings.LastIndex(id, "_"); idx >= 0 && idx < len(id)-1 {
+		return id[idx+1:]
+	}
+	if len(id) > 8 {
+		return id[len(id)-8:]
+	}
+	return id
 }

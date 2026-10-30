@@ -86,10 +86,16 @@ type AgentLoop struct {
 	rateLimitMaxRetries int
 	// rateLimitDelay — delay between HTTP 429 retries (default: 3s)
 	rateLimitDelay time.Duration
-	// upstreamMaxRetries — max disguised-upstream (server_error) retries before
-	// giving up (default: 50). OpenCode Zen wraps transient gateway failures in
-	// an HTTP 4xx; these are retried like rate limits, not treated as fatal.
+	// upstreamMaxRetries — max disguised-upstream (server_error) retries per
+	// session before rotating the provider session (default: 3). OpenCode Zen
+	// wraps transient gateway failures in an HTTP 4xx. We retry briefly, then
+	// rotate x-opencode-session (a stuck/poisoned cache is cleared by a new ID
+	// — the same effect as restarting the client) rather than hammering the
+	// same session for minutes, which looked like a hang.
 	upstreamMaxRetries int
+	// providerSessionID — last session ID sent to the provider (x-opencode-session).
+	// Rotated on persistent upstream failures; independent of the history file ID.
+	providerSessionID string
 }
 
 // NewAgentLoop creates a new agent loop
@@ -188,6 +194,7 @@ func (a *AgentLoop) SetProvider(p provider.Provider) {
 // if it supports it (e.g. OpenCode Go sends it in the x-opencode-session
 // header for routing optimization and prompt caching).
 func (a *AgentLoop) SetSessionIDForProvider(id string) {
+	a.providerSessionID = id
 	if s, ok := a.provider.(interface{ SetSessionID(string) }); ok {
 		s.SetSessionID(id)
 	}
@@ -281,14 +288,41 @@ func (a *AgentLoop) effectiveRateLimitDelay() time.Duration {
 	return 3 * time.Second
 }
 
-// effectiveUpstreamMaxRetries returns the effective disguised-upstream retry
-// budget. Defaults to the rate limit budget (50) so a transient OpenCode Zen
-// hiccup is retried patiently instead of crashing the agent.
+// effectiveUpstreamMaxRetries returns the per-session disguised-upstream retry
+// budget. Kept small (default 3) so a transient OpenCode Zen hiccup is retried
+// briefly and then the provider session is rotated — instead of hammering the
+// same session for minutes, which the user experienced as a hang.
 func (a *AgentLoop) effectiveUpstreamMaxRetries() int {
 	if a.upstreamMaxRetries > 0 {
 		return a.upstreamMaxRetries
 	}
-	return a.effectiveRateLimitMaxRetries()
+	return 3
+}
+
+// SetUpstreamMaxRetries overrides the per-session upstream retry budget.
+func (a *AgentLoop) SetUpstreamMaxRetries(n int) {
+	if n > 0 {
+		a.upstreamMaxRetries = n
+	}
+}
+
+// rotateProviderSession assigns a fresh x-opencode-session ID to the provider.
+// OpenCode Zen keys routing + prompt caching on this header; a persistent
+// "Upstream response was not valid JSON" often means the cached upstream
+// response for the current session is poisoned. A new ID forces a clean route
+// — the same recovery the user got by restarting the client, but automatic.
+// The history/session file ID is intentionally left untouched.
+func (a *AgentLoop) rotateProviderSession() string {
+	a.providerSessionID = generateSessionID()
+	if s, ok := a.provider.(interface{ SetSessionID(string) }); ok {
+		s.SetSessionID(a.providerSessionID)
+	}
+	if a.fallbackProvider != nil {
+		if s, ok := a.fallbackProvider.(interface{ SetSessionID(string) }); ok {
+			s.SetSessionID(a.providerSessionID)
+		}
+	}
+	return a.providerSessionID
 }
 
 // SetLoopRepeatThreshold sets the repetition threshold for loop detection.
@@ -827,9 +861,11 @@ func (a *AgentLoop) streamLoopWithCtx(ctx context.Context) (<-chan provider.Stre
 		// consecutiveUpstream guards against an infinite retry loop when the
 		// upstream failure is persistent (not transient). It is reset whenever a
 		// request succeeds; once it exceeds the cap we surface the error and stop
-		// instead of spinning forever.
+		// instead of spinning forever. Each attempt rotates the provider session
+		// (streamRetryRequest does the same), so a poisoned OpenCode Zen cache
+		// route is abandoned rather than re-read for minutes.
 		consecutiveUpstream := 0
-		const maxConsecutiveUpstream = 20
+		const maxConsecutiveUpstream = 4
 
 		for iteration := 1; ; iteration++ {
 			a.currentIteration = iteration
@@ -919,11 +955,11 @@ func (a *AgentLoop) streamLoopWithCtx(ctx context.Context) (<-chan provider.Stre
 					consecutiveUpstream++
 					if consecutiveUpstream > maxConsecutiveUpstream {
 						eventCh <- provider.StreamEvent{Type: provider.EventError,
-							Error: fmt.Errorf("upstream failure persisted after %d retries: %w", consecutiveUpstream, err)}
+							Error: fmt.Errorf("upstream failure persisted after %d session rotations: %w (the provider is down — retry shortly or switch model)", consecutiveUpstream, err)}
 						return
 					}
 					eventCh <- provider.StreamEvent{Type: provider.EventRateLimit,
-						Text: fmt.Sprintf("⚠️ Upstream still failing (attempt %d/%d). Waiting before retrying iteration...", consecutiveUpstream, maxConsecutiveUpstream)}
+						Text: fmt.Sprintf("⚠️ Upstream still failing (attempt %d/%d). Rotating session and retrying iteration...", consecutiveUpstream, maxConsecutiveUpstream)}
 					select {
 					case <-time.After(a.effectiveRateLimitDelay()):
 					case <-ctx.Done():
@@ -961,11 +997,12 @@ func (a *AgentLoop) streamLoopWithCtx(ctx context.Context) (<-chan provider.Stre
 					consecutiveUpstream++
 					if consecutiveUpstream > maxConsecutiveUpstream {
 						eventCh <- provider.StreamEvent{Type: provider.EventError,
-							Error: fmt.Errorf("upstream failure persisted after %d retries: %w", consecutiveUpstream, result.err)}
+							Error: fmt.Errorf("upstream failure persisted after %d session rotations: %w (the provider is down — retry shortly or switch model)", consecutiveUpstream, result.err)}
 						return
 					}
+					a.rotateProviderSession()
 					eventCh <- provider.StreamEvent{Type: provider.EventRateLimit,
-						Text: fmt.Sprintf("⚠️ Upstream error during stream (attempt %d/%d). Waiting before retrying iteration...", consecutiveUpstream, maxConsecutiveUpstream)}
+						Text: fmt.Sprintf("⚠️ Upstream error during stream (attempt %d/%d). Rotating session and retrying iteration...", consecutiveUpstream, maxConsecutiveUpstream)}
 					select {
 					case <-time.After(a.effectiveRateLimitDelay()):
 					case <-ctx.Done():

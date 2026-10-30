@@ -16,15 +16,22 @@ const upstreamBody = `{"error":{"type":"server_error","code":"server_error","mes
 
 // MockUpstreamFlaky returns an UpstreamError for the first `failCount` stream
 // calls, then a normal text stream. It counts every call so tests can assert
-// on retry behavior.
+// on retry behavior, and records every session ID it was given so tests can
+// assert that the agent rotates x-opencode-session between retries.
 type MockUpstreamFlaky struct {
 	failCount int
 	calls     int
 	text      string
+
+	sessionIDs []string
 }
 
 func (m *MockUpstreamFlaky) Name() string { return "mock-upstream-flaky" }
 func (m *MockUpstreamFlaky) Model() string { return "mock-upstream-model" }
+
+// SetSessionID makes the mock satisfy the same optional interface the real
+// OpenAI/OpenCode provider does, so rotateProviderSession() drives it.
+func (m *MockUpstreamFlaky) SetSessionID(id string) { m.sessionIDs = append(m.sessionIDs, id) }
 
 func (m *MockUpstreamFlaky) Complete(messages []provider.Message, toolDefs []provider.ToolDef) (*provider.CompletionResult, error) {
 	return &provider.CompletionResult{Message: provider.AssistantText(m.text), StopReason: "end_turn"}, nil
@@ -59,8 +66,11 @@ func TestStreamRetryRequest_RetriesUpstreamThenSucceeds(t *testing.T) {
 	}
 	mock := &MockUpstreamFlaky{failCount: 3, text: "recovered"}
 	loop := NewAgentLoop(mock)
-	// tiny delay so the retry loop is fast; generous budget so 3 failures recover
+	loop.SetSessionIDForProvider("sess_initial_00000000")
+	mock.sessionIDs = nil // record only rotations, not the initial assignment
+	// tiny delay so the retry loop is fast; budget covers the 3 injected failures
 	loop.SetRateLimitConfig(50, 10*time.Millisecond)
+	loop.SetUpstreamMaxRetries(5)
 
 	eventCh := make(chan provider.StreamEvent, 256)
 	stream, err := loop.streamRetryRequest(context.Background(), eventCh)
@@ -73,6 +83,21 @@ func TestStreamRetryRequest_RetriesUpstreamThenSucceeds(t *testing.T) {
 	if mock.calls != 4 {
 		t.Errorf("expected 4 calls (3 failures + 1 success), got %d", mock.calls)
 	}
+	// Each retry must rotate the provider session — this is the automatic
+	// equivalent of the user restarting the client.
+	if len(mock.sessionIDs) < 3 {
+		t.Fatalf("expected at least 3 session rotations, got %d", len(mock.sessionIDs))
+	}
+	seen := map[string]bool{}
+	for _, id := range mock.sessionIDs {
+		if id == "sess_initial_00000000" {
+			t.Errorf("rotation reused the original session ID: %s", id)
+		}
+		if seen[id] {
+			t.Errorf("session ID rotated to a duplicate: %s", id)
+		}
+		seen[id] = true
+	}
 }
 
 func TestStreamRetryRequest_UpstreamExhaustsBudget(t *testing.T) {
@@ -81,7 +106,10 @@ func TestStreamRetryRequest_UpstreamExhaustsBudget(t *testing.T) {
 	}
 	mock := &MockUpstreamFlaky{failCount: 1000, text: "never"}
 	loop := NewAgentLoop(mock)
-	loop.SetRateLimitConfig(5, 1*time.Millisecond) // small budget for a fast test
+	loop.SetSessionIDForProvider("sess_initial_00000000")
+	mock.sessionIDs = nil // record only rotations, not the initial assignment
+	loop.SetRateLimitConfig(50, 1*time.Millisecond)
+	loop.SetUpstreamMaxRetries(5) // small budget for a fast test
 
 	eventCh := make(chan provider.StreamEvent, 256)
 	_, err := loop.streamRetryRequest(context.Background(), eventCh)
@@ -94,6 +122,18 @@ func TestStreamRetryRequest_UpstreamExhaustsBudget(t *testing.T) {
 	// 5 retries + initial attempt = 6 calls (no fallback provider configured)
 	if mock.calls != 6 {
 		t.Errorf("expected 6 calls before giving up, got %d", mock.calls)
+	}
+	// The budget must stay small — this is what previously looked like a hang.
+	if mock.calls > 10 {
+		t.Errorf("upstream retry budget too generous: %d calls", mock.calls)
+	}
+	// Every attempt rotated to a fresh session, and the final state is a
+	// rotated ID (not the poisoned original) so the next iteration is clean.
+	if len(mock.sessionIDs) != 6 {
+		t.Errorf("expected 6 session rotations (one per attempt), got %d", len(mock.sessionIDs))
+	}
+	if loop.providerSessionID == "sess_initial_00000000" {
+		t.Error("session was not rotated after exhausting the upstream budget")
 	}
 }
 
