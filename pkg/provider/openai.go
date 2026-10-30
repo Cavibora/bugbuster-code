@@ -94,6 +94,9 @@ func (p *OpenAIProvider) Complete(messages []Message, tools []ToolDef) (*Complet
 		lastErr = err
 
 		// Check if we can retry the request
+		if IsUpstreamError(err) {
+			continue // disguised 4xx upstream failure — retry like a 5xx
+		}
 		if statusCode == 0 || !p.retryPolicy.IsRetryable(statusCode) {
 			break
 		}
@@ -139,6 +142,9 @@ func (p *OpenAIProvider) CompleteWithCtx(ctx context.Context, messages []Message
 			return nil, ctx.Err()
 		}
 
+		if IsUpstreamError(err) {
+			continue // disguised 4xx upstream failure — retry like a 5xx
+		}
 		if statusCode == 0 || !p.retryPolicy.IsRetryable(statusCode) {
 			break
 		}
@@ -198,7 +204,7 @@ func (p *OpenAIProvider) StreamWithCtx(ctx context.Context, messages []Message, 
 				return nil, ctx.Err()
 			}
 
-			if p.retryPolicy.IsRetryable(statusCode) {
+			if IsUpstreamError(lastErr) || p.retryPolicy.IsRetryable(statusCode) {
 				continue
 			}
 			return nil, lastErr
@@ -318,7 +324,7 @@ func (p *OpenAIProvider) Stream(messages []Message, tools []ToolDef) (<-chan Str
 			statusCode := resp.StatusCode
 			lastErr = FormatHTTPError(statusCode, respBody)
 
-			if p.retryPolicy.IsRetryable(statusCode) {
+			if IsUpstreamError(lastErr) || p.retryPolicy.IsRetryable(statusCode) {
 				continue
 			}
 			return nil, lastErr

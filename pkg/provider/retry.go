@@ -1,9 +1,11 @@
 package provider
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"bugbuster-code/pkg/i18n"
@@ -97,6 +99,76 @@ func IsRateLimitError(err error) bool {
 	return errors.As(err, &rle)
 }
 
+// UpstreamError — a transient upstream/model failure that some gateways
+// (e.g. OpenCode Zen) wrap in a client-looking HTTP 4xx status. The body
+// carries type/code "server_error" and a message like "Upstream request
+// failed: ... Upstream response was not valid JSON". This is NOT a client
+// error: the same request usually succeeds on retry, so it must be retried
+// like a 5xx.
+type UpstreamError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *UpstreamError) Error() string {
+	return fmt.Sprintf("HTTP %d: %s", e.StatusCode, e.Body)
+}
+
+// IsUpstreamError checks if an error is a disguised upstream failure.
+func IsUpstreamError(err error) bool {
+	var ue *UpstreamError
+	return errors.As(err, &ue)
+}
+
+// looksLikeUpstreamError inspects an HTTP error body to detect a transient
+// upstream failure that was mislabeled with a 4xx status. Gateways return
+// error.type/error.code == "server_error" (or an "upstream" message) when the
+// model behind them hiccuped — retrying is correct, surfacing it is not.
+//
+// Returns false for genuine client errors (invalid_request, context_length,
+// content_filter, etc.) so we never retry a request the server will reject
+// again.
+func looksLikeUpstreamError(statusCode int, body []byte) bool {
+	// 5xx are already retryable via RetryableErrors; 429 is RateLimitError.
+	// This detector is only for 4xx that disguise a server-side failure.
+	if statusCode < 400 || statusCode >= 500 || statusCode == 429 {
+		return false
+	}
+
+	var payload struct {
+		Error struct {
+			Type    string `json:"type"`
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		// Not JSON — fall back to a substring scan.
+		lower := strings.ToLower(string(body))
+		return strings.Contains(lower, "upstream") &&
+			strings.Contains(lower, "server_error")
+	}
+
+	et := strings.ToLower(payload.Error.Type)
+	ec := strings.ToLower(payload.Error.Code)
+	em := strings.ToLower(payload.Error.Message)
+
+	// Explicit server_error type/code on a 4xx = disguised upstream failure.
+	if et == "server_error" || ec == "server_error" {
+		return true
+	}
+	// "Upstream ... failed" wording without a server_error tag.
+	if strings.Contains(em, "upstream") &&
+		(strings.Contains(em, "not valid json") ||
+			strings.Contains(em, "request failed") ||
+			strings.Contains(em, "bad gateway") ||
+			strings.Contains(em, "timeout") ||
+			strings.Contains(em, "overloaded")) {
+		return true
+	}
+	return false
+}
+
 // IsRetryableError checks if an error is a RetryableError.
 func IsRetryableError(err error) bool {
 	var re *RetryableError
@@ -111,6 +183,17 @@ func FormatHTTPErrorWithRateLimit(statusCode int, body []byte) error {
 	bodyStr := string(body)
 	if statusCode == 429 {
 		return &RateLimitError{
+			StatusCode: statusCode,
+			Body:       bodyStr,
+		}
+	}
+	// Some gateways (OpenCode Zen) disguise a transient upstream failure as
+	// a 4xx. Surface it as UpstreamError so callers retry instead of failing.
+	if looksLikeUpstreamError(statusCode, body) {
+		if len(bodyStr) > 500 {
+			bodyStr = bodyStr[:500] + "..."
+		}
+		return &UpstreamError{
 			StatusCode: statusCode,
 			Body:       bodyStr,
 		}

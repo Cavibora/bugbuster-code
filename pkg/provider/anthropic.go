@@ -88,6 +88,9 @@ func (p *AnthropicProvider) Complete(messages []Message, tools []ToolDef) (*Comp
 		lastErr = err
 
 		// Check if we can retry the request
+		if IsUpstreamError(err) {
+			continue // disguised 4xx upstream failure — retry like a 5xx
+		}
 		if statusCode == 0 || !p.retryPolicy.IsRetryable(statusCode) {
 			break
 		}
@@ -166,7 +169,7 @@ func (p *AnthropicProvider) Stream(messages []Message, tools []ToolDef) (<-chan 
 			lastErr = FormatHTTPError(statusCode, respBody)
 
 			// Check if we can retry the request
-			if p.retryPolicy.IsRetryable(statusCode) {
+			if IsUpstreamError(lastErr) || p.retryPolicy.IsRetryable(statusCode) {
 				continue
 			}
 			return nil, lastErr
@@ -238,7 +241,7 @@ func (p *AnthropicProvider) StreamWithCtx(ctx context.Context, messages []Messag
 				return nil, ctx.Err()
 			}
 
-			if p.retryPolicy.IsRetryable(statusCode) {
+			if IsUpstreamError(lastErr) || p.retryPolicy.IsRetryable(statusCode) {
 				continue
 			}
 			return nil, lastErr
