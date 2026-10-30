@@ -217,7 +217,10 @@ func isTransientHTTPError(err error) bool {
 		return false
 	}
 	msg := strings.ToLower(err.Error())
-	transientCodes := []string{"429", "404", "500", "502", "503", "504", "upstream_429", "rate limited", "rate_limit"}
+	transientCodes := []string{"429", "404", "500", "502", "503", "504", "upstream_429", "rate limited", "rate_limit",
+		// Disguised upstream failures (e.g. OpenCode Zen wraps transient gateway
+		// errors in HTTP 400 with error.type "server_error").
+		"server_error", "upstream request failed", "not valid json"}
 	for _, code := range transientCodes {
 		if strings.Contains(msg, code) {
 			return true

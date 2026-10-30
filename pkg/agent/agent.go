@@ -86,6 +86,10 @@ type AgentLoop struct {
 	rateLimitMaxRetries int
 	// rateLimitDelay — delay between HTTP 429 retries (default: 3s)
 	rateLimitDelay time.Duration
+	// upstreamMaxRetries — max disguised-upstream (server_error) retries before
+	// giving up (default: 50). OpenCode Zen wraps transient gateway failures in
+	// an HTTP 4xx; these are retried like rate limits, not treated as fatal.
+	upstreamMaxRetries int
 }
 
 // NewAgentLoop creates a new agent loop
@@ -275,6 +279,16 @@ func (a *AgentLoop) effectiveRateLimitDelay() time.Duration {
 		return a.rateLimitDelay
 	}
 	return 3 * time.Second
+}
+
+// effectiveUpstreamMaxRetries returns the effective disguised-upstream retry
+// budget. Defaults to the rate limit budget (50) so a transient OpenCode Zen
+// hiccup is retried patiently instead of crashing the agent.
+func (a *AgentLoop) effectiveUpstreamMaxRetries() int {
+	if a.upstreamMaxRetries > 0 {
+		return a.upstreamMaxRetries
+	}
+	return a.effectiveRateLimitMaxRetries()
 }
 
 // SetLoopRepeatThreshold sets the repetition threshold for loop detection.
@@ -810,6 +824,13 @@ func (a *AgentLoop) streamLoopWithCtx(ctx context.Context) (<-chan provider.Stre
 
 		totalStart := time.Now()
 
+		// consecutiveUpstream guards against an infinite retry loop when the
+		// upstream failure is persistent (not transient). It is reset whenever a
+		// request succeeds; once it exceeds the cap we surface the error and stop
+		// instead of spinning forever.
+		consecutiveUpstream := 0
+		const maxConsecutiveUpstream = 20
+
 		for iteration := 1; ; iteration++ {
 			a.currentIteration = iteration
 			// Check iteration limit (for subagents)
@@ -890,9 +911,34 @@ func (a *AgentLoop) streamLoopWithCtx(ctx context.Context) (<-chan provider.Stre
 					}
 					continue // retry the same iteration
 				}
+				// Disguised upstream failure (OpenCode Zen server_error wrapped in
+				// a 4xx) is transient — streamRetryRequest already retried patiently.
+				// If it still fails, do NOT crash the agent: wait and retry the whole
+				// iteration, mirroring the rate-limit behavior above.
+				if provider.IsUpstreamError(err) {
+					consecutiveUpstream++
+					if consecutiveUpstream > maxConsecutiveUpstream {
+						eventCh <- provider.StreamEvent{Type: provider.EventError,
+							Error: fmt.Errorf("upstream failure persisted after %d retries: %w", consecutiveUpstream, err)}
+						return
+					}
+					eventCh <- provider.StreamEvent{Type: provider.EventRateLimit,
+						Text: fmt.Sprintf("⚠️ Upstream still failing (attempt %d/%d). Waiting before retrying iteration...", consecutiveUpstream, maxConsecutiveUpstream)}
+					select {
+					case <-time.After(a.effectiveRateLimitDelay()):
+					case <-ctx.Done():
+						eventCh <- provider.StreamEvent{Type: provider.EventError, Error: ctx.Err()}
+						return
+					}
+					continue // retry the same iteration
+				}
 				eventCh <- provider.StreamEvent{Type: provider.EventError, Error: err}
 				return
 			}
+
+			// A successful stream handshake means the upstream recovered —
+			// reset the persistent-failure guard.
+			consecutiveUpstream = 0
 
 			// Collect response from stream
 			result := a.collectStreamResponse(ctx, stream, eventCh, iteration)
@@ -903,6 +949,25 @@ func (a *AgentLoop) streamLoopWithCtx(ctx context.Context) (<-chan provider.Stre
 					// Wait a bit before retrying
 					select {
 					case <-time.After(5 * time.Second):
+					case <-ctx.Done():
+						eventCh <- provider.StreamEvent{Type: provider.EventError, Error: ctx.Err()}
+						return
+					}
+					continue // retry the same iteration
+				}
+				// Disguised upstream failure — transient, retry the iteration
+				// instead of crashing.
+				if provider.IsUpstreamError(result.err) {
+					consecutiveUpstream++
+					if consecutiveUpstream > maxConsecutiveUpstream {
+						eventCh <- provider.StreamEvent{Type: provider.EventError,
+							Error: fmt.Errorf("upstream failure persisted after %d retries: %w", consecutiveUpstream, result.err)}
+						return
+					}
+					eventCh <- provider.StreamEvent{Type: provider.EventRateLimit,
+						Text: fmt.Sprintf("⚠️ Upstream error during stream (attempt %d/%d). Waiting before retrying iteration...", consecutiveUpstream, maxConsecutiveUpstream)}
+					select {
+					case <-time.After(a.effectiveRateLimitDelay()):
 					case <-ctx.Done():
 						eventCh <- provider.StreamEvent{Type: provider.EventError, Error: ctx.Err()}
 						return

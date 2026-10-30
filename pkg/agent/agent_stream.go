@@ -43,11 +43,19 @@ func (a *AgentLoop) streamRetryRequest(ctx context.Context, eventCh chan<- provi
 	rateLimitMaxRetries := a.effectiveRateLimitMaxRetries()
 	rateLimitDelay := a.effectiveRateLimitDelay()
 
+	// Disguised upstream failures (e.g. OpenCode Zen returning HTTP 400 with
+	// error.type "server_error" / "Upstream response was not valid JSON") are
+	// transient gateway/model hiccups. Retry them like a rate limit — same
+	// generous attempt budget — instead of surfacing them as a fatal error.
+	upstreamMaxRetries := a.effectiveUpstreamMaxRetries()
+	upstreamDelay := rateLimitDelay
+
 	var stream <-chan provider.StreamEvent
 	var err error
 
 	// Try primary provider — first handle 429 rate limit retries, then regular errors
 	rateLimitAttempts := 0
+	upstreamAttempts := 0
 	regularAttempts := 0
 
 	for {
@@ -89,6 +97,35 @@ func (a *AgentLoop) streamRetryRequest(ctx context.Context, eventCh chan<- provi
 			continue
 		}
 
+		// Disguised upstream failure (server_error wrapped in a 4xx) — retry
+		// like a rate limit with short delays, show progress to user, do NOT
+		// save to context. Only give up after the generous attempt budget.
+		if provider.IsUpstreamError(err) {
+			upstreamAttempts++
+			if upstreamAttempts > upstreamMaxRetries {
+				if a.verbose {
+					logger.Debug("upstream_exhausted", "attempts", upstreamAttempts, "provider", a.provider.Name())
+				}
+				break // give up on primary, try fallback
+			}
+			select {
+			case eventCh <- provider.StreamEvent{
+				Type: provider.EventRateLimit,
+				Text: "⚠️ Upstream error (" + err.Error() + "). Retrying in " + upstreamDelay.String() + "... (attempt " + fmt.Sprintf("%d/%d", upstreamAttempts, upstreamMaxRetries) + ")",
+			}:
+			default:
+			}
+			if a.verbose {
+				logger.Debug("upstream_retry", "attempt", upstreamAttempts, "max", upstreamMaxRetries, "provider", a.provider.Name(), "error", err)
+			}
+			select {
+			case <-time.After(upstreamDelay):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+			continue
+		}
+
 		// Regular error — retry with backoff
 		regularAttempts++
 		if a.verbose {
@@ -110,6 +147,7 @@ func (a *AgentLoop) streamRetryRequest(ctx context.Context, eventCh chan<- provi
 			logger.Debug("fallback_switch", "from", a.provider.Name(), "to", a.fallbackProvider.Name())
 		}
 		rateLimitAttempts = 0
+		upstreamAttempts = 0
 		regularAttempts = 0
 
 		for {
@@ -144,6 +182,33 @@ func (a *AgentLoop) streamRetryRequest(ctx context.Context, eventCh chan<- provi
 				}
 				select {
 				case <-time.After(rateLimitDelay):
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
+				continue
+			}
+
+			// Disguised upstream failure on fallback — retry like a rate limit.
+			if provider.IsUpstreamError(err) {
+				upstreamAttempts++
+				if upstreamAttempts > upstreamMaxRetries {
+					if a.verbose {
+						logger.Debug("upstream_exhausted_fallback", "attempts", upstreamAttempts, "provider", a.fallbackProvider.Name())
+					}
+					break
+				}
+				select {
+				case eventCh <- provider.StreamEvent{
+					Type: provider.EventRateLimit,
+					Text: "\n⚠️ Upstream error on fallback (" + err.Error() + "). Retrying in " + upstreamDelay.String() + "... (attempt " + fmt.Sprintf("%d/%d", upstreamAttempts, upstreamMaxRetries) + ")",
+				}:
+				default:
+				}
+				if a.verbose {
+					logger.Debug("upstream_retry_fallback", "attempt", upstreamAttempts, "max", upstreamMaxRetries, "provider", a.fallbackProvider.Name(), "error", err)
+				}
+				select {
+				case <-time.After(upstreamDelay):
 				case <-ctx.Done():
 					return nil, ctx.Err()
 				}
