@@ -521,11 +521,18 @@ func (a *AgentLoop) runLoop() (string, error) {
 			retryDelay = time.Second
 		}
 
-		// Try primary provider
+		// Try primary provider. Each attempt is bounded by the effective request
+		// timeout so a silent/stalled upstream can never hang the loop forever
+		// (the bare Complete() had no deadline and the http.Client had no
+		// ResponseHeaderTimeout before this fix).
+		reqCtx, reqCancel := context.WithTimeout(context.Background(), a.effectiveRequestTimeout())
 		for retry := 0; retry < maxRetries; retry++ {
-			result, err = a.provider.Complete(a.Context.Messages, toolDefs)
+			result, err = a.provider.CompleteWithCtx(reqCtx, a.Context.Messages, toolDefs)
 			if err == nil {
 				break
+			}
+			if reqCtx.Err() != nil {
+				break // deadline exceeded — retrying is pointless
 			}
 			if a.verbose {
 				logger.Debug("retry", "attempt", retry+1, "provider", a.provider.Name(), "error", err)
@@ -539,8 +546,11 @@ func (a *AgentLoop) runLoop() (string, error) {
 				logger.Debug("fallback_switch", "from", a.provider.Name(), "to", a.fallbackProvider.Name())
 			}
 			for retry := 0; retry < maxRetries; retry++ {
-				result, err = a.fallbackProvider.Complete(a.Context.Messages, toolDefs)
+				result, err = a.fallbackProvider.CompleteWithCtx(reqCtx, a.Context.Messages, toolDefs)
 				if err == nil {
+					break
+				}
+				if reqCtx.Err() != nil {
 					break
 				}
 				if a.verbose {
@@ -549,6 +559,7 @@ func (a *AgentLoop) runLoop() (string, error) {
 				time.Sleep(retryDelay)
 			}
 		}
+		reqCancel()
 
 		if err != nil {
 			return "", i18n.E("errors_provider.request", a.provider.Name(), err)

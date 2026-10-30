@@ -7,10 +7,40 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
 )
+
+// defaultResponseHeaderTimeout bounds how long we wait for the upstream to send
+// HTTP response headers after the TCP connection is established. A "poisoned"
+// or overloaded gateway (e.g. OpenCode Zen) may accept the connection and then
+// go completely silent — without this guard client.Do blocks forever, because
+// the streaming context carries no deadline and the idle timer only starts
+// AFTER the channel is returned. 120s is far above the observed first-byte time
+// (SSE headers arrive within seconds even for long generations) yet well below
+// the "hangs for an hour" failure mode.
+const defaultResponseHeaderTimeout = 120 * time.Second
+
+// newStreamingHTTPClient builds an http.Client tuned for long-lived SSE streams:
+// it sets no overall Client.Timeout (that would kill legitimate long generations),
+// but bounds connection setup and the wait for response headers via the transport.
+func newStreamingHTTPClient() *http.Client {
+	return &http.Client{
+		Transport: &http.Transport{
+			Proxy: http.ProxyFromEnvironment,
+			DialContext: (&net.Dialer{
+				Timeout:   30 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			ResponseHeaderTimeout: defaultResponseHeaderTimeout,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+			MaxIdleConns:          16,
+		},
+	}
+}
 
 // OpenAIProvider — provider for OpenAI Chat Completions API
 type OpenAIProvider struct {
@@ -50,9 +80,7 @@ func NewOpenAIProvider(name string, cfg ProviderConfig) (*OpenAIProvider, error)
 		topP:        cfg.TopP,
 		reasoning:   cfg.Reasoning,
 		retryPolicy: DefaultRetryPolicy(),
-		client:      &http.Client{
-			// No timeout — for streaming use context with request_timeout
-		},
+		client:      newStreamingHTTPClient(),
 	}, nil
 }
 

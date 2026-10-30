@@ -53,10 +53,7 @@ func NewAnthropicProvider(name string, cfg ProviderConfig) (*AnthropicProvider, 
 		topP:         cfg.TopP,
 		topK:         cfg.TopK,
 		retryPolicy:  DefaultRetryPolicy(),
-		client:       &http.Client{
-			// No timeout — for streaming use context with request_timeout
-			// (1200s default). HTTP timeout would break long streams.
-		},
+		client:       newStreamingHTTPClient(),
 	}, nil
 }
 
