@@ -148,6 +148,66 @@ func (c *ConversationContext) GetMessages() []provider.Message {
 	return result
 }
 
+// HasImages reports whether any message in the history carries image content.
+func (c *ConversationContext) HasImages() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	for _, msg := range c.Messages {
+		for _, block := range msg.Content {
+			if block.Type == "image" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// StripImages removes every image content block from the conversation history
+// and returns the number of blocks removed. Text, thinking, tool_use and
+// tool_result blocks are preserved; a message left with no content at all is
+// dropped. Used to self-heal a session that a text-only endpoint refuses to
+// serve because stale image blocks in the history keep triggering
+// "model does not support image input" on every subsequent request.
+// Thread-safe: acquires write lock.
+func (c *ConversationContext) StripImages() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	removed := 0
+	var kept []provider.Message
+	for _, msg := range c.Messages {
+		hasImage := false
+		for _, block := range msg.Content {
+			if block.Type == "image" {
+				hasImage = true
+				removed++
+			}
+		}
+		if !hasImage {
+			kept = append(kept, msg)
+			continue
+		}
+
+		var blocks []provider.ContentBlock
+		for _, block := range msg.Content {
+			if block.Type == "image" {
+				continue
+			}
+			blocks = append(blocks, block)
+		}
+		if len(blocks) == 0 && strings.TrimSpace(msg.Text) == "" {
+			continue // nothing left but the image — drop the message
+		}
+		msg.Content = blocks
+		kept = append(kept, msg)
+	}
+
+	if removed > 0 {
+		c.Messages = kept
+	}
+	return removed
+}
+
 // trim trims old messages by tokens.
 // Caller must hold write lock.
 func (c *ConversationContext) trim() {

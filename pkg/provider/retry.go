@@ -120,6 +120,74 @@ func IsUpstreamError(err error) bool {
 	return errors.As(err, &ue)
 }
 
+// ImageUnsupportedError — a deterministic client error returned when a
+// request carries image content but the endpoint/model cannot accept image
+// input (e.g. a text-only OpenAI-compatible server rejecting image_url parts
+// with "model does not support image input"). Unlike UpstreamError this will
+// NEVER succeed on retry with the same payload: the offending images must be
+// removed from the conversation first. Surfacing it as a distinct type lets
+// the agent self-heal (strip images and resend) instead of killing the session
+// — otherwise the stale image blocks stay in history and poison every
+// subsequent message forever.
+type ImageUnsupportedError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *ImageUnsupportedError) Error() string {
+	return fmt.Sprintf("HTTP %d: %s", e.StatusCode, e.Body)
+}
+
+// IsImageUnsupportedError checks if an error means the endpoint rejected
+// image input.
+func IsImageUnsupportedError(err error) bool {
+	var ie *ImageUnsupportedError
+	return errors.As(err, &ie)
+}
+
+// looksLikeImageUnsupported inspects a 4xx body to detect a server that
+// rejects image input. It matches the wording used by text-only
+// OpenAI-compatible gateways ("model does not support image input",
+// "does not accept image", "image input is not supported", ...) and the
+// Anthropic-style "unsupported ... image". We only treat it as image-related
+// when the message explicitly couples "image" with "not support/accept" or
+// "invalid ... image", so a genuine invalid_request unrelated to images is
+// never misclassified.
+func looksLikeImageUnsupported(statusCode int, body []byte) bool {
+	if statusCode < 400 || statusCode >= 500 || statusCode == 429 {
+		return false
+	}
+	lower := strings.ToLower(string(body))
+	// Only image/vision capability rejections are relevant here.
+	if !strings.Contains(lower, "image") && !strings.Contains(lower, "vision") {
+		return false
+	}
+	// Coupling of "image" with a rejection verb/phrase.
+	if strings.Contains(lower, "does not support image") ||
+		strings.Contains(lower, "do not support image") ||
+		strings.Contains(lower, "not support image") ||
+		strings.Contains(lower, "unsupported image") ||
+		strings.Contains(lower, "does not accept image") ||
+		strings.Contains(lower, "cannot accept image") ||
+		strings.Contains(lower, "invalid image") {
+		return true
+	}
+	// "image input ..." + a rejection word (e.g. "image input is not supported").
+	if strings.Contains(lower, "image input") &&
+		(strings.Contains(lower, "not support") ||
+			strings.Contains(lower, "unsupported") ||
+			strings.Contains(lower, "not accept") ||
+			strings.Contains(lower, "invalid")) {
+		return true
+	}
+	// Vision-capability wording: "model has no vision support", "vision not enabled".
+	if strings.Contains(lower, "vision") &&
+		(strings.Contains(lower, "not") || strings.Contains(lower, "no ")) {
+		return true
+	}
+	return false
+}
+
 // looksLikeUpstreamError inspects an HTTP error body to detect a transient
 // upstream failure that was mislabeled with a 4xx status. Gateways return
 // error.type/error.code == "server_error" (or an "upstream" message) when the
@@ -194,6 +262,19 @@ func FormatHTTPErrorWithRateLimit(statusCode int, body []byte) error {
 			bodyStr = bodyStr[:500] + "..."
 		}
 		return &UpstreamError{
+			StatusCode: statusCode,
+			Body:       bodyStr,
+		}
+	}
+	// A text-only endpoint rejecting image input is deterministic — surface it
+	// as ImageUnsupportedError so the agent strips images and resends instead
+	// of retrying a payload the server will always reject (and instead of
+	// killing the session, which would leave stale images poisoning history).
+	if looksLikeImageUnsupported(statusCode, body) {
+		if len(bodyStr) > 500 {
+			bodyStr = bodyStr[:500] + "..."
+		}
+		return &ImageUnsupportedError{
 			StatusCode: statusCode,
 			Body:       bodyStr,
 		}

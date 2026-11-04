@@ -53,10 +53,14 @@ func (a *AgentLoop) streamRetryRequest(ctx context.Context, eventCh chan<- provi
 	var stream <-chan provider.StreamEvent
 	var err error
 
-	// Try primary provider — first handle 429 rate limit retries, then regular errors
+	// Rate limit error (429) — retry with short delay, show to user
 	rateLimitAttempts := 0
 	upstreamAttempts := 0
 	regularAttempts := 0
+	// imageHealAttempts guards the strip-images-and-resend loop so a server
+	// that keeps rejecting even an image-free payload can't spin forever.
+	imageHealAttempts := 0
+	const maxImageHealAttempts = 1
 
 	for {
 		select {
@@ -129,6 +133,31 @@ func (a *AgentLoop) streamRetryRequest(ctx context.Context, eventCh chan<- provi
 				return nil, ctx.Err()
 			}
 			continue
+		}
+
+		// Text-only endpoint rejected our images. This is deterministic: the
+		// same payload will be rejected again, and if we give up the stale
+		// image blocks stay in history and poison EVERY later message (the
+		// session becomes permanently unusable). So strip the images from the
+		// conversation and resend — the user loses the pictures, not the chat.
+		if provider.IsImageUnsupportedError(err) {
+			removed := a.Context.StripImages()
+			if removed == 0 || imageHealAttempts >= maxImageHealAttempts {
+				break // nothing to strip (or already healed) — give up on primary
+			}
+			imageHealAttempts++
+			select {
+			case eventCh <- provider.StreamEvent{
+				Type: provider.EventRateLimit,
+				Text: "\n🖼️ This model does not accept images. Removed " + fmt.Sprintf("%d", removed) +
+					" image(s) from the conversation and retrying without them...",
+			}:
+			default:
+			}
+			if a.verbose {
+				logger.Debug("image_heal", "removed", removed, "provider", a.provider.Name(), "error", err)
+			}
+			continue // resend the now image-free history
 		}
 
 		// Regular error — retry with backoff
