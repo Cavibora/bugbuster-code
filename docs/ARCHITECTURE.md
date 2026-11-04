@@ -53,6 +53,7 @@ bugbuster-code/
 │   ├── exec.go             # External command execution
 │   ├── escape.go           # ANSI escape sequence utilities
 │   ├── mcp_serve.go        # MCP server mode
+│   ├── serve.go            # HTTP API server mode (bugbuster serve)
 │   └── agent_setup.go      # Agent initialization from config
 │
 ├── pkg/
@@ -113,6 +114,15 @@ bugbuster-code/
 │   ├── mcp/                # Model Context Protocol
 │   │   ├── client.go       # MCP client (connect to external servers)
 │   │   └── server.go       # MCP server (expose tools to external clients)
+│   │
+│   ├── serve/              # HTTP control-plane API (bugbuster serve)
+│   │   ├── server.go       # Server, auth middleware, session registry, eviction
+│   │   ├── session.go      # Session lifecycle: run in goroutine, status, Wait
+│   │   ├── routes.go       # REST endpoints (sessions, task, inject, answer, cancel)
+│   │   ├── sse.go          # SSE event stream + /v1/run one-shot
+│   │   ├── events.go       # Event model, replay via ?since=
+│   │   ├── stream.go       # Bridge agent StreamEvent → wire events, truncation
+│   │   └── store.go        # JSONL transcript persistence
 │   │
 │   ├── plugin/             # Plugin system
 │   │   └── plugin.go       # Go plugin loading (.so), builtin plugins
@@ -505,3 +515,17 @@ SkillManager.Deactivate() → remove from system prompt
 
 - Expose all tools via MCP protocol
 - Supports stdio, SSE, streamable HTTP transports
+
+### HTTP API Server Mode
+
+- `bugbuster serve` — the full agent behind a bearer-token HTTP control plane
+- One `AgentLoop` per session, run in its own goroutine; `ConversationContext`
+  is mutex-guarded so the loop and HTTP readers share it safely
+- Sessions: create / task / inject / answer / cancel / compact, each with an
+  SSE event stream (`?since=` replays history after the run closes)
+- `ask_user` is bridged to `POST .../answer` so a human question round-trips
+  through the API; the bridge self-times-out if nobody answers
+- The autopilot (auto-continue) is OFF by default — a headless client decides
+  when to continue, so a one-word reply costs one iteration, not three
+- Transcripts persist as JSONL; idle sessions are evicted
+- Binds loopback and refuses to start unauthenticated on a non-loopback address

@@ -48,6 +48,7 @@ bugbuster test [path]          # Запуск тестов и анализ ре�
 bugbuster config show           # Показать текущую конфигурацию
 bugbuster config init           # Создать конфигурационный файл по умолчанию
 bugbuster config providers      # Показать доступных провайдеров
+bugbuster serve --port 8765     # HTTP API для управления агентом извне
 bugbuster version               # Показать версию
 ```
 

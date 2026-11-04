@@ -185,6 +185,21 @@ mcp_serve:
   prefix: "bugbuster_"          # tools prefix
   enabled: false                # enable on startup
 
+# ─── HTTP API server (bugbuster serve) ───────────────────────────────────────
+# Runs the full agent behind a bearer-token HTTP server so other programs
+# (CI, chat bots, IDE plugins, another agent) can drive it. See docs/SECURITY.md.
+
+serve:
+  addr: "127.0.0.1:8765"        # listen address (keep it on loopback)
+  token: ""                     # bearer token required by all endpoints
+  allow_no_token: false         # run unauthenticated (loopback only)
+  max_sessions: 8               # live session cap
+  idle_minutes: 60              # evict sessions idle longer than this (0 = never)
+  persist: true                 # save transcripts to .bugbuster/sessions
+  sessions_dir: ""              # override the transcript directory
+  max_tool_result_kb: 4         # truncate tool payloads on the wire
+  auto_continue: false          # autopilot after a text-only reply (default off for API)
+
 # ─── LSP ─────────────────────────────────────────────────────────────────────
 
 lsp:
@@ -241,7 +256,8 @@ BugBuster resolves these at load time. If a variable is not set, the value remai
 | `--tui` | `-t` | Start in TUI mode |
 | `--query` | `-q` | Non-interactive query mode |
 | `--mcp-serve` | | Start as MCP server |
-| `--clear-crash` | | Clear crash logs |
+| `serve` | | Run the HTTP control-plane API (see `serve --help`) |
+| `--clear-crash` | | Clear crash logs and dismiss notification |
 | `--version` | | Show version |
 
 ## Interactive Commands

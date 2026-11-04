@@ -118,6 +118,7 @@ bugbuster "Fix the bug"     # one-shot
 - 🌍 **8 Languages** — English, Russian, Spanish, French, German, Japanese, Chinese, Portuguese
 - 🤝 **Sub-agents** — isolated context, parallelism semaphore, timeouts
 - 📡 **MCP** — both client and server (stdio, SSE, streamable HTTP)
+- 🌐 **HTTP API** — `bugbuster serve` exposes the agent as a bearer-token control plane: sessions, tasks, SSE event streaming, mid-run injection
 - 🎯 **Skills** — reusable step-by-step procedures (debug, refactor, review, deploy, analyze + custom)
 
 ## 📦 Configuration

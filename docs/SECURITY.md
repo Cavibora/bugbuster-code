@@ -146,6 +146,32 @@ mcp_serve:
 - Set `prefix` to namespace tools
 - Keep `enabled: false` when not needed
 
+## HTTP API Server (`bugbuster serve`)
+
+`bugbuster serve` exposes the **full agent** — including `bash`, file write and
+edit tools — over HTTP. Treat it like an open shell on your machine.
+
+**Risks:**
+- Any authenticated caller can run arbitrary commands with your credentials and
+  working-directory permissions
+- Transcripts persist to disk (`.bugbuster/sessions`) unless `--persist=false`
+
+**Built-in protections:**
+- Binds to `127.0.0.1` by default
+- **Refuses to start** without a token on a non-loopback address
+- All endpoints require `Authorization: Bearer <token>` unless `--allow-no-token`
+  (which is itself restricted to loopback)
+- Permission mode `ask` resolves to the safe default (no stdin to prompt on):
+  workspace writes approved, full-access actions denied
+
+**Hardening checklist:**
+- Always set a strong token (`--token`, `--token-file`, or `serve.token`)
+- Keep the address on loopback; reach it remotely via an SSH tunnel or a local
+  TLS proxy, never by binding `0.0.0.0`
+- Use `--max-sessions` and `--idle-minutes` to bound exposure
+- Run it under a least-privilege user or in a sandbox/container
+- Set `--persist=false` if transcripts on disk are a concern
+
 ## Data Privacy
 
 ### What is sent to LLM APIs
