@@ -86,6 +86,7 @@ func main() {
 	rootCmd.AddCommand(versionCmd())
 	rootCmd.AddCommand(execCmd())
 	rootCmd.AddCommand(mcpServeCmd())
+	rootCmd.AddCommand(serveCmd())
 
 	// Flags
 	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c", "", i18n.T("cli_flag.config"))

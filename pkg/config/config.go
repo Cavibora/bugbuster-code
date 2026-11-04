@@ -24,6 +24,7 @@ type BugBusterConfig struct {
 	Theme           ThemeConfig                        `yaml:"theme"`
 	Keys            KeyBindings                        `yaml:"keys"`
 	MCPServe        MCPServeConfig                     `yaml:"mcp_serve"`
+	Serve           ServeConfig                        `yaml:"serve"`
 	LSP             LSPConfig                          `yaml:"lsp"`
 	ContextArchive  ContextArchiveConfig               `yaml:"context_archive"`
 	Hub             HubConfig                          `yaml:"hub"`
@@ -88,6 +89,25 @@ type MCPServeConfig struct {
 	Port      int    `yaml:"port"`      // port for SSE/HTTP
 	Prefix    string `yaml:"prefix"`    // tools prefix (default "bugbuster_")
 	Enabled   bool   `yaml:"enabled"`   // enable server on startup
+}
+
+// ServeConfig — HTTP control plane (bugbuster serve).
+// The API drives the agent with real tools, so treat it like a shell:
+// keep addr on loopback and always set a token.
+type ServeConfig struct {
+	Addr        string `yaml:"addr"`          // listen address (default 127.0.0.1:8765)
+	Token       string `yaml:"token"`         // bearer token; empty + allow_no_token = loopback only
+	AllowNoToken bool  `yaml:"allow_no_token"` // run unauthenticated (loopback only)
+	MaxSessions int    `yaml:"max_sessions"`  // live session cap (default 8)
+	IdleMinutes int    `yaml:"idle_minutes"`  // evict sessions idle longer than this (0 = never)
+	Persist     *bool  `yaml:"persist"`       // save transcripts to .bugbuster/sessions (default true)
+	SessionsDir string `yaml:"sessions_dir"`  // override transcript directory
+	MaxToolResultKB int `yaml:"max_tool_result_kb"` // truncate tool payloads on the wire (default 4)
+	// AutoContinue drives the agent autopilot that re-prompts the model when it
+	// replies with text only. The CLI enables it for the interactive TUI, but a
+	// headless API client decides for itself whether to continue, so serve keeps
+	// it OFF unless this is set to true (or --auto-continue is passed).
+	AutoContinue *bool `yaml:"auto_continue"`
 }
 
 // LSPConfig — LSP servers configuration (Language Server Protocol)
