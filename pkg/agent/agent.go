@@ -7,7 +7,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"runtime/debug"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"bugbuster-code/pkg/i18n"
@@ -19,20 +22,20 @@ import (
 
 // AgentLoop is the main agent loop for BugBuster Code
 type AgentLoop struct {
-	Tools             map[string]tools.Tool
-	Context           *ConversationContext
-	provider          provider.Provider
-	fallbackProvider  provider.Provider // fallback provider when primary fails
-	fallbackMaxRetries int              // max retries on primary before fallback (default: 2)
-	fallbackRetryDelay time.Duration    // delay between retries (default: 1s)
-	fallbackAutoSwitchBack bool         // switch back to primary when it recovers (default: true)
-	verbose           bool
-	debug             bool   // debug mode: log request/response JSON
-	debugDir          string // directory for debug logs (.bugbuster)
-	nonInteractive    bool   // exec mode: auto-skip ask_user
-	PermissionChecker PermissionChecker
-	LoopDetector      *LoopDetector // loop detector
-	SkillManager      *skills.Manager // skill system
+	Tools                  map[string]tools.Tool
+	Context                *ConversationContext
+	provider               provider.Provider
+	fallbackProvider       provider.Provider // fallback provider when primary fails
+	fallbackMaxRetries     int               // max retries on primary before fallback (default: 2)
+	fallbackRetryDelay     time.Duration     // delay between retries (default: 1s)
+	fallbackAutoSwitchBack bool              // switch back to primary when it recovers (default: true)
+	verbose                bool
+	debug                  bool   // debug mode: log request/response JSON
+	debugDir               string // directory for debug logs (.bugbuster)
+	nonInteractive         bool   // exec mode: auto-skip ask_user
+	PermissionChecker      PermissionChecker
+	LoopDetector           *LoopDetector   // loop detector
+	SkillManager           *skills.Manager // skill system
 
 	// LLM request timeouts
 	RequestTimeout  time.Duration // max time for a single LLM request (0 = 40 min)
@@ -64,10 +67,10 @@ type AgentLoop struct {
 
 	// Speed mirror — tracks iteration durations for self-awareness
 	iterDurations       []time.Duration
-	lastMirrorAt        int // iteration when mirror was last injected
-	lastAutoCompactAt   int // iteration when last auto-compact happened
-	autoCompactCooldown int // iterations to skip after auto-compact (prevents loop)
-	currentIteration    int // tracks current iteration for cooldown calculations
+	lastMirrorAt        int          // iteration when mirror was last injected
+	lastAutoCompactAt   int          // iteration when last auto-compact happened
+	autoCompactCooldown int          // iterations to skip after auto-compact (prevents loop)
+	currentIteration    atomic.Int64 // tracks current iteration for cooldown calculations (read by pkg/serve over HTTP)
 
 	// Hub — agent hub for inter-agent communication
 	// When set, the agent will check for hub messages on SIGUSR1 signal
@@ -96,6 +99,12 @@ type AgentLoop struct {
 	// providerSessionID — last session ID sent to the provider (x-opencode-session).
 	// Rotated on persistent upstream failures; independent of the history file ID.
 	providerSessionID string
+
+	// compactRequest is set by an external caller (pkg/serve HTTP handler) to ask
+	// a running loop to force-compact itself. The loop consumes it between
+	// iterations — the only place where mutating the context is race-free,
+	// because the streaming goroutine owns it.
+	compactRequest atomic.Bool
 }
 
 // NewAgentLoop creates a new agent loop
@@ -145,13 +154,15 @@ func (a *AgentLoop) RegisterTool(tool tools.Tool) {
 // SetSystemPrompt sets the system prompt
 func (a *AgentLoop) SetSystemPrompt(prompt string) {
 	// Remove old system prompt
-	var filtered []provider.Message
-	for _, m := range a.Context.Messages {
-		if m.Role != "system" {
-			filtered = append(filtered, m)
+	a.Context.MessagesFunc(func(msgs []provider.Message) []provider.Message {
+		filtered := make([]provider.Message, 0, len(msgs))
+		for _, m := range msgs {
+			if m.Role != "system" {
+				filtered = append(filtered, m)
+			}
 		}
-	}
-	a.Context.Messages = filtered
+		return filtered
+	})
 	a.Context.Add(provider.SystemMsg(prompt))
 }
 
@@ -224,6 +235,23 @@ func (a *AgentLoop) SetFallbackConfig(maxRetries int, retryDelay time.Duration, 
 // GetProvider returns the current provider
 func (a *AgentLoop) GetProvider() provider.Provider {
 	return a.provider
+}
+
+// CurrentIteration returns the iteration the loop is on. Safe to call from
+// other goroutines (pkg/serve polls it over HTTP while a run is in flight).
+func (a *AgentLoop) CurrentIteration() int {
+	return int(a.currentIteration.Load())
+}
+
+// ToolNames returns the registered tool names, sorted. Safe for concurrent
+// reads while a run is in flight; registration itself happens before Start.
+func (a *AgentLoop) ToolNames() []string {
+	names := make([]string, 0, len(a.Tools))
+	for name := range a.Tools {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // SetNonInteractive sets non-interactive mode (exec)
@@ -461,18 +489,52 @@ func (a *AgentLoop) InjectUserMessage(text string) bool {
 	}
 }
 
+// RequestCompact asks a running loop to force-compact its context before the
+// next provider request. Safe to call from any goroutine.
+func (a *AgentLoop) RequestCompact() {
+	a.compactRequest.Store(true)
+}
+
+// maybePendingCompact performs a compaction requested through RequestCompact.
+// Must run on the loop goroutine: the streaming loop owns the context, so this
+// is the only race-free place to mutate it.
+func (a *AgentLoop) maybePendingCompact(eventCh chan<- provider.StreamEvent) {
+	if !a.compactRequest.Swap(false) {
+		return
+	}
+	tokensBefore := a.Context.TokenCount()
+	msgsBefore := a.Context.MessageCount()
+	// CompactForce fires the OnCompactForce callback itself, which resets speed
+	// tracking and the compaction cooldown — no need to repeat that here.
+	a.Context.CompactForce()
+	tokensAfter := a.Context.TokenCount()
+	msgsAfter := a.Context.MessageCount()
+	if a.verbose {
+		logger.Debug("compact_requested", "tokens_before", tokensBefore, "tokens_after", tokensAfter)
+	}
+	select {
+	case eventCh <- provider.StreamEvent{
+		Type:           provider.EventCompactionDone,
+		TokensBefore:   tokensBefore,
+		TokensAfter:    tokensAfter,
+		MessagesBefore: msgsBefore,
+		MessagesAfter:  msgsAfter,
+		CompactionType: "requested",
+	}:
+	default:
+	}
+}
+
 // Run is the main loop: think → parse tools → execute → repeat
 func (a *AgentLoop) Run(input string) (string, error) {
-	if a.Context.OriginalTask == "" {
-		a.Context.OriginalTask = input
-	}
+	a.Context.InitOriginalTask(input)
 	a.Context.Add(provider.UserMsg(input))
 	return a.runLoop()
 }
 
 // RunWithMessages starts with ready messages
 func (a *AgentLoop) RunWithMessages(messages []provider.Message) (string, error) {
-	a.Context.Messages = append(a.Context.Messages, messages...)
+	a.Context.AppendMessages(messages...)
 	return a.runLoop()
 }
 
@@ -486,12 +548,12 @@ func (a *AgentLoop) runLoop() (string, error) {
 	toolDefs := a.buildToolDefs()
 
 	for iteration := 1; ; iteration++ {
-		a.currentIteration = iteration
+		a.currentIteration.Store(int64(iteration))
 		// Check iteration limit (for subagents)
 		if a.maxIterations > 0 && iteration > a.maxIterations {
 			lastText := ""
-			if len(a.Context.Messages) > 0 {
-				lastText = a.Context.Messages[len(a.Context.Messages)-1].GetText()
+			if msgs := a.Context.GetMessages(); len(msgs) > 0 {
+				lastText = msgs[len(msgs)-1].GetText()
 			}
 			return lastText, nil
 		}
@@ -504,7 +566,7 @@ func (a *AgentLoop) runLoop() (string, error) {
 		if a.debug {
 			a.debugLog("→ Request", map[string]any{
 				"iteration": iteration,
-				"messages":  a.Context.Messages,
+				"messages":  a.Context.GetMessages(),
 				"tools":     toolDefs,
 			})
 		}
@@ -527,7 +589,7 @@ func (a *AgentLoop) runLoop() (string, error) {
 		// ResponseHeaderTimeout before this fix).
 		reqCtx, reqCancel := context.WithTimeout(context.Background(), a.effectiveRequestTimeout())
 		for retry := 0; retry < maxRetries; retry++ {
-			result, err = a.provider.CompleteWithCtx(reqCtx, a.Context.Messages, toolDefs)
+			result, err = a.provider.CompleteWithCtx(reqCtx, a.Context.GetMessages(), toolDefs)
 			if err == nil {
 				break
 			}
@@ -546,7 +608,7 @@ func (a *AgentLoop) runLoop() (string, error) {
 				logger.Debug("fallback_switch", "from", a.provider.Name(), "to", a.fallbackProvider.Name())
 			}
 			for retry := 0; retry < maxRetries; retry++ {
-				result, err = a.fallbackProvider.CompleteWithCtx(reqCtx, a.Context.Messages, toolDefs)
+				result, err = a.fallbackProvider.CompleteWithCtx(reqCtx, a.Context.GetMessages(), toolDefs)
 				if err == nil {
 					break
 				}
@@ -576,7 +638,7 @@ func (a *AgentLoop) runLoop() (string, error) {
 		}
 
 		// Add assistant response to context
-		a.Context.Messages = append(a.Context.Messages, result.Message)
+		a.Context.AppendMessages(result.Message)
 
 		// Check thinking loop
 		thinkingText := result.Message.GetThinking()
@@ -637,46 +699,47 @@ func (a *AgentLoop) runLoop() (string, error) {
 							return text, errors.New(msg)
 						}
 					}
-				// Auto-continue: model responded without tool calls (max 3 times)
-				// Only when auto-continue is enabled (TUI mode)
-				// Skip if the response looks like a genuine completion (recap, "done", short answer)
-				// Skip if the last user message is a compact notification — model is re-establishing context
-				completionDetected := LooksLikeCompletion(text)
-				lastUserMsgIsCompact := false
-				for i := len(a.Context.Messages) - 1; i >= 0; i-- {
-					if a.Context.Messages[i].Role == "user" {
-						msgText := a.Context.Messages[i].GetText()
-						if strings.Contains(msgText, "[Context was compacted") ||
-							strings.Contains(msgText, "[Auto-compacted]") ||
-							strings.Contains(msgText, "[Compacted. Original task:") {
-							lastUserMsgIsCompact = true
+					// Auto-continue: model responded without tool calls (max 3 times)
+					// Only when auto-continue is enabled (TUI mode)
+					// Skip if the response looks like a genuine completion (recap, "done", short answer)
+					// Skip if the last user message is a compact notification — model is re-establishing context
+					completionDetected := LooksLikeCompletion(text)
+					lastUserMsgIsCompact := false
+					snapshot := a.Context.GetMessages()
+					for i := len(snapshot) - 1; i >= 0; i-- {
+						if snapshot[i].Role == "user" {
+							msgText := snapshot[i].GetText()
+							if strings.Contains(msgText, "[Context was compacted") ||
+								strings.Contains(msgText, "[Auto-compacted]") ||
+								strings.Contains(msgText, "[Compacted. Original task:") {
+								lastUserMsgIsCompact = true
+							}
+							break
 						}
-						break
 					}
-				}
-				if a.verbose {
-					logger.Debug("auto_continue_check",
-						"autoContinue", a.autoContinue,
-						"count", a.autoContinueCount,
-						"textLen", len(text),
-						"completionDetected", completionDetected,
-						"lastUserMsgIsCompact", lastUserMsgIsCompact,
-						"textPreview", truncate(text, 100),
-					)
-				}
-				if a.autoContinue && a.autoContinueCount < 3 && a.Context != nil && !completionDetected && !lastUserMsgIsCompact {
-					a.autoContinueCount++
-					continueHint := "Continue. Use tools."
-					if a.Context.OriginalTask != "" {
-						continueHint = fmt.Sprintf(
-							"Text-only reply, task not done. Original task: %s. Continue using tools.",
-							a.Context.OriginalTask,
+					if a.verbose {
+						logger.Debug("auto_continue_check",
+							"autoContinue", a.autoContinue,
+							"count", a.autoContinueCount,
+							"textLen", len(text),
+							"completionDetected", completionDetected,
+							"lastUserMsgIsCompact", lastUserMsgIsCompact,
+							"textPreview", truncate(text, 100),
 						)
 					}
-					a.Context.Add(provider.UserMsg(continueHint))
-					continue
-				}
-				return text, nil
+					if a.autoContinue && a.autoContinueCount < 3 && a.Context != nil && !completionDetected && !lastUserMsgIsCompact {
+						a.autoContinueCount++
+						continueHint := "Continue. Use tools."
+						if orig := a.Context.OriginalTaskValue(); orig != "" {
+							continueHint = fmt.Sprintf(
+								"Text-only reply, task not done. Original task: %s. Continue using tools.",
+								orig,
+							)
+						}
+						a.Context.Add(provider.UserMsg(continueHint))
+						continue
+					}
+					return text, nil
 				}
 				// toolCalls exist but with empty parameters — and no XML fallback
 				// Leave as is, tools will return an error
@@ -714,7 +777,7 @@ func (a *AgentLoop) runLoop() (string, error) {
 				hint := fmt.Sprintf("\n\nAvailable tools: %s\nCorrect format: %s",
 					strings.Join(availableTools, ", "),
 					getToolCallHint("read"))
-				a.Context.Messages = append(a.Context.Messages, provider.ToolResultMsg(
+				a.Context.AppendMessages(provider.ToolResultMsg(
 					tc.ToolUseID, tc.ToolName, "ERROR: "+errMsg+hint, true,
 				))
 				continue
@@ -730,7 +793,7 @@ func (a *AgentLoop) runLoop() (string, error) {
 					errMsg += fmt.Sprintf("\nRaw input: %v", rawInput)
 				}
 				logger.Error("tool parse error", "tool", tc.ToolName, "error", errMsg)
-				a.Context.Messages = append(a.Context.Messages, provider.ToolResultMsg(
+				a.Context.AppendMessages(provider.ToolResultMsg(
 					tc.ToolUseID, tc.ToolName, "ERROR: "+errMsg, true,
 				))
 				continue
@@ -752,7 +815,7 @@ func (a *AgentLoop) runLoop() (string, error) {
 				result := a.PermissionChecker.CheckPermission(req)
 				if result == PermDenied {
 					logger.Warn("tool forbidden", "tool", tc.ToolName, "level", req.Level)
-					a.Context.Messages = append(a.Context.Messages, provider.ToolResultMsg(
+					a.Context.AppendMessages(provider.ToolResultMsg(
 						tc.ToolUseID, tc.ToolName,
 						i18n.T("errors.forbidden", req.Level), true,
 					))
@@ -777,7 +840,7 @@ func (a *AgentLoop) runLoop() (string, error) {
 			toolOK := toolResult.Error == ""
 			if toolResult.Error != "" {
 				logger.Error("tool error", "tool", tc.ToolName, "error", toolResult.Error, "duration", elapsed)
-				a.Context.Messages = append(a.Context.Messages, provider.ToolResultMsg(
+				a.Context.AppendMessages(provider.ToolResultMsg(
 					tc.ToolUseID, tc.ToolName, "ERROR: "+toolResult.Error, true,
 				))
 			} else {
@@ -794,7 +857,7 @@ func (a *AgentLoop) runLoop() (string, error) {
 						Text: toolResult.Output,
 					}
 					// For Anthropic: tool_result can contain content blocks
-					a.Context.Messages = append(a.Context.Messages, provider.Message{
+					a.Context.AppendMessages(provider.Message{
 						Role: "user",
 						Content: []provider.ContentBlock{
 							{
@@ -807,7 +870,7 @@ func (a *AgentLoop) runLoop() (string, error) {
 						},
 					})
 					// Also add image as separate user message for models that need it
-					a.Context.Messages = append(a.Context.Messages, provider.UserImageTextMsg(
+					a.Context.AppendMessages(provider.UserImageTextMsg(
 						fmt.Sprintf("[Screenshot from tool %s]", tc.ToolName),
 						base64Data, format,
 					))
@@ -815,7 +878,7 @@ func (a *AgentLoop) runLoop() (string, error) {
 					if a.verbose {
 						logger.Debug("tool_result", "tool", tc.ToolName, "duration", elapsed, "output", truncate(toolResult.Output, 500))
 					}
-					a.Context.Messages = append(a.Context.Messages, provider.ToolResultMsg(
+					a.Context.AppendMessages(provider.ToolResultMsg(
 						tc.ToolUseID, tc.ToolName, toolResult.Output, false,
 					))
 				}
@@ -834,18 +897,14 @@ func (a *AgentLoop) runLoop() (string, error) {
 
 // Stream is the streaming agent loop
 func (a *AgentLoop) Stream(input string) (<-chan provider.StreamEvent, error) {
-	if a.Context.OriginalTask == "" {
-		a.Context.OriginalTask = input
-	}
+	a.Context.InitOriginalTask(input)
 	a.Context.Add(provider.UserMsg(input))
 	return a.streamLoopWithCtx(context.Background())
 }
 
 // StreamWithCancel is the streaming loop with context cancellation support
 func (a *AgentLoop) StreamWithCancel(ctx context.Context, input string) (<-chan provider.StreamEvent, error) {
-	if a.Context.OriginalTask == "" {
-		a.Context.OriginalTask = input
-	}
+	a.Context.InitOriginalTask(input)
 	a.Context.Add(provider.UserMsg(input))
 	return a.streamLoopWithCtx(ctx)
 }
@@ -859,11 +918,24 @@ func (a *AgentLoop) streamLoopWithCtx(ctx context.Context) (<-chan provider.Stre
 
 	// Disable auto-compaction in Add() — will do it explicitly
 	// to send compaction event to UI
-	a.Context.AutoCompact = false
+	a.Context.SetAutoCompact(false)
 
 	go func() {
 		defer func() {
-			a.Context.AutoCompact = true
+			// A panic anywhere in the loop (a buggy provider or tool) must not
+			// take down the process: surface it as an error event so callers
+			// like pkg/serve can end the run cleanly.
+			if r := recover(); r != nil {
+				logger.Error("agent loop panic", "panic", r, "stack", string(debug.Stack()))
+				select {
+				case eventCh <- provider.StreamEvent{
+					Type:  provider.EventError,
+					Error: fmt.Errorf("internal panic in agent loop: %v", r),
+				}:
+				default:
+				}
+			}
+			a.Context.SetAutoCompact(true)
 			close(eventCh)
 		}()
 
@@ -879,7 +951,7 @@ func (a *AgentLoop) streamLoopWithCtx(ctx context.Context) (<-chan provider.Stre
 		const maxConsecutiveUpstream = 4
 
 		for iteration := 1; ; iteration++ {
-			a.currentIteration = iteration
+			a.currentIteration.Store(int64(iteration))
 			// Check iteration limit (for subagents)
 			if a.maxIterations > 0 && iteration > a.maxIterations && iteration <= a.maxIterations+1 {
 				// Instead of just taking last message text,
@@ -893,8 +965,8 @@ func (a *AgentLoop) streamLoopWithCtx(ctx context.Context) (<-chan provider.Stre
 			// Hard limit: if we're way past maxIterations, force stop
 			if a.maxIterations > 0 && iteration > a.maxIterations+2 {
 				lastText := ""
-				if len(a.Context.Messages) > 0 {
-					lastText = a.Context.Messages[len(a.Context.Messages)-1].GetText()
+				if msgs := a.Context.GetMessages(); len(msgs) > 0 {
+					lastText = msgs[len(msgs)-1].GetText()
 				}
 				if lastText != "" {
 					eventCh <- provider.StreamEvent{Type: provider.EventTextDelta, Text: lastText}
@@ -921,6 +993,9 @@ func (a *AgentLoop) streamLoopWithCtx(ctx context.Context) (<-chan provider.Stre
 			// to prevent context pollution. Keeps only the last auto-continue.
 			a.Context.CleanupTransients()
 
+			// Apply a force-compaction requested from outside (pkg/serve HTTP).
+			a.maybePendingCompact(eventCh)
+
 			// Compact context if needed before sending request
 			// This prevents context overflow from max_tokens continuations
 			a.maybeCompact(eventCh, ctx)
@@ -937,7 +1012,7 @@ func (a *AgentLoop) streamLoopWithCtx(ctx context.Context) (<-chan provider.Stre
 			if a.debug {
 				a.debugLog("→ Stream Request", map[string]any{
 					"iteration": iteration,
-					"messages":  a.Context.Messages,
+					"messages":  a.Context.GetMessages(),
 					"tools":     a.buildToolDefs(),
 				})
 			}
@@ -1236,7 +1311,7 @@ func (a *AgentLoop) maybeCompact(eventCh chan<- provider.StreamEvent, ctx contex
 	a.Context.lowSaveCount = 0
 
 	// Count messages before compaction
-	msgsBefore := len(a.Context.Messages)
+	msgsBefore := a.Context.MessageCount()
 	tokensBefore := tokenCount
 
 	// Non-blocking send of compaction start events
@@ -1250,7 +1325,7 @@ func (a *AgentLoop) maybeCompact(eventCh chan<- provider.StreamEvent, ctx contex
 	a.Context.Compact()
 
 	// Count after compaction
-	msgsAfter := len(a.Context.Messages)
+	msgsAfter := a.Context.MessageCount()
 	tokensAfter := a.Context.TokenCount()
 
 	// Check cancellation context after compaction
@@ -1290,13 +1365,13 @@ func (a *AgentLoop) maybeCompact(eventCh chan<- provider.StreamEvent, ctx contex
 
 	// Inject original task reminder after compaction so the model
 	// doesn't lose track of what it was doing
-	if a.Context.OriginalTask != "" {
+	if orig := a.Context.OriginalTaskValue(); orig != "" {
 		// Remove old compaction reminders — keep only the latest one
 		// so they don't accumulate and pollute the context
-		a.Context.Messages = RemoveCompactionReminders(a.Context.Messages)
+		a.Context.MessagesFunc(RemoveCompactionReminders)
 		taskReminder := fmt.Sprintf(
 			"[Compacted. Original task: %s. Continue.]",
-			a.Context.OriginalTask,
+			orig,
 		)
 		a.Context.Add(provider.UserMsg(taskReminder))
 	}
@@ -1458,7 +1533,7 @@ func (a *AgentLoop) injectSpeedMirror(iteration int, iterDuration time.Duration)
 	// This handles the case when model is "in the flow" and ignores mirror warnings
 	// Cooldown: skip auto-compact for 10 iterations after last one to prevent loops
 	// Also check time-based cooldown to prevent double compaction (tool + auto)
-		if slowdownRatio > 3.0 && contextUsage > 50 && maxTokens > 0 && !a.IsCompactForceCooldown() {
+	if slowdownRatio > 3.0 && contextUsage > 50 && maxTokens > 0 && !a.IsCompactForceCooldown() {
 		iterationsSinceLastCompact := iteration - a.lastAutoCompactAt
 		if a.lastAutoCompactAt == 0 || iterationsSinceLastCompact >= 10 {
 			a.lastAutoCompactAt = iteration
@@ -1505,7 +1580,7 @@ func (a *AgentLoop) injectSpeedMirror(iteration int, iterDuration time.Duration)
 
 	// Remove old performance mirrors — keep only the latest one
 	// so they don't accumulate and pollute the context
-	a.Context.Messages = RemovePerformanceMirrors(a.Context.Messages)
+	a.Context.MessagesFunc(RemovePerformanceMirrors)
 	a.Context.Add(provider.SystemMsg(sb.String()))
 }
 
@@ -1522,7 +1597,7 @@ func (a *AgentLoop) ResetSpeedTracking() {
 // SetLastAutoCompactAt marks the current iteration as the last auto-compact time.
 // Used by OnCompactForce callback to enforce cooldown after CompactForce tool call.
 func (a *AgentLoop) SetLastAutoCompactAt() {
-	a.lastAutoCompactAt = a.currentIteration
+	a.lastAutoCompactAt = int(a.currentIteration.Load())
 }
 
 // IsCompactForceCooldown returns true if compact_force is currently in cooldown period.

@@ -211,12 +211,12 @@ func TestConversationContext_TokenBasedTrim(t *testing.T) {
 	}
 
 	// Context should be trimmed
-	if len(ctx.Messages) >= 41 {
-		t.Errorf("Expected compaction, got %d messages", len(ctx.Messages))
+	if len(ctx.messages) >= 41 {
+		t.Errorf("Expected compaction, got %d messages", len(ctx.messages))
 	}
 
 	// The system prompt should be preserved
-	if ctx.Messages[0].Role != "system" {
+	if ctx.messages[0].Role != "system" {
 		t.Error("System prompt should be preserved")
 	}
 }
@@ -1296,7 +1296,7 @@ func TestAntiThrashing_SkipsAutoCompact(t *testing.T) {
 func TestManualCompactBypassesAntiThrashing(t *testing.T) {
 	// Manual compaction (Compact) should bypass anti-thrashing
 	ctx := NewConversationContextWithTokens(100, 2)
-	ctx.AutoCompact = false // отключаем авто-компакцию при Add()
+	ctx.SetAutoCompact(false) // отключаем авто-компакцию при Add()
 	ctx.Add(provider.SystemMsg("system"))
 
 	// Add many messages to exceed the limit

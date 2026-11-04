@@ -573,7 +573,7 @@ func createAgentLoop(cfg *config.BugBusterConfig, p provider.Provider, changeTra
 				break
 			}
 		}
-		loop.Context.Messages = msgs
+		loop.Context.SetMessages(msgs)
 	}
 
 	// OnCompactForce callback — reset speed tracking after CompactForce

@@ -1023,7 +1023,7 @@ func activateSkill(loop *agent.AgentLoop, name string) {
 			break
 		}
 	}
-	loop.Context.Messages = msgs
+	loop.Context.SetMessages(msgs)
 	color.Green("✓ Skill '%s' activated", name)
 	color.HiBlack("  Instructions injected into system prompt")
 }

@@ -69,7 +69,7 @@ func (a *AgentLoop) streamRetryRequest(ctx context.Context, eventCh chan<- provi
 		default:
 		}
 
-		stream, err = a.provider.StreamWithCtx(ctx, a.Context.Messages, a.buildToolDefs())
+		stream, err = a.provider.StreamWithCtx(ctx, a.Context.GetMessages(), a.buildToolDefs())
 		if err == nil {
 			return stream, nil
 		}
@@ -191,7 +191,7 @@ func (a *AgentLoop) streamRetryRequest(ctx context.Context, eventCh chan<- provi
 			default:
 			}
 
-			stream, err = a.fallbackProvider.StreamWithCtx(ctx, a.Context.Messages, a.buildToolDefs())
+			stream, err = a.fallbackProvider.StreamWithCtx(ctx, a.Context.GetMessages(), a.buildToolDefs())
 			if err == nil {
 				return stream, nil
 			}
@@ -408,7 +408,7 @@ streamLoop:
 				}
 				content = append(content, result.toolCalls...)
 
-				a.Context.Messages = append(a.Context.Messages, provider.Message{
+				a.Context.AppendMessages(provider.Message{
 					Role:    "assistant",
 					Content: content,
 				})
@@ -492,7 +492,7 @@ streamLoop:
 	}
 	content = append(content, result.toolCalls...)
 
-	a.Context.Messages = append(a.Context.Messages, provider.Message{
+	a.Context.AppendMessages(provider.Message{
 		Role:    "assistant",
 		Content: content,
 	})
@@ -585,7 +585,7 @@ func (a *AgentLoop) handleStreamToolCalls(
 				strings.Join(availableTools, ", "),
 				getToolCallHint("read"))
 			eventCh <- provider.StreamEvent{Type: provider.EventTextDelta, Text: "\n[ERROR: " + errMsg + hint + "]\n"}
-			a.Context.Messages = append(a.Context.Messages, provider.ToolResultMsg(
+			a.Context.AppendMessages(provider.ToolResultMsg(
 				tc.ToolUseID, tc.ToolName, "ERROR: "+errMsg+hint, true,
 			))
 			continue
@@ -601,7 +601,7 @@ func (a *AgentLoop) handleStreamToolCalls(
 				errMsg += fmt.Sprintf("\nRaw input: %v", rawInput)
 			}
 			eventCh <- provider.StreamEvent{Type: provider.EventTextDelta, Text: "\n[ERROR: " + errMsg + "]\n"}
-			a.Context.Messages = append(a.Context.Messages, provider.ToolResultMsg(
+			a.Context.AppendMessages(provider.ToolResultMsg(
 				tc.ToolUseID, tc.ToolName, "ERROR: "+errMsg, true,
 			))
 			continue
@@ -623,7 +623,7 @@ func (a *AgentLoop) handleStreamToolCalls(
 			permResult := a.PermissionChecker.CheckPermission(req)
 			if permResult == PermDenied {
 				eventCh <- provider.StreamEvent{Type: provider.EventTextDelta, Text: fmt.Sprintf("[FORBIDDEN] %s: %s\n", tc.ToolName, i18n.T("errors.forbidden", req.Level))}
-				a.Context.Messages = append(a.Context.Messages, provider.ToolResultMsg(
+				a.Context.AppendMessages(provider.ToolResultMsg(
 					tc.ToolUseID, tc.ToolName,
 					i18n.T("errors.forbidden", req.Level), true,
 				))
@@ -698,7 +698,7 @@ func (a *AgentLoop) handleStreamToolCalls(
 				hint := getToolCallHint(tc.ToolName)
 				errorMsg = fmt.Sprintf("%s\n\nCorrect format: %s", errorMsg, hint)
 			}
-			a.Context.Messages = append(a.Context.Messages, provider.ToolResultMsg(
+			a.Context.AppendMessages(provider.ToolResultMsg(
 				tc.ToolUseID, tc.ToolName, "ERROR: "+errorMsg, true,
 			))
 		} else {
@@ -713,7 +713,7 @@ func (a *AgentLoop) handleStreamToolCalls(
 					Type: "text",
 					Text: toolResult.Output,
 				}
-				a.Context.Messages = append(a.Context.Messages, provider.Message{
+				a.Context.AppendMessages(provider.Message{
 					Role: "user",
 					Content: []provider.ContentBlock{
 						{
@@ -725,12 +725,12 @@ func (a *AgentLoop) handleStreamToolCalls(
 						imageBlock,
 					},
 				})
-				a.Context.Messages = append(a.Context.Messages, provider.UserImageTextMsg(
+				a.Context.AppendMessages(provider.UserImageTextMsg(
 					fmt.Sprintf("[Screenshot from tool %s]", tc.ToolName),
 					base64Data, format,
 				))
 			} else {
-				a.Context.Messages = append(a.Context.Messages, provider.ToolResultMsg(
+				a.Context.AppendMessages(provider.ToolResultMsg(
 					tc.ToolUseID, tc.ToolName, toolResult.Output, false,
 				))
 			}
@@ -802,9 +802,10 @@ func (a *AgentLoop) handleStreamFinalResponse(
 	// Skip if the last user message is a compact notification — model is re-establishing context
 	completionDetected := LooksLikeCompletion(text)
 	lastUserMsgIsCompact := false
-	for i := len(a.Context.Messages) - 1; i >= 0; i-- {
-		if a.Context.Messages[i].Role == "user" {
-			msgText := a.Context.Messages[i].GetText()
+	snapshot := a.Context.GetMessages()
+	for i := len(snapshot) - 1; i >= 0; i-- {
+		if snapshot[i].Role == "user" {
+			msgText := snapshot[i].GetText()
 			if strings.Contains(msgText, "[Context was compacted") ||
 				strings.Contains(msgText, "[Auto-compacted]") ||
 				strings.Contains(msgText, "[Compacted. Original task:") {
@@ -823,17 +824,18 @@ func (a *AgentLoop) handleStreamFinalResponse(
 			"textPreview", truncate(text, 100),
 		)
 	}
-	if a.autoContinue && a.autoContinueCount < 3 && a.Context != nil && len(a.Context.Messages) > 0 && !completionDetected && !lastUserMsgIsCompact {
-		lastMsg := a.Context.Messages[len(a.Context.Messages)-1]
+	if a.autoContinue && a.autoContinueCount < 3 && a.Context != nil && a.Context.MessageCount() > 0 && !completionDetected && !lastUserMsgIsCompact {
+		snapshot := a.Context.GetMessages()
+		lastMsg := snapshot[len(snapshot)-1]
 		if lastMsg.Role == "assistant" && len(text) > 0 {
 			// Model responded with text only, no tool calls
 			// Add a hint to continue with tools
 			a.autoContinueCount++
 			continueHint := "Continue. Use tools."
-			if a.Context.OriginalTask != "" {
+			if orig := a.Context.OriginalTaskValue(); orig != "" {
 				continueHint = fmt.Sprintf(
 					"Text-only reply, task not done. Original task: %s. Continue using tools.",
-					a.Context.OriginalTask,
+					orig,
 				)
 			}
 			a.Context.Add(provider.UserMsg(continueHint))

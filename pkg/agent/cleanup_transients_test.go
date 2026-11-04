@@ -32,9 +32,9 @@ func TestCleanupTransients_RemovesOldAutoContinue(t *testing.T) {
 	ctx.Add(provider.UserMsg("Continue."))
 	ctx.Add(assistantMsg("Final answer"))
 
-	before := len(ctx.Messages)
+	before := len(ctx.messages)
 	ctx.CleanupTransients()
-	after := len(ctx.Messages)
+	after := len(ctx.messages)
 
 	if after >= before {
 		t.Errorf("CleanupTransients should reduce message count: before=%d, after=%d", before, after)
@@ -42,7 +42,7 @@ func TestCleanupTransients_RemovesOldAutoContinue(t *testing.T) {
 
 	// Check that only the last "Continue." remains
 	continueCount := 0
-	for _, m := range ctx.Messages {
+	for _, m := range ctx.messages {
 		if m.Role == "user" && m.GetResponseText() == "Continue." {
 			continueCount++
 		}
@@ -52,7 +52,7 @@ func TestCleanupTransients_RemovesOldAutoContinue(t *testing.T) {
 	}
 
 	// Check that the long auto-continue hint was removed
-	for _, m := range ctx.Messages {
+	for _, m := range ctx.messages {
 		text := m.GetResponseText()
 		if strings.Contains(text, "Continue working. Use tools") {
 			t.Errorf("Old auto-continue hint should be removed, found: %s", text[:min(50, len(text))])
@@ -71,16 +71,16 @@ func TestCleanupTransients_RemovesTransientErrors(t *testing.T) {
 	// Normal message — should be kept
 	ctx.Add(provider.UserMsg("Please fix the bug in main.go"))
 
-	before := len(ctx.Messages)
+	before := len(ctx.messages)
 	ctx.CleanupTransients()
-	after := len(ctx.Messages)
+	after := len(ctx.messages)
 
 	if after >= before {
 		t.Errorf("CleanupTransients should reduce message count: before=%d, after=%d", before, after)
 	}
 
 	// Check that idle timeout hint was removed
-	for _, m := range ctx.Messages {
+	for _, m := range ctx.messages {
 		text := m.GetResponseText()
 		if strings.Contains(text, "stream_idle") {
 			t.Errorf("Transient error message should be removed, found: %s", text[:min(50, len(text))])
@@ -96,9 +96,9 @@ func TestCleanupTransients_KeepsNormalMessages(t *testing.T) {
 	ctx.Add(provider.UserMsg("What about the error in line 42?"))
 	ctx.Add(assistantMsg("Let me check..."))
 
-	before := len(ctx.Messages)
+	before := len(ctx.messages)
 	ctx.CleanupTransients()
-	after := len(ctx.Messages)
+	after := len(ctx.messages)
 
 	if after != before {
 		t.Errorf("CleanupTransients should not remove normal messages: before=%d, after=%d", before, after)
@@ -108,7 +108,7 @@ func TestCleanupTransients_KeepsNormalMessages(t *testing.T) {
 func TestCleanupTransients_EmptyContext(t *testing.T) {
 	ctx := NewConversationContextWithTokens(8000, 20)
 	ctx.CleanupTransients() // should not panic
-	if len(ctx.Messages) != 0 {
+	if len(ctx.messages) != 0 {
 		t.Errorf("Empty context should remain empty after cleanup")
 	}
 }
@@ -411,9 +411,9 @@ func TestCleanupTransients_RemovesOldCompactionReminders(t *testing.T) {
 	ctx.Add(provider.UserMsg("[Auto-compacted] Context was slow"))
 	ctx.Add(assistantMsg("Final answer"))
 
-	before := len(ctx.Messages)
+	before := len(ctx.messages)
 	ctx.CleanupTransients()
-	after := len(ctx.Messages)
+	after := len(ctx.messages)
 
 	if after >= before {
 		t.Errorf("CleanupTransients should reduce message count: before=%d, after=%d", before, after)
@@ -421,7 +421,7 @@ func TestCleanupTransients_RemovesOldCompactionReminders(t *testing.T) {
 
 	// Only the last compaction reminder should remain
 	count := 0
-	for _, m := range ctx.Messages {
+	for _, m := range ctx.messages {
 		if isCompactionReminder(m) {
 			count++
 		}
@@ -444,9 +444,9 @@ func TestCleanupTransients_RemovesOldPerformanceMirrors(t *testing.T) {
 	ctx.Add(provider.SystemMsg("[Performance mirror] Iteration 15. Avg iteration time: 3.9s."))
 	ctx.Add(assistantMsg("Final answer"))
 
-	before := len(ctx.Messages)
+	before := len(ctx.messages)
 	ctx.CleanupTransients()
-	after := len(ctx.Messages)
+	after := len(ctx.messages)
 
 	if after >= before {
 		t.Errorf("CleanupTransients should reduce message count: before=%d, after=%d", before, after)
@@ -454,7 +454,7 @@ func TestCleanupTransients_RemovesOldPerformanceMirrors(t *testing.T) {
 
 	// Only the last performance mirror should remain
 	count := 0
-	for _, m := range ctx.Messages {
+	for _, m := range ctx.messages {
 		if isPerformanceMirror(m) {
 			count++
 		}
@@ -477,9 +477,9 @@ func TestCleanupTransients_SystemAutoCompactedNotices(t *testing.T) {
 	ctx.Add(provider.SystemMsg("[Auto-compacted] 60%→15%. Continue your task."))
 	ctx.Add(assistantMsg("Final answer"))
 
-	before := len(ctx.Messages)
+	before := len(ctx.messages)
 	ctx.CleanupTransients()
-	after := len(ctx.Messages)
+	after := len(ctx.messages)
 
 	if after >= before {
 		t.Errorf("CleanupTransients should reduce message count: before=%d, after=%d", before, after)
@@ -487,7 +487,7 @@ func TestCleanupTransients_SystemAutoCompactedNotices(t *testing.T) {
 
 	// Only the latest system notice should remain
 	count := 0
-	for _, m := range ctx.Messages {
+	for _, m := range ctx.messages {
 		if isCompactionReminder(m) && m.Role == "system" {
 			count++
 		}
@@ -496,7 +496,7 @@ func TestCleanupTransients_SystemAutoCompactedNotices(t *testing.T) {
 		t.Errorf("Expected 1 system compaction notice after cleanup, got %d", count)
 	}
 	// The latest one must be the short one
-	last := ctx.Messages[len(ctx.Messages)-2]
+	last := ctx.messages[len(ctx.messages)-2]
 	if last.Role != "system" || !strings.Contains(last.GetText(), "60%→15%") {
 		t.Errorf("Latest system notice should be kept, got: %v", last)
 	}
@@ -517,7 +517,7 @@ func TestCleanupTransients_KeepsLatestUserAndSystemReminders(t *testing.T) {
 
 	// One user reminder (latest) AND one system notice (latest) should remain
 	userCount, sysCount := 0, 0
-	for _, m := range ctx.Messages {
+	for _, m := range ctx.messages {
 		if !isCompactionReminder(m) {
 			continue
 		}

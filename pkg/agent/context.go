@@ -12,13 +12,16 @@ import (
 // Thread-safe: all methods are protected by RWMutex for safe concurrent access
 // from streaming goroutines and UI goroutines.
 type ConversationContext struct {
-	mu                  sync.RWMutex
-	Messages            []provider.Message
+	mu sync.RWMutex
+	// messages is the conversation history. It is unexported on purpose: every
+	// read or write must go through a locking accessor, because the streaming
+	// loop goroutine and HTTP/UI goroutines touch it concurrently. Use
+	// GetMessages/AppendMessages/SetMessages/MessageCount.
+	messages            []provider.Message
 	MaxTokens           int               // maximum token count (0 = default 8000)
 	KeepRecent          int               // how many recent messages to keep during compaction
 	SkipCompaction      bool              // skip compaction (for providers managing context themselves)
 	Compactor           Compactor         // context compactor (nil = simple truncation)
-	AutoCompact         bool              // automatically compact on Add() (default: true)
 	OnCompact           func()            // callback before compaction (for UI notification)
 	CompactionNotifier  func(tokensBefore, tokensAfter, msgsBefore, msgsAfter int, compType string) // callback after any compaction with details
 	OnCompactForce      func()            // callback after CompactForce (to reset speed tracking)
@@ -26,10 +29,14 @@ type ConversationContext struct {
 	Ctx                 context.Context   // cancellation context for compaction (nil = context.Background())
 	Archive             *ArchiveStore     // context archive (nil = archiving disabled)
 	Optimizer           *ArchiveOptimizer // archive optimizer (nil = optimization disabled)
-	SessionID           string            // ID of current session for linking with archive blocks
+	SessionID           string            // ID of current session for linking with archive
 	lastCompactionRatio float64           // savings ratio at last compaction
 	lowSaveCount        int               // how many consecutive times savings < 10%
-	OriginalTask        string            // original user request — survives compaction
+	// origTask and autoCompact are guarded by mu: they are written by the agent
+	// goroutine and read by HTTP/UI goroutines (pkg/serve State polling). Use
+	// SetOriginalTask/OriginalTaskValue and SetAutoCompact/AutoCompactEnabled.
+	origTask    string // original user request — survives compaction
+	autoCompact bool   // automatically compact on Add() (default: true)
 }
 
 // NewConversationContext creates a new context with message limit
@@ -49,7 +56,7 @@ func NewConversationContextWithTokens(maxTokens, keepRecent int) *ConversationCo
 	return &ConversationContext{
 		MaxTokens:   maxTokens,
 		KeepRecent:  keepRecent,
-		AutoCompact: true,
+		autoCompact: true,
 	}
 }
 
@@ -58,7 +65,7 @@ func NewConversationContextWithTokens(maxTokens, keepRecent int) *ConversationCo
 func (c *ConversationContext) Add(msg provider.Message) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.Messages = append(c.Messages, msg)
+	c.messages = append(c.messages, msg)
 	c.trim()
 	// Note: lowSaveCount is NOT reset here — it's managed inside compact()
 	// and resets only when compaction is effective (>10% savings).
@@ -70,7 +77,7 @@ func (c *ConversationContext) Add(msg provider.Message) {
 func (c *ConversationContext) GetSystemPrompt() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	for _, m := range c.Messages {
+	for _, m := range c.messages {
 		if m.Role == "system" {
 			return m.GetText()
 		}
@@ -84,14 +91,14 @@ func (c *ConversationContext) GetSystemPrompt() string {
 func (c *ConversationContext) SetSystemPrompt(prompt string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	for i, m := range c.Messages {
+	for i, m := range c.messages {
 		if m.Role == "system" {
-			c.Messages[i] = provider.SystemMsg(prompt)
+			c.messages[i] = provider.SystemMsg(prompt)
 			return
 		}
 	}
 	// No system message found — prepend
-	c.Messages = append([]provider.Message{provider.SystemMsg(prompt)}, c.Messages...)
+	c.messages = append([]provider.Message{provider.SystemMsg(prompt)}, c.messages...)
 }
 
 // Reset clears context keeping system prompt.
@@ -100,12 +107,12 @@ func (c *ConversationContext) Reset() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	var systemMsgs []provider.Message
-	for _, m := range c.Messages {
+	for _, m := range c.messages {
 		if m.Role == "system" {
 			systemMsgs = append(systemMsgs, m)
 		}
 	}
-	c.Messages = systemMsgs
+	c.messages = systemMsgs
 }
 
 // BuildPrompt assembles weighted context into text prompt (for models without function calling).
@@ -113,7 +120,7 @@ func (c *ConversationContext) Reset() {
 func (c *ConversationContext) BuildPrompt() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return provider.MessagesToText(c.Messages)
+	return provider.MessagesToText(c.messages)
 }
 
 // TokenCount returns approximate token count in context.
@@ -121,7 +128,7 @@ func (c *ConversationContext) BuildPrompt() string {
 func (c *ConversationContext) TokenCount() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return EstimateMessagesTokens(c.Messages)
+	return EstimateMessagesTokens(c.messages)
 }
 
 // MaxTokensValue returns the maximum token count for the context.
@@ -131,11 +138,54 @@ func (c *ConversationContext) MaxTokensValue() int {
 	return c.MaxTokens
 }
 
+// OriginalTaskValue returns the original user request kept across compactions.
+// Thread-safe: acquires read lock.
+func (c *ConversationContext) OriginalTaskValue() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.origTask
+}
+
+// SetOriginalTask records the original user request. Thread-safe.
+func (c *ConversationContext) SetOriginalTask(task string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.origTask = task
+}
+
+// InitOriginalTask sets the original task only if none is recorded yet — the
+// first user message of a session defines it, later ones must not overwrite it.
+// Thread-safe.
+func (c *ConversationContext) InitOriginalTask(task string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.origTask == "" {
+		c.origTask = task
+	}
+}
+
+// AutoCompactEnabled reports whether Add() may compact automatically.
+// Thread-safe: acquires read lock.
+func (c *ConversationContext) AutoCompactEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.autoCompact
+}
+
+// SetAutoCompact toggles automatic compaction inside Add(). The streaming loop
+// disables it while it runs so compaction happens explicitly and can be
+// announced as an event. Thread-safe.
+func (c *ConversationContext) SetAutoCompact(on bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.autoCompact = on
+}
+
 // MessageCount returns the number of messages in context.
 func (c *ConversationContext) MessageCount() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return len(c.Messages)
+	return len(c.messages)
 }
 
 // GetMessages returns a copy of messages.
@@ -143,16 +193,45 @@ func (c *ConversationContext) MessageCount() int {
 func (c *ConversationContext) GetMessages() []provider.Message {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	result := make([]provider.Message, len(c.Messages))
-	copy(result, c.Messages)
+	result := make([]provider.Message, len(c.messages))
+	copy(result, c.messages)
 	return result
+}
+
+// AppendMessages adds messages to the history. Thread-safe: acquires write
+// lock. Unlike Add it does not trigger auto-compaction — the streaming loop
+// calls maybeCompact explicitly so it can announce the event.
+func (c *ConversationContext) AppendMessages(msgs ...provider.Message) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.messages = append(c.messages, msgs...)
+}
+
+// SetMessages replaces the whole history. Thread-safe: acquires write lock.
+// Used when restoring a session or rewriting the history after filtering. The
+// input slice is copied so the caller keeps ownership of its own data.
+func (c *ConversationContext) SetMessages(msgs []provider.Message) {
+	copied := make([]provider.Message, len(msgs))
+	copy(copied, msgs)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.messages = copied
+}
+
+// MessagesFunc rewrites the history through fn under the write lock. Use it
+// for filter-transforms (RemoveCompactionReminders and friends) so the read,
+// the transform and the swap stay atomic with respect to concurrent readers.
+func (c *ConversationContext) MessagesFunc(fn func([]provider.Message) []provider.Message) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.messages = fn(c.messages)
 }
 
 // HasImages reports whether any message in the history carries image content.
 func (c *ConversationContext) HasImages() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	for _, msg := range c.Messages {
+	for _, msg := range c.messages {
 		for _, block := range msg.Content {
 			if block.Type == "image" {
 				return true
@@ -175,7 +254,7 @@ func (c *ConversationContext) StripImages() int {
 
 	removed := 0
 	var kept []provider.Message
-	for _, msg := range c.Messages {
+	for _, msg := range c.messages {
 		hasImage := false
 		for _, block := range msg.Content {
 			if block.Type == "image" {
@@ -203,7 +282,7 @@ func (c *ConversationContext) StripImages() int {
 	}
 
 	if removed > 0 {
-		c.Messages = kept
+		c.messages = kept
 	}
 	return removed
 }
@@ -217,7 +296,7 @@ func (c *ConversationContext) trim() {
 	}
 
 	// If AutoCompact is disabled — skip (compaction is done explicitly via Compact())
-	if !c.AutoCompact {
+	if !c.autoCompact {
 		return
 	}
 
@@ -229,7 +308,7 @@ func (c *ConversationContext) trim() {
 func (c *ConversationContext) compact() {
 	// Anti-thrashing: if last 2 compactions saved <10%, skip
 	// But only if context does NOT exceed limit — if it exceeds, compaction is mandatory
-	currentTokens := EstimateMessagesTokens(c.Messages)
+	currentTokens := EstimateMessagesTokens(c.messages)
 	if c.lowSaveCount >= 2 && c.MaxTokens > 0 && currentTokens <= c.MaxTokens {
 		return
 	}
@@ -242,8 +321,8 @@ func (c *ConversationContext) compact() {
 		ctx = context.Background()
 	}
 
-	tokensBefore := EstimateMessagesTokens(c.Messages)
-	msgsBefore := len(c.Messages)
+	tokensBefore := EstimateMessagesTokens(c.messages)
+	msgsBefore := len(c.messages)
 
 	// Target compaction size: 2/3 of MaxTokens
 	// This frees 1/3 of context for new messages and prevents
@@ -257,18 +336,18 @@ func (c *ConversationContext) compact() {
 	// Save copy of messages before compaction for archiving
 	var msgsBeforeCompaction []provider.Message
 	if c.Archive != nil {
-		msgsBeforeCompaction = make([]provider.Message, len(c.Messages))
-		copy(msgsBeforeCompaction, c.Messages)
+		msgsBeforeCompaction = make([]provider.Message, len(c.messages))
+		copy(msgsBeforeCompaction, c.messages)
 	}
 
 	if c.Compactor != nil {
-		c.Messages = CompactContextWithCompactor(c.Messages, targetTokens, c.KeepRecent, c.Compactor, ctx)
+		c.messages = CompactContextWithCompactor(c.messages, targetTokens, c.KeepRecent, c.Compactor, ctx)
 	} else {
-		c.Messages = CompactContext(c.Messages, targetTokens, c.KeepRecent)
+		c.messages = CompactContext(c.messages, targetTokens, c.KeepRecent)
 	}
 
-	tokensAfter := EstimateMessagesTokens(c.Messages)
-	msgsAfter := len(c.Messages)
+	tokensAfter := EstimateMessagesTokens(c.messages)
+	msgsAfter := len(c.messages)
 
 	// Notify about compaction details
 	if c.CompactionNotifier != nil {
@@ -277,7 +356,7 @@ func (c *ConversationContext) compact() {
 
 	// Archive removed messages
 	if c.Archive != nil && len(msgsBeforeCompaction) > 0 && tokensBefore > tokensAfter {
-		removed := findRemovedMessages(msgsBeforeCompaction, c.Messages)
+		removed := findRemovedMessages(msgsBeforeCompaction, c.messages)
 		if len(removed) > 0 {
 			// Archive in background — do not block main thread
 			archive := c.Archive
@@ -332,18 +411,18 @@ func (c *ConversationContext) CompactForce() {
 		c.OnCompact()
 	}
 
-	tokensBefore := EstimateMessagesTokens(c.Messages)
-	msgsBefore := len(c.Messages)
+	tokensBefore := EstimateMessagesTokens(c.messages)
+	msgsBefore := len(c.messages)
 
 	// Save copy for archiving
 	var msgsBeforeCompaction []provider.Message
 	if c.Archive != nil {
-		msgsBeforeCompaction = make([]provider.Message, len(c.Messages))
-		copy(msgsBeforeCompaction, c.Messages)
+		msgsBeforeCompaction = make([]provider.Message, len(c.messages))
+		copy(msgsBeforeCompaction, c.messages)
 	}
 
 	// 1. Remove tool errors, duplicates, and repeated user messages
-	msgs := RemoveToolErrors(c.Messages)
+	msgs := RemoveToolErrors(c.messages)
 	msgs = RemoveDuplicates(msgs)
 	msgs = DeduplicateRepeats(msgs)
 	msgs = EnsureToolPairIntegrity(msgs)
@@ -403,20 +482,20 @@ func (c *ConversationContext) CompactForce() {
 	}
 
 	// 6. Add OriginalTask if set
-	if c.OriginalTask != "" {
+	if c.origTask != "" {
 		result = append(result, provider.Message{
 			Role: "user",
 			Content: []provider.ContentBlock{
-				{Type: "text", Text: "Original task: " + c.OriginalTask},
+				{Type: "text", Text: "Original task: " + c.origTask},
 			},
 		})
 	}
 
 	result = append(result, recent...)
-	c.Messages = result
+	c.messages = result
 
-	tokensAfter := EstimateMessagesTokens(c.Messages)
-	msgsAfter := len(c.Messages)
+	tokensAfter := EstimateMessagesTokens(c.messages)
+	msgsAfter := len(c.messages)
 
 	// Notify about compaction details
 	if c.CompactionNotifier != nil {
@@ -425,7 +504,7 @@ func (c *ConversationContext) CompactForce() {
 
 	// Archive removed messages
 	if c.Archive != nil && len(msgsBeforeCompaction) > 0 && tokensBefore > tokensAfter {
-		removed := findRemovedMessages(msgsBeforeCompaction, c.Messages)
+		removed := findRemovedMessages(msgsBeforeCompaction, c.messages)
 		if len(removed) > 0 {
 			archive := c.Archive
 			sessionID := c.SessionID
@@ -549,7 +628,7 @@ func isTransientErrorMessage(msg provider.Message) bool {
 func (c *ConversationContext) CleanupTransients() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.Messages = cleanupTransientsLocked(c.Messages)
+	c.messages = cleanupTransientsLocked(c.messages)
 }
 
 // cleanupTransientsLocked performs the actual transient cleanup without locking.

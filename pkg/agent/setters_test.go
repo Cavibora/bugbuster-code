@@ -8,19 +8,19 @@ import (
 func TestSetSystemPrompt(t *testing.T) {
 	a := NewAgentLoop(nil)
 	a.SetSystemPrompt("test prompt")
-	if len(a.Context.Messages) != 1 {
-		t.Fatalf("Expected 1 message, got %d", len(a.Context.Messages))
+	if len(a.Context.messages) != 1 {
+		t.Fatalf("Expected 1 message, got %d", len(a.Context.messages))
 	}
-	if a.Context.Messages[0].Role != "system" {
-		t.Errorf("Expected role 'system', got '%s'", a.Context.Messages[0].Role)
+	if a.Context.messages[0].Role != "system" {
+		t.Errorf("Expected role 'system', got '%s'", a.Context.messages[0].Role)
 	}
-	if a.Context.Messages[0].Content[0].Text != "test prompt" {
-		t.Errorf("Expected text 'test prompt', got '%s'", a.Context.Messages[0].Content[0].Text)
+	if a.Context.messages[0].Content[0].Text != "test prompt" {
+		t.Errorf("Expected text 'test prompt', got '%s'", a.Context.messages[0].Content[0].Text)
 	}
 	// Set again — should replace
 	a.SetSystemPrompt("new prompt")
 	systemMsgs := 0
-	for _, m := range a.Context.Messages {
+	for _, m := range a.Context.messages {
 		if m.Role == "system" {
 			systemMsgs++
 			if m.Content[0].Text != "new prompt" {

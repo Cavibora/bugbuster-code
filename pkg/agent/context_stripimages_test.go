@@ -35,13 +35,13 @@ func TestStripImagesRemovesImageBlocks(t *testing.T) {
 	if c.HasImages() {
 		t.Error("expected HasImages() == false after strip")
 	}
-	if countImageBlocks(c.Messages) != 0 {
+	if countImageBlocks(c.messages) != 0 {
 		t.Error("image blocks still present after strip")
 	}
 
 	// Text must survive: the image-bearing message keeps its text part.
 	var texts []string
-	for _, m := range c.Messages {
+	for _, m := range c.messages {
 		texts = append(texts, m.GetText())
 	}
 	joined := ""
@@ -65,11 +65,11 @@ func TestStripImagesDropsImageOnlyMessage(t *testing.T) {
 	if removed != 1 {
 		t.Fatalf("expected 1 removed, got %d", removed)
 	}
-	if len(c.Messages) != 1 {
-		t.Fatalf("image-only message should be dropped, got %d messages", len(c.Messages))
+	if len(c.messages) != 1 {
+		t.Fatalf("image-only message should be dropped, got %d messages", len(c.messages))
 	}
-	if c.Messages[0].GetText() != "keep me" {
-		t.Errorf("wrong surviving message: %q", c.Messages[0].GetText())
+	if c.messages[0].GetText() != "keep me" {
+		t.Errorf("wrong surviving message: %q", c.messages[0].GetText())
 	}
 }
 
@@ -84,8 +84,8 @@ func TestStripImagesNoImagesIsNoop(t *testing.T) {
 	if removed := c.StripImages(); removed != 0 {
 		t.Errorf("expected 0 removed, got %d", removed)
 	}
-	if len(c.Messages) != 2 {
-		t.Errorf("messages must be untouched, got %d", len(c.Messages))
+	if len(c.messages) != 2 {
+		t.Errorf("messages must be untouched, got %d", len(c.messages))
 	}
 }
 
@@ -95,7 +95,7 @@ func TestStripImagesNoImagesIsNoop(t *testing.T) {
 // stays valid. Added directly to Messages (not via Add) to mirror production.
 func TestStripImagesPreservesToolResultChain(t *testing.T) {
 	c := NewConversationContextWithTokens(8000, 6)
-	c.Messages = append(c.Messages, provider.Message{
+	c.messages = append(c.messages, provider.Message{
 		Role: "user",
 		Content: []provider.ContentBlock{
 			{Type: "tool_result", ToolUseID: "tc1", Output: "screenshot taken"},
@@ -108,11 +108,11 @@ func TestStripImagesPreservesToolResultChain(t *testing.T) {
 	if removed != 1 {
 		t.Fatalf("expected 1 removed, got %d", removed)
 	}
-	if len(c.Messages) != 1 {
-		t.Fatalf("message should survive (has tool_result), got %d", len(c.Messages))
+	if len(c.messages) != 1 {
+		t.Fatalf("message should survive (has tool_result), got %d", len(c.messages))
 	}
 	var hasToolResult, hasText, hasImage bool
-	for _, b := range c.Messages[0].Content {
+	for _, b := range c.messages[0].Content {
 		switch b.Type {
 		case "tool_result":
 			hasToolResult = true

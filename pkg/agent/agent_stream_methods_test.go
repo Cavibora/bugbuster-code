@@ -234,7 +234,7 @@ func TestMaybeCompact(t *testing.T) {
 
 	// Add many messages to exceed token limit
 	for i := 0; i < 50; i++ {
-		loop.Context.Messages = append(loop.Context.Messages, provider.UserMsg("This is a test message that adds tokens to the context"))
+		loop.Context.messages = append(loop.Context.messages, provider.UserMsg("This is a test message that adds tokens to the context"))
 	}
 
 	eventCh := make(chan provider.StreamEvent, 100)
@@ -242,7 +242,7 @@ func TestMaybeCompact(t *testing.T) {
 	close(eventCh)
 
 	// Compaction should have been triggered
-	if len(loop.Context.Messages) >= 50 {
+	if len(loop.Context.messages) >= 50 {
 		t.Error("maybeCompact should have reduced messages")
 	}
 }
@@ -256,15 +256,15 @@ func TestMaybeCompact_NoCompactionNeeded(t *testing.T) {
 	loop.SetMaxTokens(100000) // Very high limit
 
 	// Add few messages
-	loop.Context.Messages = append(loop.Context.Messages, provider.UserMsg("Hello"))
+	loop.Context.messages = append(loop.Context.messages, provider.UserMsg("Hello"))
 
 	eventCh := make(chan provider.StreamEvent, 100)
 	loop.maybeCompact(eventCh, context.Background())
 	close(eventCh)
 
 	// Messages should not be reduced
-	if len(loop.Context.Messages) != 1 {
-		t.Errorf("maybeCompact should not reduce messages, got %d", len(loop.Context.Messages))
+	if len(loop.Context.messages) != 1 {
+		t.Errorf("maybeCompact should not reduce messages, got %d", len(loop.Context.messages))
 	}
 }
 

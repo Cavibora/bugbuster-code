@@ -1707,7 +1707,7 @@ func runTUI(cfg *config.BugBusterConfig, loop *agent.AgentLoop, ct *ChangeTracke
 			} else {
 				currentSession = loaded
 				if currentSession.Messages != nil {
-					loop.Context.Messages = currentSession.Messages // safe: not streaming yet
+					loop.Context.SetMessages(currentSession.Messages) // safe: not streaming yet
 				}
 			}
 		}
@@ -1718,7 +1718,7 @@ func runTUI(cfg *config.BugBusterConfig, loop *agent.AgentLoop, ct *ChangeTracke
 		// - free text → new session with the text as the first request
 		currentSession, pendingInput = selectSessionTUI(sessionMgr)
 		if currentSession.Messages != nil {
-			loop.Context.Messages = currentSession.Messages // safe: not streaming yet
+			loop.Context.SetMessages(currentSession.Messages) // safe: not streaming yet
 		}
 	}
 

@@ -257,14 +257,14 @@ func TestConversationContext_Add(t *testing.T) {
 	ctx.Add(provider.UserMsg("привет"))
 	ctx.Add(provider.AssistantText("здравствуй"))
 
-	if len(ctx.Messages) != 2 {
-		t.Errorf("Expected 2 messages, got %d", len(ctx.Messages))
+	if len(ctx.messages) != 2 {
+		t.Errorf("Expected 2 messages, got %d", len(ctx.messages))
 	}
-	if ctx.Messages[0].Role != "user" {
-		t.Errorf("Expected RoleUser, got %s", ctx.Messages[0].Role)
+	if ctx.messages[0].Role != "user" {
+		t.Errorf("Expected RoleUser, got %s", ctx.messages[0].Role)
 	}
-	if ctx.Messages[1].Role != "assistant" {
-		t.Errorf("Expected RoleAssistant, got %s", ctx.Messages[1].Role)
+	if ctx.messages[1].Role != "assistant" {
+		t.Errorf("Expected RoleAssistant, got %s", ctx.messages[1].Role)
 	}
 }
 
@@ -278,13 +278,13 @@ func TestConversationContext_Trim(t *testing.T) {
 	}
 
 	// After compaction the system prompt should be preserved
-	if ctx.Messages[0].Role != "system" {
+	if ctx.messages[0].Role != "system" {
 		t.Error("System prompt should be preserved")
 	}
 
 	// Messages should be fewer than 21 (compaction triggered)
-	if len(ctx.Messages) > 15 {
-		t.Errorf("Expected compaction to reduce messages, got %d", len(ctx.Messages))
+	if len(ctx.messages) > 15 {
+		t.Errorf("Expected compaction to reduce messages, got %d", len(ctx.messages))
 	}
 }
 
@@ -297,10 +297,10 @@ func TestConversationContext_Reset(t *testing.T) {
 	ctx.Reset()
 
 	// Only the system prompt should remain
-	if len(ctx.Messages) != 1 {
-		t.Errorf("Expected 1 message after reset, got %d", len(ctx.Messages))
+	if len(ctx.messages) != 1 {
+		t.Errorf("Expected 1 message after reset, got %d", len(ctx.messages))
 	}
-	if ctx.Messages[0].Role != "system" {
+	if ctx.messages[0].Role != "system" {
 		t.Error("System prompt should be preserved after reset")
 	}
 }
@@ -418,8 +418,8 @@ func TestMaybeCompact_NonBlockingSend(t *testing.T) {
 	i18n.Init("en")
 	a := NewAgentLoop(&MockProvider{})
 	a.Context.MaxTokens = 10
-	a.Context.AutoCompact = false
-	a.Context.Messages = []provider.Message{
+	a.Context.SetAutoCompact(false)
+	a.Context.messages = []provider.Message{
 		provider.SystemMsg("very long system prompt that exceeds the token limit by a lot"),
 		provider.UserMsg("hello world this is a test message"),
 	}
@@ -522,18 +522,18 @@ func TestSessionRestore_SystemPromptPreserved(t *testing.T) {
 	}
 
 	// 3. Disable auto-compaction
-	wasAutoCompact := loop.Context.AutoCompact
-	loop.Context.AutoCompact = false
+	wasAutoCompact := loop.Context.AutoCompactEnabled()
+	loop.Context.SetAutoCompact(false)
 
 	// 4. Clear the context and add system prompt + session messages
-	loop.Context.Messages = nil
+	loop.Context.messages = nil
 	if currentSystemPrompt != "" {
-		loop.Context.Messages = append(loop.Context.Messages, provider.SystemMsg(currentSystemPrompt))
+		loop.Context.messages = append(loop.Context.messages, provider.SystemMsg(currentSystemPrompt))
 	}
-	loop.Context.Messages = append(loop.Context.Messages, filtered...)
+	loop.Context.messages = append(loop.Context.messages, filtered...)
 
 	// 5. Restore auto-compaction
-	loop.Context.AutoCompact = wasAutoCompact
+	loop.Context.SetAutoCompact(wasAutoCompact)
 
 	// Verify:
 	// 1. System prompt is the current one, not the old one
@@ -543,7 +543,7 @@ func TestSessionRestore_SystemPromptPreserved(t *testing.T) {
 	}
 
 	// 2. No old system message from the session
-	for i, m := range loop.Context.Messages {
+	for i, m := range loop.Context.messages {
 		if m.Role == "system" && m.GetText() == "Старый системный промпт из сессии" {
 			t.Errorf("Found old system message at index %d, should have been removed", i)
 		}
@@ -551,7 +551,7 @@ func TestSessionRestore_SystemPromptPreserved(t *testing.T) {
 
 	// 3. All non-system messages from the session are preserved
 	userCount := 0
-	for _, m := range loop.Context.Messages {
+	for _, m := range loop.Context.messages {
 		if m.Role == "user" {
 			userCount++
 		}
@@ -561,13 +561,13 @@ func TestSessionRestore_SystemPromptPreserved(t *testing.T) {
 	}
 
 	// 4. Total message count: 1 (system) + 9 (non-system from session)
-	if len(loop.Context.Messages) != 10 {
-		t.Errorf("Expected 10 messages (1 system + 9 session), got %d", len(loop.Context.Messages))
+	if len(loop.Context.messages) != 10 {
+		t.Errorf("Expected 10 messages (1 system + 9 session), got %d", len(loop.Context.messages))
 	}
 
 	// 5. First message is the current system prompt
-	if loop.Context.Messages[0].Role != "system" {
-		t.Errorf("Expected first message to be system, got %s", loop.Context.Messages[0].Role)
+	if loop.Context.messages[0].Role != "system" {
+		t.Errorf("Expected first message to be system, got %s", loop.Context.messages[0].Role)
 	}
 }
 
@@ -585,37 +585,37 @@ func TestSessionRestore_AutoCompactDisabled(t *testing.T) {
 	}
 
 	// After adding, the context should be compact (compaction triggered)
-	compactedCount := len(loop.Context.Messages)
+	compactedCount := len(loop.Context.messages)
 
 	// Now simulate session restore with auto-compaction disabled
-	sessionMessages := make([]provider.Message, len(loop.Context.Messages))
-	copy(sessionMessages, loop.Context.Messages)
+	sessionMessages := make([]provider.Message, len(loop.Context.messages))
+	copy(sessionMessages, loop.Context.messages)
 
 	// Disable auto-compaction
-	loop.Context.AutoCompact = false
-	loop.Context.Messages = nil
-	loop.Context.Messages = append(loop.Context.Messages, provider.SystemMsg("System prompt"))
+	loop.Context.SetAutoCompact(false)
+	loop.Context.messages = nil
+	loop.Context.messages = append(loop.Context.messages, provider.SystemMsg("System prompt"))
 	for _, m := range sessionMessages {
 		if m.Role != "system" {
-			loop.Context.Messages = append(loop.Context.Messages, m)
+			loop.Context.messages = append(loop.Context.messages, m)
 		}
 	}
 
 	// All messages should be loaded without trimming
-	totalLoaded := len(loop.Context.Messages)
+	totalLoaded := len(loop.Context.messages)
 	if totalLoaded < compactedCount {
 		t.Errorf("After restore with AutoCompact=false, expected >= %d messages, got %d", compactedCount, totalLoaded)
 	}
 
 	// Re-enable auto-compaction
-	loop.Context.AutoCompact = true
+	loop.Context.SetAutoCompact(true)
 
 	// Add one more message — now compaction can trigger
 	loop.Context.Add(provider.UserMsg("New message after restore"))
 
 	// After compaction the context should be compact
-	if len(loop.Context.Messages) > totalLoaded+1 {
-		t.Errorf("Context should be compacted after adding new message, got %d messages", len(loop.Context.Messages))
+	if len(loop.Context.messages) > totalLoaded+1 {
+		t.Errorf("Context should be compacted after adding new message, got %d messages", len(loop.Context.messages))
 	}
 }
 
