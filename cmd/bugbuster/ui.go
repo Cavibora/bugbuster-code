@@ -17,6 +17,7 @@ import (
 	"charm.land/glamour/v2"
 	"github.com/alecthomas/chroma/v2/quick"
 	"github.com/fatih/color"
+	"github.com/mattn/go-runewidth"
 	"golang.org/x/term"
 )
 
@@ -93,6 +94,78 @@ func stripANSIForWidth(s string) string {
 		sb.WriteRune(r)
 	}
 	return sb.String()
+}
+
+// visibleWidth returns the number of terminal columns a string occupies, after
+// stripping ANSI escapes and measuring Unicode display width (wide/CJK runes
+// count as 2, combining marks as 0). This is what the terminal wraps on — using
+// byte length (len) instead OVERSTATES the width for the status line, which is
+// full of multi-byte glyphs (· ⚡ ⬆ ⬇ Σ ⏱ and ⏎ from bash commands).
+func visibleWidth(s string) int {
+	return runewidth.StringWidth(stripANSIForWidth(s))
+}
+
+// truncateToWidth cuts s so it occupies at most maxWidth terminal columns,
+// appending "…" when it had to shorten. It measures display width (not bytes)
+// so the result reliably fits one line, and it PRESERVES ANSI escape sequences
+// (they cost 0 columns) so truncating the status line doesn't drop its colors.
+func truncateToWidth(s string, maxWidth int) string {
+	if maxWidth <= 0 {
+		return ""
+	}
+	if visibleWidth(s) <= maxWidth {
+		return s
+	}
+	// Walk the string, copying ANSI escapes for free and visible runes until we
+	// run out of budget (leaving one column for the ellipsis).
+	target := maxWidth - 1
+	if target < 0 {
+		target = 0
+	}
+	var sb strings.Builder
+	acc := 0
+	inEscape := false
+	for _, r := range s {
+		if inEscape {
+			sb.WriteRune(r)
+			if r == 'm' {
+				inEscape = false
+			}
+			continue
+		}
+		if r == '\x1b' {
+			sb.WriteRune(r)
+			inEscape = true
+			continue
+		}
+		w := runewidth.RuneWidth(r)
+		if acc+w > target {
+			break
+		}
+		acc += w
+		sb.WriteRune(r)
+	}
+	return sb.String() + ansiReset + "…"
+}
+
+// spinnerFramePrefixCols is the number of terminal columns the spinner draws
+// before the status text: "  " (2) + spinner rune (1) + " " (1) = 4.
+const spinnerFramePrefixCols = 4
+
+// spinnerFrameLines reports how many terminal lines a spinner frame occupies
+// given the rendered status text and terminal width. The frame is prefixed by
+// spinnerFramePrefixCols columns and the terminal auto-wraps anything that
+// overflows, so a frame that fits within one row returns 1.
+func spinnerFrameLines(display string, width int) int {
+	if width <= 0 {
+		width = 80
+	}
+	total := spinnerFramePrefixCols + visibleWidth(display)
+	lines := (total + width - 1) / width // ceil division
+	if lines < 1 {
+		lines = 1
+	}
+	return lines
 }
 
 func truncateMessage(msg string, maxWidth int) string {
@@ -192,6 +265,18 @@ func (s *Spinner) Start() {
 				}
 				display := strings.Join(parts, appTheme.Dim.ANSICode()+" · "+ansiReset)
 
+				// Guarantee the frame fits on a SINGLE terminal row. If it wraps,
+				// the next tick's cursor-up climbs over the agent text printed
+				// above the spinner and \033[2K erases it. truncateMessage reserves
+				// a fixed 80 columns for the stats tail, but a long provider/model
+				// name or wide glyphs can still overflow — so clamp the assembled
+				// line to the real width as a hard backstop. Keep one column of
+				// slack so the frame is strictly narrower than the terminal and
+				// never triggers auto-wrap (which would make lastLines > 1).
+				if maxDisplay := width - spinnerFramePrefixCols - 1; maxDisplay > 0 && visibleWidth(display) > maxDisplay {
+					display = truncateToWidth(display, maxDisplay)
+				}
+
 				// Clear previous frame (may span multiple terminal lines if the
 				// message wrapped). Move cursor up by lastLines, then clear.
 				s.mu.Lock()
@@ -214,13 +299,14 @@ func (s *Spinner) Start() {
 				fmt.Fprintf(cmdOutput, "\r  %s%s%s %s", appTheme.Primary.ANSICode(), string(s.frames[i%len(s.frames)]), ansiReset, display)
 				os.Stdout.Sync()
 
-				// Compute how many terminal lines this frame occupies (for next clear)
-				lineCount := 1
-				if len(display) > 0 {
-					// Account for ANSI codes: strip them for accurate width calc
-					plain := stripANSIForWidth(display)
-					lineCount = (len(plain) / width) + 1
-				}
+				// Compute how many terminal lines this frame occupies (for next
+				// clear). MUST be measured in display columns (not bytes): the
+				// status line is full of multi-byte glyphs (· ⚡ ⬆ ⬇ Σ ⏱ and ⏎
+				// from bash commands), and the frame is prefixed by 4 columns
+				// ("  ⏺ "). Using len() here OVERSTATES the line count, so the
+				// next tick's cursor-up (\033[NA) climbs above the spinner's own
+				// block and \033[2K erases the agent text printed just above it.
+				lineCount := spinnerFrameLines(display, width)
 				s.mu.Lock()
 				s.lastLines = lineCount
 				s.mu.Unlock()

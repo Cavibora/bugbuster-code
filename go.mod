@@ -15,7 +15,9 @@ require (
 	github.com/chzyer/readline v1.5.1
 	github.com/fatih/color v1.19.0
 	github.com/mark3labs/mcp-go v0.52.0
+	github.com/mattn/go-runewidth v0.0.23
 	github.com/spf13/cobra v1.10.2
+	golang.org/x/sys v0.44.0
 	golang.org/x/term v0.43.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -46,7 +48,6 @@ require (
 	github.com/lucasb-eyer/go-colorful v1.4.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
-	github.com/mattn/go-runewidth v0.0.23 // indirect
 	github.com/microcosm-cc/bluemonday v1.0.27 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
@@ -59,6 +60,5 @@ require (
 	github.com/yuin/goldmark-emoji v1.0.5 // indirect
 	golang.org/x/net v0.39.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.44.0 // indirect
 	golang.org/x/text v0.24.0 // indirect
 )

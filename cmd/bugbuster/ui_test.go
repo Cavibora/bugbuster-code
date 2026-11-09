@@ -694,3 +694,68 @@ func TestTerminalWidth(t *testing.T) {
 		t.Errorf("terminalWidth() = %d, expected at least 20", width)
 	}
 }
+
+// --- Spinner frame line-count tests (regression for CLI text being erased) ---
+
+func TestVisibleWidth_MultiByteGlyphs(t *testing.T) {
+	// The status line is full of multi-byte glyphs. len() counts BYTES (over-
+	// states width); visibleWidth must count COLUMNS.
+	s := "· ⚡ ⬆ ⬇ Σ ⏱"
+	if visibleWidth(s) >= len(s) {
+		t.Errorf("visibleWidth(%d) should be < byte len(%d) for multi-byte glyphs", visibleWidth(s), len(s))
+	}
+	// CJK counts as 2 columns per rune.
+	if got := visibleWidth("你好"); got != 4 {
+		t.Errorf("visibleWidth(CJK) = %d, want 4", got)
+	}
+	// ANSI escapes cost zero columns.
+	if got := visibleWidth(ansiBold + "abc" + ansiReset); got != 3 {
+		t.Errorf("visibleWidth(colored abc) = %d, want 3", got)
+	}
+}
+
+func TestSpinnerFrameLines_SingleLineStatus(t *testing.T) {
+	// A realistic, glyph-heavy status line on an 80-col terminal must occupy
+	// exactly ONE row. The old byte-length formula returned >1 here, which made
+	// the next tick erase the agent text above the spinner.
+	display := "⬆ 12345 ⬇ 6789 Σ 80234 · ⚡ 123tok/s · local · claude-sonnet"
+	if got := spinnerFrameLines(display, 80); got != 1 {
+		t.Errorf("spinnerFrameLines = %d, want 1 (must not climb into agent text)", got)
+	}
+	// Contrast: the buggy byte-based count would have over-estimated.
+	if byteLines := len(display)/80 + 1; byteLines < spinnerFrameLines(display, 80) {
+		t.Error("sanity: byte count should not exceed column count")
+	}
+}
+
+func TestSpinnerFrameLines_PrefersOneRowWhenItFits(t *testing.T) {
+	// Short status → 1 line.
+	if got := spinnerFrameLines("hello", 80); got != 1 {
+		t.Errorf("spinnerFrameLines(hello) = %d, want 1", got)
+	}
+	// A status that genuinely overflows one row must report the true row count
+	// (so the clear still covers the whole wrapped block).
+	long := "x 12345 ⬆ 6789 Σ 80234 ⚡ 123tok/s local claude-sonnet-4-5-20250901 extra extra extra"
+	got := spinnerFrameLines(long, 40)
+	if got < 2 {
+		t.Errorf("spinnerFrameLines(long, 40) = %d, want >=2", got)
+	}
+}
+
+func TestTruncateToWidth_FitsAndPreservesANSI(t *testing.T) {
+	s := ansiBold + "this is a very long status line with · ⚡ ⬆ ⬇ glyphs" + ansiReset
+	out := truncateToWidth(s, 20)
+	if visibleWidth(out) > 20 {
+		t.Errorf("truncated width %d exceeds max 20", visibleWidth(out))
+	}
+	if !strings.Contains(out, ansiBold) {
+		t.Error("truncateToWidth must preserve ANSI escape codes")
+	}
+	if !strings.HasSuffix(out, "…") {
+		t.Error("truncated string should end with ellipsis")
+	}
+	// No-op when it already fits.
+	if truncateToWidth("short", 80) != "short" {
+		t.Error("truncateToWidth must not alter a string that fits")
+	}
+}
