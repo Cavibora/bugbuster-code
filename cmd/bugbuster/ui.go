@@ -152,6 +152,22 @@ func truncateToWidth(s string, maxWidth int) string {
 // before the status text: "  " (2) + spinner rune (1) + " " (1) = 4.
 const spinnerFramePrefixCols = 4
 
+// singleLine collapses every line break in s into a visible " ⏎ " marker so
+// the string can never occupy more than one terminal row. The spinner frame
+// MUST be single-line: it clears its previous frame by moving up lastLines-1
+// rows, and a stray raw \n in the message (e.g. streaming preview of a
+// write/edit tool's multi-line content) would make the frame physically
+// taller than lastLines reports — each tick then APPENDS a new frame instead
+// of overwriting, producing a wall of repeated text.
+func singleLine(s string) string {
+	if !strings.ContainsAny(s, "\n\r") {
+		return s
+	}
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
+	return strings.ReplaceAll(s, "\n", " ⏎ ")
+}
+
 // spinnerFrameLines reports how many terminal lines a spinner frame occupies
 // given the rendered status text and terminal width. The frame is prefixed by
 // spinnerFramePrefixCols columns and the terminal auto-wraps anything that
@@ -265,14 +281,15 @@ func (s *Spinner) Start() {
 				}
 				display := strings.Join(parts, appTheme.Dim.ANSICode()+" · "+ansiReset)
 
-				// Guarantee the frame fits on a SINGLE terminal row. If it wraps,
-				// the next tick's cursor-up climbs over the agent text printed
-				// above the spinner and \033[2K erases it. truncateMessage reserves
-				// a fixed 80 columns for the stats tail, but a long provider/model
-				// name or wide glyphs can still overflow — so clamp the assembled
-				// line to the real width as a hard backstop. Keep one column of
-				// slack so the frame is strictly narrower than the terminal and
-				// never triggers auto-wrap (which would make lastLines > 1).
+				// Guarantee the frame fits on a SINGLE terminal row. A raw \n in
+				// the message (streaming write/edit content previews carry the
+				// user's multi-line text) would make the frame physically taller
+				// than lastLines reports, so every tick APPENDS instead of
+				// overwriting — the "wall of repeated frames" bug. Collapse line
+				// breaks first, then clamp by display columns (ANSI-preserving).
+				// Keep one column of slack so the frame is strictly narrower than
+				// the terminal and never triggers auto-wrap either.
+				display = singleLine(display)
 				if maxDisplay := width - spinnerFramePrefixCols - 1; maxDisplay > 0 && visibleWidth(display) > maxDisplay {
 					display = truncateToWidth(display, maxDisplay)
 				}
@@ -1396,9 +1413,16 @@ func formatToolSummary(toolName string, params map[string]string) string {
 		if shown[k] {
 			continue
 		}
-		display := v
-		if len(display) > 60 {
-			display = display[:57] + "..."
+		// Tail params (e.g. write/edit "content", read "path"-adjacent extras)
+		// must be single-line too: the spinner shows this summary while the
+		// tool call streams, and a raw \n from multi-line file content would
+		// make the frame occupy several rows while lastLines reports one —
+		// every tick then appends a new frame (wall of repeated text).
+		display := singleLine(v)
+		// Truncate by DISPLAY COLUMNS (not bytes) so we never split a multi-byte
+		// rune and never overstate the width for CJK/glyph-heavy content.
+		if visibleWidth(display) > 60 {
+			display = truncateToWidth(display, 57)
 		}
 		parts = append(parts, fmt.Sprintf("%s=%s", k, display))
 	}

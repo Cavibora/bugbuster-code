@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestGlamourRendererRender(t *testing.T) {
@@ -757,5 +758,55 @@ func TestTruncateToWidth_FitsAndPreservesANSI(t *testing.T) {
 	// No-op when it already fits.
 	if truncateToWidth("short", 80) != "short" {
 		t.Error("truncateToWidth must not alter a string that fits")
+	}
+}
+
+func TestSingleLine_CollapsesNewlines(t *testing.T) {
+	in := "line1\nline2\r\nline3\rline4"
+	out := singleLine(in)
+	if strings.ContainsAny(out, "\n\r") {
+		t.Errorf("singleLine must remove all line breaks, got %q", out)
+	}
+	if !strings.Contains(out, "⏎") {
+		t.Errorf("singleLine should mark breaks with ⏎, got %q", out)
+	}
+	// No-op fast path for clean strings.
+	if singleLine("clean") != "clean" {
+		t.Error("singleLine must not alter a line-break-free string")
+	}
+}
+
+func TestFormatToolSummary_WriteContentIsSingleLine(t *testing.T) {
+	// Regression: streaming a write() call feeds the spinner a preview built
+	// from partial JSON. The "content" param (not in displayKeys) used to be
+	// inserted RAW with its newlines, making the frame multi-row while
+	// lastLines said 1 — every tick appended a new frame (wall of repeated
+	// "⏺ write(content=..." lines).
+	multiline := "const fs = require('fs');\nconst vm = require('vm');\n\nfunction hello() {\n  return 1;\n}"
+	summary := formatToolSummary("write", map[string]string{
+		"path":    "/tmp/app.js",
+		"content": multiline,
+	})
+	if strings.ContainsAny(summary, "\n\r") {
+		t.Errorf("formatToolSummary must never return a multi-line string, got %q", summary)
+	}
+	if visibleWidth(summary) > 120 {
+		t.Errorf("summary too wide for the spinner: %d cols", visibleWidth(summary))
+	}
+	// Path (a displayKeys entry) should still be present.
+	if !strings.Contains(summary, "/tmp/app.js") {
+		t.Errorf("summary should include the path, got %q", summary)
+	}
+}
+
+func TestFormatToolSummary_TailParamNoBrokenUTF8(t *testing.T) {
+	// The old byte-slice truncation could split multi-byte runes.
+	long := strings.Repeat("日本語テキスト", 20)
+	summary := formatToolSummary("write", map[string]string{"content": long})
+	if !utf8.ValidString(summary) {
+		t.Errorf("summary contains broken UTF-8 after truncation: %q", summary)
+	}
+	if strings.ContainsAny(summary, "\n") {
+		t.Error("summary must be single-line")
 	}
 }
