@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/base64"
 	"image"
-	"image/color"
 	"image/png"
 	"testing"
 	"time"
@@ -14,17 +13,20 @@ import (
 	"bugbuster-code/pkg/provider"
 )
 
-// largePNGBase64 builds an oversized, hard-to-compress PNG and returns it as
-// base64. Used to seed a history image that a size-limited gateway would reject.
+// largePNGBase64 builds a hard-to-compress noise PNG and returns it as base64.
+// Pixels are written straight into the Pix buffer (not per-pixel Set) so the
+// test stays fast even under -race. Size is chosen so the base64 payload is
+// comfortably above the mock gateway budget used in the 413 tests.
 func largePNGBase64(t *testing.T, w, h int) string {
 	t.Helper()
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 	seed := uint32(987654321)
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			seed = seed*1664525 + 1013904223
-			img.SetRGBA(x, y, color.RGBA{uint8(seed >> 16), uint8(seed >> 8), uint8(seed), 255})
-		}
+	for i := 0; i < len(img.Pix); i += 4 {
+		seed = seed*1664525 + 1013904223
+		img.Pix[i] = uint8(seed >> 16)  // R
+		img.Pix[i+1] = uint8(seed >> 8) // G
+		img.Pix[i+2] = uint8(seed)      // B
+		img.Pix[i+3] = 255              // A
 	}
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, img); err != nil {
@@ -91,14 +93,14 @@ func TestStreamRetryRequest_SelfHeals413ByDownscaling(t *testing.T) {
 		t.Fatalf("i18n.Init failed: %v", err)
 	}
 
-	// A gateway that accepts up to ~600 KB of image base64. A 2400x1800 noise
-	// PNG is well over that, so the first request is rejected; after the agent
-	// downscales it fits and the image survives.
+	// A gateway that accepts up to ~600 KB of image base64. A 1600x400 noise
+	// PNG is ~2.3 MB base64, well over that, so the first request is rejected;
+	// after the agent downscales it fits and the image survives.
 	mock := &MockSizeLimited{budget: 600 * 1024, text: "answered with a downscaled image"}
 	loop := NewAgentLoop(mock)
 	loop.SetRateLimitConfig(50, 1*time.Millisecond)
 
-	big := largePNGBase64(t, 2400, 1800)
+	big := largePNGBase64(t, 1600, 400)
 	loop.Context.Add(provider.UserMsg("look at this screenshot"))
 	loop.Context.Add(provider.UserImageTextMsg("[Screenshot]", big, "png"))
 
