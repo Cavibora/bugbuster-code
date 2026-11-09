@@ -61,6 +61,11 @@ func (a *AgentLoop) streamRetryRequest(ctx context.Context, eventCh chan<- provi
 	// that keeps rejecting even an image-free payload can't spin forever.
 	imageHealAttempts := 0
 	const maxImageHealAttempts = 1
+	// tooLargeAttempts drives the progressive 413 healing ladder: downscale →
+	// downscale harder → strip. maxTooLargeAttempts caps it so a gateway that
+	// keeps rejecting even a stripped payload can't spin forever.
+	tooLargeAttempts := 0
+	const maxTooLargeAttempts = 3
 
 	for {
 		select {
@@ -158,6 +163,53 @@ func (a *AgentLoop) streamRetryRequest(ctx context.Context, eventCh chan<- provi
 				logger.Debug("image_heal", "removed", removed, "provider", a.provider.Name(), "error", err)
 			}
 			continue // resend the now image-free history
+		}
+
+		// The request was rejected for being too large (HTTP 413
+		// "payload_too_large"). Almost always caused by image payloads. We heal
+		// progressively rather than dropping pictures on the floor: first
+		// squeeze every image harder, then even harder, and only if that still
+		// doesn't fit do we strip images entirely. Doing nothing here would
+		// leave the oversized image in history and poison every later message.
+		if provider.IsImageTooLargeError(err) {
+			tooLargeAttempts++
+			if tooLargeAttempts > maxTooLargeAttempts {
+				break // keep getting rejected even after healing — give up on primary
+			}
+
+			var budget int
+			switch tooLargeAttempts {
+			case 1:
+				budget = 1 * 1024 * 1024 // ~1 MB base64 each
+			case 2:
+				budget = 512 * 1024 // ~512 KB base64 each
+			default:
+				budget = 0 // 3rd+ attempt: stop shrinking, strip instead
+			}
+
+			if budget > 0 {
+				if n := a.Context.DownscaleImages(budget); n > 0 {
+					a.notifyImageHeal(eventCh, "🖼️ Image too large for the API. Downscaled "+fmt.Sprintf("%d", n)+" image(s) and retrying...")
+					if a.verbose {
+						logger.Debug("image_413_downscale", "shrunk", n, "budget_bytes", budget, "provider", a.provider.Name())
+					}
+					continue // resend the now-smaller history
+				}
+				// Nothing shrank (no images, or formats we can't decode) — go
+				// straight to stripping below.
+			}
+
+			// Last resort: drop images so the conversation stays usable.
+			if removed := a.Context.StripImages(); removed > 0 {
+				a.notifyImageHeal(eventCh, "🖼️ Removing "+fmt.Sprintf("%d", removed)+" image(s) to fit the size limit and retrying...")
+				if a.verbose {
+					logger.Debug("image_413_strip", "removed", removed, "provider", a.provider.Name())
+				}
+				continue // resend the now image-free history
+			}
+			// No images to shrink or strip — the payload is too large for a
+			// non-image reason we can't fix here. Give up on primary.
+			break
 		}
 
 		// Regular error — retry with backoff
@@ -891,6 +943,16 @@ func getToolCallHint(toolName string) string {
 		return hint
 	}
 	return fmt.Sprintf(`<tool name="%s"><param1>value1</param1></tool>`, toolName)
+}
+
+// notifyImageHeal sends a non-blocking status line to the UI when the agent
+// self-heals an image-related request rejection (413 too-large downscale/strip).
+// It never blocks the retry loop if the consumer is not draining eventCh.
+func (a *AgentLoop) notifyImageHeal(eventCh chan<- provider.StreamEvent, text string) {
+	select {
+	case eventCh <- provider.StreamEvent{Type: provider.EventRateLimit, Text: "\n" + text}:
+	default:
+	}
 }
 
 // shortSessionID returns a compact suffix of a session ID for user-facing

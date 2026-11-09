@@ -145,6 +145,64 @@ func IsImageUnsupportedError(err error) bool {
 	return errors.As(err, &ie)
 }
 
+// ImageTooLargeError — a deterministic client error returned when the request
+// body exceeds the provider/gateway size limit (HTTP 413 "payload_too_large",
+// or a 4xx whose message complains about request/body/image size). Unlike a
+// transient UpstreamError this never succeeds on retry with the same payload:
+// the offending images must be downscaled or removed from the conversation
+// first. Surfacing it as a distinct type lets the agent self-heal (drop or
+// shrink the oversized images and resend) instead of killing the session —
+// otherwise a large screenshot stays in history and poisons every later
+// message.
+type ImageTooLargeError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *ImageTooLargeError) Error() string {
+	return fmt.Sprintf("HTTP %d: %s", e.StatusCode, e.Body)
+}
+
+// IsImageTooLargeError checks if an error means the request was rejected for
+// being too large (typically because of image payloads).
+func IsImageTooLargeError(err error) bool {
+	var ie *ImageTooLargeError
+	return errors.As(err, &ie)
+}
+
+// looksLikePayloadTooLarge inspects a 4xx to detect a request rejected because
+// its body is too large. The canonical signal is HTTP 413, but some gateways
+// wrap the same condition in a 400 with an explicit "payload_too_large" code
+// or a "request body is too large" message. We require the wording to be about
+// the *size* of the request/body/payload (not, say, a context-length overflow,
+// which is handled elsewhere), so a genuine unrelated 400 is never
+// misclassified.
+func looksLikePayloadTooLarge(statusCode int, body []byte) bool {
+	// Only 4xx client errors are relevant. 5xx are retryable server errors,
+	// 429 is a rate limit, and 2xx succeeded — none of them is a size
+	// rejection, so a body that happens to mention "payload_too_large" under
+	// those statuses must not be misclassified.
+	if statusCode < 400 || statusCode >= 500 || statusCode == 429 {
+		return false
+	}
+	lower := strings.ToLower(string(body))
+	// Explicit size codes/messages that any 4xx may carry.
+	if strings.Contains(lower, "payload_too_large") ||
+		strings.Contains(lower, "request body is too large") ||
+		strings.Contains(lower, "request too large") ||
+		strings.Contains(lower, "body too large") ||
+		strings.Contains(lower, "image was too large") ||
+		strings.Contains(lower, "image too large") ||
+		strings.Contains(lower, "size limit exceeded") {
+		return true
+	}
+	// HTTP 413 (Content Too Large) is unambiguous even with a terse body.
+	if statusCode == 413 {
+		return true
+	}
+	return false
+}
+
 // looksLikeImageUnsupported inspects a 4xx body to detect a server that
 // rejects image input. It matches the wording used by text-only
 // OpenAI-compatible gateways ("model does not support image input",
@@ -275,6 +333,23 @@ func FormatHTTPErrorWithRateLimit(statusCode int, body []byte) error {
 			bodyStr = bodyStr[:500] + "..."
 		}
 		return &ImageUnsupportedError{
+			StatusCode: statusCode,
+			Body:       bodyStr,
+		}
+	}
+	// The request was rejected for being too large — almost always because of
+	// image payloads (a Retina screenshot alone can exceed a gateway's body
+	// cap). Surface it as ImageTooLargeError so the agent downscales/strips
+	// images and resends instead of retrying a payload that will always be
+	// rejected (and instead of killing the session, which would leave the
+	// oversized image poisoning history). Checked after looksLikeImageUnsupported
+	// so a text-only "does not support image" is never mislabeled as a size
+	// problem.
+	if looksLikePayloadTooLarge(statusCode, body) {
+		if len(bodyStr) > 500 {
+			bodyStr = bodyStr[:500] + "..."
+		}
+		return &ImageTooLargeError{
 			StatusCode: statusCode,
 			Body:       bodyStr,
 		}

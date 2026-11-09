@@ -124,7 +124,7 @@ func (t *ScreenshotTool) Execute(params map[string]string) ToolResult {
 	// Return as structured result with image data
 	// The agent will convert this to an image content block
 	return ToolResult{
-		Output: fmt.Sprintf("Screenshot captured (%s, %d bytes, mode=%s).\nbase64 data follows:\n%s", format, len(data), mode, base64Data),
+		Output: fmt.Sprintf("Screenshot captured (%s, %d bytes, mode=%s). Image attached as vision content.", format, len(data), mode),
 		Metadata: map[string]any{
 			"image_base64": base64Data,
 			"image_format": format,
@@ -183,7 +183,7 @@ func (t *ScreenshotTool) screenshotLinux(params map[string]string, mode, format 
 	base64Data := base64.StdEncoding.EncodeToString(data)
 
 	return ToolResult{
-		Output: fmt.Sprintf("Screenshot captured (%s, %d bytes, mode=%s).\nbase64 data follows:\n%s", format, len(data), mode, base64Data),
+		Output: fmt.Sprintf("Screenshot captured (%s, %d bytes, mode=%s). Image attached as vision content.", format, len(data), mode),
 		Metadata: map[string]any{
 			"image_base64": base64Data,
 			"image_format": format,
@@ -201,6 +201,12 @@ func IsScreenshotResult(result ToolResult) bool {
 
 // ExtractImageFromResult extracts image data from a tool result
 // Returns base64 data and format (png, jpeg, etc.)
+//
+// Large images are downscaled here (best-effort, standard library only) so a
+// single Retina screenshot can't blow past a gateway's request-body limit and
+// trigger HTTP 413 "payload_too_large". Callers get back a payload that is
+// within the size budget whenever the format is decodable; unsupported formats
+// (webp/bmp/tiff) pass through unchanged.
 func ExtractImageFromResult(result ToolResult) (base64Data, format string, ok bool) {
 	if result.Metadata == nil {
 		return "", "", false
@@ -209,6 +215,10 @@ func ExtractImageFromResult(result ToolResult) (base64Data, format string, ok bo
 	format, ok2 := result.Metadata["image_format"].(string)
 	if !ok1 || !ok2 {
 		return "", "", false
+	}
+	// Proactively shrink oversized images before they reach the provider.
+	if shrunk, newFormat, changed := DownscaleImageBase64(base64Data, format); changed {
+		return shrunk, newFormat, true
 	}
 	return base64Data, format, true
 }

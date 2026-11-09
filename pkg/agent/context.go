@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"bugbuster-code/pkg/provider"
+	"bugbuster-code/pkg/tools"
 )
 
 // ConversationContext is agent conversation context.
@@ -285,6 +286,35 @@ func (c *ConversationContext) StripImages() int {
 		c.messages = kept
 	}
 	return removed
+}
+
+// DownscaleImages re-encodes every image block in the history to fit the given
+// base64 byte budget and returns the number of blocks that were actually
+// shrunk. Used to self-heal an HTTP 413 "payload_too_large": when the
+// proactive downscale at capture time still produced a payload the gateway
+// rejects (or when several images accumulate in one turn), we squeeze them
+// harder instead of dropping them outright. Blocks whose format the standard
+// library cannot decode are left untouched. Thread-safe: acquires write lock.
+func (c *ConversationContext) DownscaleImages(maxBytes int) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	shrunk := 0
+	for i := range c.messages {
+		for j := range c.messages[i].Content {
+			b := &c.messages[i].Content[j]
+			if b.Type != "image" || b.ImageSource == "" {
+				continue
+			}
+			newB64, newFmt, changed := tools.DownscaleImageBase64To(b.ImageSource, b.ImageFormat, maxBytes)
+			if changed {
+				b.ImageSource = newB64
+				b.ImageFormat = newFmt
+				shrunk++
+			}
+		}
+	}
+	return shrunk
 }
 
 // trim trims old messages by tokens.
